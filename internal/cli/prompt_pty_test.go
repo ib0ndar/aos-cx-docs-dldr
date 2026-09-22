@@ -448,7 +448,7 @@ func TestActualPTYFullySpecifiedCommandDoesNotPrompt(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "library")
 	terminal, command, output := startPTYCLI(t, server, root,
-		"--platform", "6300", "--version", "10.16", "--all", "--destination", destination)
+		"--platform", "6300", "--release", "10.16", "--all", "--destination", destination)
 	defer terminal.Close()
 	finishPTYCLI(t, terminal, command, output, 0)
 	text := output.String()
@@ -669,7 +669,7 @@ func TestActualPTYFullySpecifiedProgressIsBounded(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "library")
 	terminal, command, output := startPTYCLI(t, server, root,
-		"--platform", "8320", "--version", "10.18.xxxx",
+		"--platform", "8320", "--release", "10.18.xxxx",
 		"--guides", "acl", "--destination", destination)
 	defer terminal.Close()
 	finishPTYCLI(t, terminal, command, output, 0)
@@ -726,7 +726,7 @@ func TestActualPTYDumbTerminalUsesSparsePlainProgress(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "library")
 	terminal, command, output := startPTYCLI(t, server, root,
-		"--platform", "8320", "--version", "10.18.xxxx",
+		"--platform", "8320", "--release", "10.18.xxxx",
 		"--guides", "acl", "--destination", destination)
 	defer terminal.Close()
 	finishPTYCLI(t, terminal, command, output, 0)
@@ -764,7 +764,7 @@ func TestActualPTYIncompleteResultShowsReasonsAndWarningStatus(t *testing.T) {
 	root := t.TempDir()
 	destination := filepath.Join(root, "library")
 	terminal, command, output := startPTYCLI(t, server, root,
-		"--platform", "8320", "--version", "10.18.xxxx",
+		"--platform", "8320", "--release", "10.18.xxxx",
 		"--guides", "acl", "--destination", destination)
 	defer terminal.Close()
 	finishPTYCLI(t, terminal, command, output, 2)
@@ -797,7 +797,7 @@ func TestActualPTYCancellationDuringProgressPublishesAndRestoresTerminal(t *test
 	defer cancel()
 	script := `before="$(stty -g)"; trap '' INT; "$@"; code=$?; trap - INT; after="$(stty -g)"; printf '\nTTY_BEFORE:%s\nTTY_AFTER:%s\n' "$before" "$after"; exit "$code"`
 	args := []string{"-c", script, "sh", binary(t),
-		"--transport", "http", "--platform", "8320", "--version", "10.18.xxxx",
+		"--transport", "http", "--platform", "8320", "--release", "10.18.xxxx",
 		"--all", "--destination", destination, "--raw-cache", filepath.Join(root, "cache"),
 		"--portal-url", server.URL + "/portal/aoscx.html", "--delay", "0", "--retries", "0", "--json",
 	}
@@ -939,7 +939,7 @@ func TestActualPTYPartialFixedGuidesAndExplicitAllFalse(t *testing.T) {
 		root := t.TempDir()
 		destination := filepath.Join(root, "All False")
 		terminal, command, output := startPTYCLI(t, server, root,
-			"--platform", "6400", "--version", "10.16",
+			"--platform", "6400", "--release", "10.16",
 			"--destination", destination, "--all=false")
 		defer terminal.Close()
 		waitForPTY(t, output, "Documents to retrieve")

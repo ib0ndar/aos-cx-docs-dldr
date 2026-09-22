@@ -103,7 +103,7 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 		SilenceUsage: true, SilenceErrors: true, Args: cobra.NoArgs,
 		RunE: func(cmd *cobra.Command, args []string) error {
 			if o.appVersion && o.zip {
-				return errors.New("--app-version cannot be combined with --zip")
+				return errors.New("--version cannot be combined with --zip")
 			}
 			if o.appVersion {
 				_, err := fmt.Fprintln(out, model.ExecutableName+" "+model.Version)
@@ -181,7 +181,7 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 			if !o.list {
 				fixed := selectionFixed{
 					Platform:         cmd.Flags().Changed("platform"),
-					Version:          cmd.Flags().Changed("version"),
+					Version:          cmd.Flags().Changed("release"),
 					Guides:           cmd.Flags().Changed("guides"),
 					All:              cmd.Flags().Changed("all") && o.all,
 					Destination:      cmd.Flags().Changed("destination"),
@@ -289,10 +289,10 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 	cmd.SetContext(ctx)
 	cmd.CompletionOptions.DisableDefaultCmd = true
 	flags := cmd.Flags()
-	flags.BoolVarP(&o.appVersion, "app-version", "V", false, "Print application version without network access")
+	flags.BoolVarP(&o.appVersion, "version", "V", false, "Print application version without network access")
 	flags.BoolVar(&o.list, "list", false, "Refresh and display the Product Documentation catalogue")
 	flags.StringVar(&o.platform, "platform", "", "Exact platform label from the portal")
-	flags.StringVar(&o.version, "version", "", "Exact AOS-CX documentation release (not application version)")
+	flags.StringVar(&o.version, "release", "", "Exact AOS-CX documentation release")
 	flags.StringArrayVar(&o.guides, "guides", nil, "Space-separated exact mapped guide IDs")
 	flags.StringVar(&o.destination, "destination", "", "Base output directory; platform/version are always appended")
 	flags.BoolVar(&o.refresh, "refresh", false, "Revalidate cached guide bytes; catalogue is always fresh")
@@ -373,10 +373,10 @@ func (o options) validateFor(interactive bool) (fetch.Config, error) {
 		return fetch.Config{}, errors.New("--list cannot be combined with --zip")
 	}
 	if !o.list && !interactive && (len(o.guides) == 0 && !o.all || o.destination == "" || o.platform == "" || o.version == "") {
-		return fetch.Config{}, errors.New("non-interactive downloads require --platform, --version, (--guides ID ... or --all), and --destination")
+		return fetch.Config{}, errors.New("non-interactive downloads require --platform, --release, (--guides ID ... or --all), and --destination")
 	}
 	if o.list && (o.platform == "") != (o.version == "") {
-		return fetch.Config{}, errors.New("provide both --platform and --version for per-guide availability")
+		return fetch.Config{}, errors.New("provide both --platform and --release for per-guide availability")
 	}
 	if o.transport != "http" && o.transport != "compatible" {
 		return fetch.Config{}, errors.New("supported retrieval transports are http and compatible; neither uses a browser")

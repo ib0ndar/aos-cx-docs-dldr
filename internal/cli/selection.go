@@ -324,7 +324,7 @@ func selectDocuments(
 
 	if o.version == "" {
 		if prompts == nil {
-			return nil, errors.New("non-interactive downloads require --version")
+			return nil, errors.New("non-interactive downloads require --release")
 		}
 		choices, err := releaseChoices(catalog, o.platform)
 		if err != nil {

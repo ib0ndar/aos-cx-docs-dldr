@@ -126,12 +126,14 @@ release, clear quarantine recursively from this exact extracted bundle:
 
 ```sh
 xattr -dr com.apple.quarantine "$PWD"
-./aos-cx-docs-dldr --app-version
+./aos-cx-docs-dldr --version
 ./aos-cx-docs-dldr --help
 ```
 
 Expected version output is `aos-cx-docs-dldr 0.8`. Re-download the replacement
-v0.8 assets if you obtained the original package before the product rename.
+v0.8 assets if you obtained a package before the product rename or the CLI
+flag update. Documentation selection now uses `--release`; `--version` prints
+the application version and `--app-version` is no longer accepted.
 
 Install the complete directory, for example:
 

@@ -1,5 +1,16 @@
 # Release notes
 
+## 0.8 CLI flag update - 2026-09-22
+
+- Use `--version` (or `-V`) to print the application version offline. Remove
+  `--app-version` without a compatibility alias.
+- Use `--release RELEASE` to select the AOS-CX documentation release, replacing
+  the former `--version RELEASE` syntax in commands and automation.
+- Replace both the macOS arm64 bundle and linux/amd64 container release files
+  while retaining application version 0.8. Re-download the archives, checksums,
+  and Windows shortcut from v0.8 for the updated CLI. Library/cache identities
+  and formats are unchanged by this flag update.
+
 ## 0.8 replacement release - 2026-09-21
 
 - Rename the product, executable, Go module, Windows wrapper, image, bundle and

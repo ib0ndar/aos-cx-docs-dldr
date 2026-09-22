@@ -121,7 +121,7 @@ the following while still inside the extracted bundle directory:
 
 ```sh
 xattr -dr com.apple.quarantine "$PWD"
-./aos-cx-docs-dldr --app-version
+./aos-cx-docs-dldr --version
 ```
 
 `-d` removes only the named quarantine attribute; `-r` applies recursively to
@@ -225,7 +225,7 @@ Unblock-File "$HOME\Applications\aos-cx-docs-dldr\aos-cx-docs-dldr.ps1"
 Check the current session before making the shortcut permanent:
 
 ```powershell
-aos-cx-docs-dldr --app-version
+aos-cx-docs-dldr --version
 ```
 
 The printed application version should match the release you downloaded. The
@@ -267,7 +267,7 @@ different folder, set `AOSCX_DOCS_LIBRARY` before running the command.
    extract the complete bundle into its own folder. On Windows, load the new
    image, replace the PowerShell shortcut, and dot-source it again (or open a
    new PowerShell session if it is already in your profile).
-3. Run `--app-version` to confirm the version being used.
+3. Run `--version` to confirm the version being used.
 4. Choose a new library destination when changing application versions. On
    macOS, use `--destination`; on Windows, set `AOSCX_DOCS_LIBRARY` before
    running the shortcut. Then download the guides you need again.
@@ -305,7 +305,7 @@ Listing refreshes the live Product Documentation catalogue. After choosing an
 exact platform and release from that output, inspect per-guide availability:
 
 ```sh
-./aos-cx-docs-dldr --list --platform PLATFORM --version RELEASE
+./aos-cx-docs-dldr --list --platform PLATFORM --release RELEASE
 ```
 
 Do not add `--destination` to a listing command. A guide shown as unavailable
@@ -319,7 +319,7 @@ exact values from the current listing. Download one guide by its exact ID:
 ```sh
 ./aos-cx-docs-dldr \
   --platform PLATFORM \
-  --version RELEASE \
+  --release RELEASE \
   --guides "GUIDE_ID" \
   --destination "$HOME/Documents/AOS-CX"
 ```
@@ -329,7 +329,7 @@ Download every currently resolved guide and also create a verified ZIP:
 ```sh
 ./aos-cx-docs-dldr \
   --platform PLATFORM \
-  --version RELEASE \
+  --release RELEASE \
   --all --zip \
   --destination "$HOME/Documents/AOS-CX"
 ```
@@ -417,10 +417,10 @@ again.
 | Option | What it does |
 | --- | --- |
 | `--help`, `-h` | Show complete command help. Works offline. |
-| `--app-version`, `-V` | Print the version. Works offline. |
+| `--version`, `-V` | Print the application version. Works offline. |
 | `--list` | Refresh and show the Product Documentation catalogue, optionally for one platform and release. |
 | `--platform` | Switch family, for example `6300`. |
-| `--version` | AOS-CX documentation release label, not the application version. |
+| `--release` | AOS-CX documentation release label, not the application version. |
 | `--guides` | Guide IDs to download, space separated. |
 | `--all` | Download every resolved mapped guide that is not definitively unavailable. |
 | `--destination` | Base folder for output. Fixed automatically on Windows. |

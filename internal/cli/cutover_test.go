@@ -26,7 +26,7 @@ func TestInvalidExplicitCacheFailsBeforeTransportOrPublisherTraffic(t *testing.T
 	called := false
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"--platform", "6300", "--version", "10.16", "--guides", "job",
+		"--platform", "6300", "--release", "10.16", "--guides", "job",
 		"--destination", filepath.Join(root, "library"), "--raw-cache", cachePath,
 	}, &stdout, &stderr, func(string, fetch.Config, func(string)) (*fetch.Client, error) {
 		called = true
@@ -55,7 +55,7 @@ func TestIncompatibleExplicitLibraryFailsBeforeTransportOrPublisherTraffic(t *te
 	called := false
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"--platform", "6300", "--version", "10.16", "--guides", "job",
+		"--platform", "6300", "--release", "10.16", "--guides", "job",
 		"--destination", filepath.Join(root, "library"), "--raw-cache", filepath.Join(root, "cache"),
 	}, &stdout, &stderr, func(string, fetch.Config, func(string)) (*fetch.Client, error) {
 		called = true

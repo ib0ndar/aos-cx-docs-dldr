@@ -109,7 +109,7 @@ func TestExecutablePDFPublicationResumeRefreshAndFailedUpdate(t *testing.T) {
 	}))
 	defer server.Close()
 	base, cache := filepath.Join(t.TempDir(), "new", "library"), t.TempDir()
-	args := []string{"--transport", "compatible", "--platform", "6300", "--version", "10.10", "--guides", "first", "first", "second",
+	args := []string{"--transport", "compatible", "--platform", "6300", "--release", "10.10", "--guides", "first", "first", "second",
 		"--destination", base, "--raw-cache", cache, "--portal-url", server.URL + "/portal/aoscx.html", "--delay", "0", "--retries", "0", "--json", "--zip",
 		"--convert-html-to-pdf", "--chrome-path", filepath.Join(t.TempDir(), "must-not-be-used")}
 	code, output, stderr := execute(t, args)
@@ -180,7 +180,7 @@ func TestFinderMetadataAllowsCLIResumeAndRefresh(t *testing.T) {
 	args := []string{
 		"--transport", "http",
 		"--platform", "6300",
-		"--version", "10.10",
+		"--release", "10.10",
 		"--guides", "first",
 		"--destination", base,
 		"--raw-cache", cache,
@@ -238,7 +238,7 @@ func TestExecutableUnsupportedSelectionCreatesNoLibrary(t *testing.T) {
 		{"--guides", "missing"},
 	} {
 		base := filepath.Join(t.TempDir(), "not-created")
-		args := []string{"--platform", "6300", "--version", "10.10", "--destination", base, "--raw-cache", t.TempDir(),
+		args := []string{"--platform", "6300", "--release", "10.10", "--destination", base, "--raw-cache", t.TempDir(),
 			"--portal-url", server.URL + "/portal/aoscx.html", "--delay", "0", "--retries", "0"}
 		args = append(args, selection...)
 		code, _, stderr := execute(t, args)
@@ -282,7 +282,7 @@ func TestExecutableStaticHTMLPublication(t *testing.T) {
 	}))
 	defer server.Close()
 	base := t.TempDir()
-	args := []string{"--platform", "6300", "--version", "10.10", "--guides", "html",
+	args := []string{"--platform", "6300", "--release", "10.10", "--guides", "html",
 		"--destination", base, "--raw-cache", t.TempDir(), "--portal-url", server.URL + "/portal/aoscx.html",
 		"--delay", "0", "--retries", "0", "--json"}
 	code, output, stderr := execute(t, args)
@@ -332,7 +332,7 @@ func TestCLIInitiallyStaticRoutePublishesVerifiedPDF(t *testing.T) {
 
 	root := t.TempDir()
 	args := []string{
-		"--transport", "http", "--platform", "6300", "--version", "10.18.xxxx",
+		"--transport", "http", "--platform", "6300", "--release", "10.18.xxxx",
 		"--guides", "guide", "--destination", filepath.Join(root, "library"),
 		"--raw-cache", filepath.Join(root, "cache"),
 		"--portal-url", server.URL + "/portal/aoscx.html",
@@ -415,7 +415,7 @@ func TestCLIInvalidResolvedPDFAndHTMLFailureStayIncomplete(t *testing.T) {
 
 			root := t.TempDir()
 			args := []string{
-				"--transport", "http", "--platform", "6300", "--version", "10.18.xxxx",
+				"--transport", "http", "--platform", "6300", "--release", "10.18.xxxx",
 				"--guides", "guide", "--destination", filepath.Join(root, "library"),
 				"--raw-cache", filepath.Join(root, "cache"),
 				"--portal-url", server.URL + "/portal/aoscx.html",
@@ -473,7 +473,7 @@ func TestExecutableCancellationPublishesAcceptedPDFs(t *testing.T) {
 	base := t.TempDir()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
-	command := exec.CommandContext(ctx, binary(t), "--transport", "compatible", "--platform", "6300", "--version", "10.10",
+	command := exec.CommandContext(ctx, binary(t), "--transport", "compatible", "--platform", "6300", "--release", "10.10",
 		"--all", "--destination", base, "--raw-cache", t.TempDir(), "--delay", "0", "--retries", "0",
 		"--portal-url", server.URL+"/portal/aoscx.html")
 	var stderr bytes.Buffer
@@ -541,7 +541,7 @@ func TestAttemptBudgetExhaustionPublishesAcceptedGuideAndReturnsNonzero(t *testi
 		t.Fatal(err)
 	}
 	base := t.TempDir()
-	args := []string{"--platform", "6300", "--version", "10.10", "--guides", "first", "second",
+	args := []string{"--platform", "6300", "--release", "10.10", "--guides", "first", "second",
 		"--destination", base, "--raw-cache", t.TempDir(), "--portal-url", server.URL + "/portal/aoscx.html",
 		"--delay", "0", "--retries", "0", "--json"}
 	var stdout, stderr bytes.Buffer
@@ -782,7 +782,7 @@ func TestDegradedHTMLPublishesImagePlaceholderThroughCLI(t *testing.T) {
 
 	root := t.TempDir()
 	args := []string{
-		"--transport", "http", "--platform", "8320", "--version", "10.18.xxxx",
+		"--transport", "http", "--platform", "8320", "--release", "10.18.xxxx",
 		"--guides", "acl", "--destination", filepath.Join(root, "library"),
 		"--raw-cache", filepath.Join(root, "cache"),
 		"--portal-url", server.URL + "/portal/aoscx.html",
@@ -829,7 +829,7 @@ func TestNoninteractiveAllPublishesAvailableSubsetWithSkippedMetadata(t *testing
 	server := promptUnavailableFixtureServer(t)
 	root := t.TempDir()
 	args := []string{
-		"--transport", "http", "--platform", "6000", "--version", "10.17",
+		"--transport", "http", "--platform", "6000", "--release", "10.17",
 		"--all", "--destination", filepath.Join(root, "library"),
 		"--raw-cache", filepath.Join(root, "raw-v2"),
 		"--portal-url", server.URL + "/portal/aoscx.html",
@@ -926,7 +926,7 @@ func TestAuthoritativeFlareTopic404FailsGuideAndRetainsPreviousComplete(t *testi
 
 	root := t.TempDir()
 	args := []string{
-		"--transport", "http", "--platform", "6300", "--version", "10.16",
+		"--transport", "http", "--platform", "6300", "--release", "10.16",
 		"--guides", "job", "--destination", filepath.Join(root, "library"),
 		"--raw-cache", filepath.Join(root, "cache"),
 		"--portal-url", server.URL + "/portal/aoscx.html",

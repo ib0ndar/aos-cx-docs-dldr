@@ -58,7 +58,7 @@ case $1 in
 esac
 # The application version is authoritative in internal/model/model.go. Derive
 # the package identity from it so a version bump cannot leave this script
-# asserting a stale name or a stale --app-version string.
+# asserting a stale name or a stale --version string.
 APP_VERSION=$(sed -n 's/^const Version = "\(.*\)"$/\1/p' "$REPOSITORY/internal/model/model.go")
 if [ -z "$APP_VERSION" ]; then
 	echo "Could not determine application version from internal/model/model.go" >&2
@@ -130,7 +130,7 @@ mkdir -p "$BUNDLE" "$WORK/moved" "$RELEASE_SET"
 
 mv "$BUNDLE" "$MOVED"
 "$MOVED/aos-cx-docs-dldr" --help >"$WORK/moved-help.txt"
-"$MOVED/aos-cx-docs-dldr" --app-version >"$WORK/moved-version.txt"
+"$MOVED/aos-cx-docs-dldr" --version >"$WORK/moved-version.txt"
 test -s "$WORK/moved-help.txt"
 grep -Fqx "aos-cx-docs-dldr $APP_VERSION" "$WORK/moved-version.txt"
 cp "$SMOKE" "$MOVED/.package-smoke.test"
@@ -189,7 +189,7 @@ EXTRACTED=$("$RELEASE_TOOL" verify-zip \
 	--root-name "$PACKAGE_NAME" \
 	--source-date-epoch "$SOURCE_DATE_EPOCH")
 "$EXTRACTED/aos-cx-docs-dldr" --help >"$WORK/extracted-help.txt"
-"$EXTRACTED/aos-cx-docs-dldr" --app-version >"$WORK/extracted-version.txt"
+"$EXTRACTED/aos-cx-docs-dldr" --version >"$WORK/extracted-version.txt"
 test -s "$WORK/extracted-help.txt"
 grep -Fqx "aos-cx-docs-dldr $APP_VERSION" "$WORK/extracted-version.txt"
 cp "$SMOKE" "$EXTRACTED/.package-smoke.test"

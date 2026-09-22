@@ -70,7 +70,7 @@ func generatedPDFServerWithImageStatus(t *testing.T, imageStatus int) *httptest.
 func generatedPDFArgs(t *testing.T, server *httptest.Server, base, chrome string) []string {
 	t.Helper()
 	return []string{
-		"--transport", "http", "--platform", "6300", "--version", "10.16",
+		"--transport", "http", "--platform", "6300", "--release", "10.16",
 		"--guides", "job", "--destination", base, "--raw-cache", filepath.Join(t.TempDir(), "cache"),
 		"--portal-url", server.URL + "/portal/aoscx.html", "--delay", "0", "--retries", "0",
 		"--workers", "1", "--json", "--convert-html-to-pdf", "--chrome-path", chrome,

@@ -107,9 +107,9 @@ engine.
 ## Use it
 
 ```powershell
-aos-cx-docs-dldr --list --platform 6300 --version 10.18.xxxx
-aos-cx-docs-dldr --platform 6300 --version 10.18.xxxx --all
-aos-cx-docs-dldr --platform 6300 --version 10.18.xxxx --all --convert-html-to-pdf
+aos-cx-docs-dldr --list --platform 6300 --release 10.18.xxxx
+aos-cx-docs-dldr --platform 6300 --release 10.18.xxxx --all
+aos-cx-docs-dldr --platform 6300 --release 10.18.xxxx --all --convert-html-to-pdf
 aos-cx-docs-dldr
 ```
 
@@ -173,7 +173,7 @@ docker run --rm -i `
   -v aos-cx-docs-dldr-cache:/cache `
   -v "C:\certs\corporate-ca.pem:/certs/ca.pem:ro" `
   -e SSL_CERT_FILE=/certs/ca.pem -e HTTPS_PROXY=$env:HTTPS_PROXY `
-  aos-cx-docs-dldr:0.8 --destination /library --platform 6300 --version 10.18.xxxx --all
+  aos-cx-docs-dldr:0.8 --destination /library --platform 6300 --release 10.18.xxxx --all
 ```
 
 Both behaviours were verified against local fixtures: a dead proxy produces a
@@ -198,7 +198,7 @@ docker run --rm -i `
   -v "$env:USERPROFILE\Documents\AOS-CX:/library" `
   -v aos-cx-docs-dldr-cache:/cache `
   aos-cx-docs-dldr:0.8 --destination /library `
-  --platform 6300 --version 10.18.xxxx --all --json > result.json
+  --platform 6300 --release 10.18.xxxx --all --json > result.json
 ```
 
 ## Libraries from other versions or platforms
@@ -222,7 +222,7 @@ OrbStack with `--platform linux/amd64`, against a local fixture server. No
 publisher request was made. Confirmed there:
 
 - the image builds and its build-time sidecar verification passes;
-- `--app-version` and `--help` run with networking disabled;
+- version reporting and `--help` run with networking disabled;
 - a missing network fails closed at the robots stage;
 - the raw cache is created on a named volume with the required `0700`/`0600`
   permissions;
@@ -257,7 +257,7 @@ Confirmed there:
 
 - `SHA256SUMS` verifies on Windows and `docker load` restores the tested image
   with the published image ID;
-- dot-sourced under Windows PowerShell 5.1, the wrapper runs `--app-version`,
+- dot-sourced under Windows PowerShell 5.1, the wrapper runs version reporting,
   `--list`, `--list --json` and a full download; `$LASTEXITCODE` carries the
    application's exit code; capturing the wrapper's `--json` output returns only the
   JSON while progress goes to the console;

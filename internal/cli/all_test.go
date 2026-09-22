@@ -117,7 +117,7 @@ func TestAllMappedGuidesMixedFormatsThroughActualCLI(t *testing.T) {
 	}
 	root := t.TempDir()
 	args := []string{
-		"--platform", "6300", "--version", "10.18.xxxx", "--all",
+		"--platform", "6300", "--release", "10.18.xxxx", "--all",
 		"--destination", filepath.Join(root, "library"), "--raw-cache", filepath.Join(root, "cache"),
 		"--portal-url", portal, "--delay", "0", "--retries", "0", "--workers", "4", "--json",
 	}
@@ -206,7 +206,7 @@ func TestExplicitHTTPOverridesCompatibleDefault(t *testing.T) {
 	}
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"--platform", "6300", "--version", "10.16", "--guides", "guide", "--destination", t.TempDir(),
+		"--platform", "6300", "--release", "10.16", "--guides", "guide", "--destination", t.TempDir(),
 		"--transport", "http", "--timeout", "1", "--attempt-timeout", "1",
 	}, &stdout, &stderr, factory)
 	if code != 1 || selected != "http" || !strings.Contains(stderr.String(), "factory stop") {
@@ -223,7 +223,7 @@ func TestAllGuidesConflictFailsBeforeClientOrOutput(t *testing.T) {
 	destination := filepath.Join(t.TempDir(), "not-created")
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"--platform", "6300", "--version", "10.16", "--guides", "guide", "--all",
+		"--platform", "6300", "--release", "10.16", "--guides", "guide", "--all",
 		"--destination", destination,
 	}, &stdout, &stderr, factory)
 	if code != 1 || called || !strings.Contains(stderr.String(), "mutually exclusive") {

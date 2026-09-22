@@ -180,7 +180,7 @@ func TestCLIHPEAdvertisedSameDocumentPDF(t *testing.T) {
 	}
 	root := t.TempDir()
 	args := []string{
-		"--transport", "http", "--platform", "6300", "--version", "10.18.xxxx",
+		"--transport", "http", "--platform", "6300", "--release", "10.18.xxxx",
 		"--guides", "hpe", "--destination", filepath.Join(root, "library"),
 		"--raw-cache", filepath.Join(root, "cache"), "--portal-url", portal,
 		"--delay", "0", "--retries", "0", "--workers", "1", "--json",
@@ -276,7 +276,7 @@ func TestCLIHPEWholeDocumentPreferenceAndHTMLFallback(t *testing.T) {
 	export := api + "/exportpdf?exportType=all"
 	baseArgs := func(root string) []string {
 		return []string{
-			"--transport", "http", "--platform", "6300", "--version", "10.18.xxxx",
+			"--transport", "http", "--platform", "6300", "--release", "10.18.xxxx",
 			"--guides", "hpe", "--destination", filepath.Join(root, "library"),
 			"--raw-cache", filepath.Join(root, "cache"), "--portal-url", portal,
 			"--delay", "0", "--retries", "0", "--workers", "1", "--json",
@@ -376,7 +376,7 @@ func TestFailedPreferredPDFAndHTMLUpdateRetainsPreviousComplete(t *testing.T) {
 	}
 	root := t.TempDir()
 	args := []string{
-		"--transport", "http", "--platform", "6300", "--version", "10.18.xxxx",
+			"--transport", "http", "--platform", "6300", "--release", "10.18.xxxx",
 		"--guides", "hpe", "--destination", filepath.Join(root, "library"),
 		"--raw-cache", filepath.Join(root, "cache"), "--portal-url", portal,
 		"--delay", "0", "--retries", "0", "--workers", "1", "--json", "--prefer-pdf",
@@ -444,7 +444,7 @@ func TestCLIPreferredPDFChangedAfterVerificationFallsBackToHTML(t *testing.T) {
 	}
 	root := t.TempDir()
 	args := []string{
-		"--transport", "http", "--platform", "6300", "--version", "10.18.xxxx",
+		"--transport", "http", "--platform", "6300", "--release", "10.18.xxxx",
 		"--guides", "hpe", "--destination", filepath.Join(root, "library"),
 		"--raw-cache", filepath.Join(root, "cache"), "--portal-url", portal,
 		"--delay", "0", "--retries", "0", "--workers", "1", "--json",
@@ -517,7 +517,7 @@ func TestCLIHPEAdvertisedPDFForeignIdentityFailsClosed(t *testing.T) {
 			}
 			root := t.TempDir()
 			args := []string{
-				"--transport", "http", "--platform", "6300", "--version", "10.18.xxxx",
+				"--transport", "http", "--platform", "6300", "--release", "10.18.xxxx",
 				"--guides", "hpe", "--destination", filepath.Join(root, "library"),
 				"--raw-cache", filepath.Join(root, "cache"), "--portal-url", portal,
 				"--delay", "0", "--retries", "0", "--workers", "1", "--json",

@@ -77,7 +77,7 @@ func TestActualBinaryRetriesHeaderAndBodyAttemptTimeouts(t *testing.T) {
 	}
 	command := exec.Command(binary,
 		"--transport", "http",
-		"--platform", "6300", "--version", "10.16", "--guides", "retry",
+		"--platform", "6300", "--release", "10.16", "--guides", "retry",
 		"--destination", filepath.Join(root, "library"),
 		"--raw-cache", filepath.Join(root, "raw-v2"),
 		"--portal-url", server.URL+"/portal/aoscx.html",

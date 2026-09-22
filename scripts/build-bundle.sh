@@ -114,7 +114,7 @@ mkdir -p "$OUTPUT"
 		--qpdf "$OUTPUT/sidecars/qpdf-mac-arm64"
 )
 
-VERSION_OUTPUT=$("$OUTPUT/aos-cx-docs-dldr" --app-version)
+VERSION_OUTPUT=$("$OUTPUT/aos-cx-docs-dldr" --version)
 if [ "$VERSION_OUTPUT" != "aos-cx-docs-dldr $APP_VERSION" ]; then
 	echo "Bundle reports unexpected version: $VERSION_OUTPUT" >&2
 	exit 1

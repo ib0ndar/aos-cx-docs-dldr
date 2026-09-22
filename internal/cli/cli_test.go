@@ -83,7 +83,7 @@ func TestEndToEndFreshListingAndConditionalCache(t *testing.T) {
 	}))
 	defer server.Close()
 	dir := filepath.Join(t.TempDir(), "raw")
-	args := []string{"--list", "--json", "--platform", "6300", "--version", "10.16",
+	args := []string{"--list", "--json", "--platform", "6300", "--release", "10.16",
 		"--portal-url", server.URL + "/portal", "--raw-cache", dir, "--delay", "0", "--retries", "0"}
 	for range 2 {
 		var out, stderr bytes.Buffer
@@ -155,7 +155,7 @@ func TestListingReportsSourceBackedNativePDFAvailability(t *testing.T) {
 	}))
 	defer server.Close()
 	args := []string{
-		"--list", "--platform", "8360", "--version", "10.16",
+		"--list", "--platform", "8360", "--release", "10.16",
 		"--portal-url", server.URL + "/portal/aoscx.html",
 		"--raw-cache", filepath.Join(t.TempDir(), "raw"), "--delay", "0", "--retries", "0",
 	}
@@ -230,7 +230,7 @@ func TestDefinitiveMappedSourceAbsenceIsListedAndRejectedBeforeOutput(t *testing
 	defer server.Close()
 
 	baseArgs := []string{
-		"--platform", "6000", "--version", "10.17",
+		"--platform", "6000", "--release", "10.17",
 		"--portal-url", server.URL + "/portal/aoscx.html",
 		"--raw-cache", filepath.Join(t.TempDir(), "raw-v2"),
 		"--delay", "0", "--retries", "0",
@@ -331,7 +331,7 @@ func TestEndToEndFlareHTMLDownload(t *testing.T) {
 	defer server.Close()
 	base := t.TempDir()
 	var out, stderr bytes.Buffer
-	args := []string{"--json", "--platform", "6300", "--version", "10.16", "--guides", "job",
+	args := []string{"--json", "--platform", "6300", "--release", "10.16", "--guides", "job",
 		"--destination", base, "--portal-url", server.URL + "/aoscx.html", "--raw-cache", filepath.Join(base, "raw"),
 		"--delay", "0", "--retries", "0", "--max-resource-mb", "1", "--max-archive-mb", "4", "--zip"}
 	budget, err := fetch.NewAttemptBudget(9, 1)
@@ -384,10 +384,13 @@ func TestOfflineCommandsAndInvalidConfigurationNeverFetchOrCreateCache(t *testin
 		want string
 	}{
 		{[]string{"--help"}, 0, "Native AOS-CX"},
-		{[]string{"--app-version"}, 0, model.ExecutableName + " " + model.Version},
+		{[]string{"--version"}, 0, model.ExecutableName + " " + model.Version},
+		{[]string{"--app-version"}, 1, "unknown flag: --app-version"},
+		{[]string{"--version", "10.16"}, 1, "unknown command"},
+		{[]string{"--release"}, 1, "flag needs an argument"},
 		{[]string{"-V"}, 0, model.ExecutableName + " " + model.Version},
 		{nil, 1, "non-interactive downloads require"},
-		{[]string{"--list", "--platform", "6300"}, 1, "both --platform and --version"},
+		{[]string{"--list", "--platform", "6300"}, 1, "both --platform and --release"},
 		{[]string{"--list", "--delay", "NaN"}, 1, "finite"},
 		{[]string{"--list", "--timeout", "+Inf"}, 1, "finite"},
 		{[]string{"--list", "--timeout", "0"}, 1, "finite"},
@@ -404,15 +407,15 @@ func TestOfflineCommandsAndInvalidConfigurationNeverFetchOrCreateCache(t *testin
 		{[]string{"--list", "--transport", "req"}, 1, "supported retrieval transports"},
 		{[]string{"--all"}, 1, "non-interactive downloads require"},
 		{[]string{"--list", "--zip"}, 1, "--list cannot be combined with --zip"},
-		{[]string{"--app-version", "--zip"}, 1, "--app-version cannot be combined with --zip"},
+		{[]string{"--version", "--zip"}, 1, "--version cannot be combined with --zip"},
 		{[]string{"--prefer-pdf", "--no-prefer-pdf"}, 1, "mutually exclusive"},
 		{[]string{"--offline-catalog"}, 1, "unknown flag"},
 	} {
 		t.Run(strings.Join(tc.args, "_"), func(t *testing.T) {
 			cache := filepath.Join(t.TempDir(), "must-not-exist")
-			args := append(append([]string{}, tc.args...), "--raw-cache", cache, "--portal-url", "http://127.0.0.1:1/never")
+			args := append([]string{"--raw-cache", cache, "--portal-url", "http://127.0.0.1:1/never"}, tc.args...)
 			var out, stderr bytes.Buffer
-			if code := runContract(context.Background(), args, &out, &stderr); code != tc.code ||
+			if code := run(context.Background(), args, &out, &stderr, newNativeClient); code != tc.code ||
 				!strings.Contains(out.String()+stderr.String(), tc.want) {
 				t.Fatalf("code=%d out=%s stderr=%s", code, &out, &stderr)
 			}
@@ -494,7 +497,7 @@ func TestHumanDownloadReportsZIPPath(t *testing.T) {
 	defer server.Close()
 	base := t.TempDir()
 	args := []string{
-		"--transport", "http", "--platform", "6300", "--version", "10.10",
+		"--transport", "http", "--platform", "6300", "--release", "10.10",
 		"--guides", "job", "--destination", base, "--raw-cache", filepath.Join(base, "raw"),
 		"--portal-url", server.URL + "/portal", "--delay", "0", "--retries", "0", "--zip",
 	}
@@ -539,7 +542,7 @@ func TestPartialMappingAndUnavailablePairAreDistinct(t *testing.T) {
 			}
 		}))
 		var out, stderr bytes.Buffer
-		args := []string{"--list", "--json", "--platform", "6300", "--version", "10.18.xxxx",
+		args := []string{"--list", "--json", "--platform", "6300", "--release", "10.18.xxxx",
 			"--portal-url", server.URL + "/aoscx.html", "--raw-cache", t.TempDir(), "--delay", "0", "--retries", "0"}
 		code := runContract(context.Background(), args, &out, &stderr)
 		server.Close()
@@ -600,7 +603,7 @@ func TestPublisherControlsAreEscapedOnlyInHumanListing(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	baseArgs := []string{"--list", "--platform", "6300", "--version", "10.16",
+	baseArgs := []string{"--list", "--platform", "6300", "--release", "10.16",
 		"--portal-url", server.URL + "/aoscx.html", "--raw-cache", t.TempDir(), "--delay", "0", "--retries", "0"}
 	var human, humanErr bytes.Buffer
 	if code := runContract(context.Background(), baseArgs, &human, &humanErr); code != 0 {
@@ -663,7 +666,7 @@ func TestBuiltExecutableFixtureAndSIGINT(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	args := []string{"--list", "--json", "--platform", "6300", "--version", "10.16",
+	args := []string{"--list", "--json", "--platform", "6300", "--release", "10.16",
 		"--portal-url", server.URL + "/aoscx.html", "--raw-cache", t.TempDir(), "--delay", "0", "--retries", "0"}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -678,7 +681,7 @@ func TestBuiltExecutableFixtureAndSIGINT(t *testing.T) {
 		t.Fatalf("built binary fixture failed: stdout=%s stderr=%s %v", &listOut, &listErr, err)
 	}
 	base := t.TempDir()
-	command = exec.CommandContext(ctx, binary, "--json", "--platform", "6300", "--version", "10.16", "--guides", "job",
+	command = exec.CommandContext(ctx, binary, "--json", "--platform", "6300", "--release", "10.16", "--guides", "job",
 		"--destination", base, "--portal-url", server.URL+"/html-aoscx.html", "--raw-cache", filepath.Join(base, "raw"),
 		"--delay", "0", "--retries", "0", "--max-resource-mb", "1", "--max-archive-mb", "4")
 	var htmlOut, htmlErr bytes.Buffer

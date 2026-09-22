@@ -30,7 +30,7 @@ func TestExecutableCompactXRefPublisherPDF(t *testing.T) {
 		w.Write(body)
 	}))
 	defer server.Close()
-	code, output, stderr := execute(t, []string{"--transport", "compatible", "--platform", "6300", "--version", "10.10",
+	code, output, stderr := execute(t, []string{"--transport", "compatible", "--platform", "6300", "--release", "10.10",
 		"--guides", "first", "--destination", t.TempDir(), "--raw-cache", t.TempDir(), "--delay", "0",
 		"--retries", "0", "--portal-url", server.URL + "/portal/aoscx.html", "--json"})
 	if code != 0 {
@@ -75,7 +75,7 @@ func TestExecutableRefusesOwnershipLossDuringDownload(t *testing.T) {
 		w.Write(testutil.PDF("owned source"))
 	}))
 	defer server.Close()
-	args := []string{"--transport", "compatible", "--platform", "6300", "--version", "10.10", "--guides", "first",
+	args := []string{"--transport", "compatible", "--platform", "6300", "--release", "10.10", "--guides", "first",
 		"--destination", base, "--raw-cache", t.TempDir(), "--portal-url", server.URL + "/portal/aoscx.html",
 		"--delay", "0", "--retries", "0", "--json"}
 	code, output, stderr := execute(t, args)

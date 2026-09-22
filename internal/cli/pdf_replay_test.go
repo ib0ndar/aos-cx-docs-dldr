@@ -42,7 +42,7 @@ func TestExecutableRetainedPublisherPDFLocalReplay(t *testing.T) {
 	}))
 	defer server.Close()
 	base := t.TempDir()
-	code, output, stderr := execute(t, []string{"--transport", "compatible", "--platform", "6300", "--version", "10.10",
+	code, output, stderr := execute(t, []string{"--transport", "compatible", "--platform", "6300", "--release", "10.10",
 		"--guides", "jobscheduler", "--destination", base, "--raw-cache", t.TempDir(), "--portal-url", server.URL + "/aoscx.html",
 		"--delay", "0", "--retries", "0", "--max-resource-mb", "8", "--json"})
 	if code != 0 {

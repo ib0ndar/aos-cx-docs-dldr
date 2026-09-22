@@ -60,7 +60,7 @@ func TestAlreadyCancelledContextWritesNoCompletedOutput(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	var stdout, stderr bytes.Buffer
-	code := runContract(ctx, []string{"--app-version"}, &stdout, &stderr)
+	code := runContract(ctx, []string{"--version"}, &stdout, &stderr)
 	if code != 130 || stdout.Len() != 0 {
 		t.Fatalf("cancelled command wrote completed output: exit=%d stdout=%s stderr=%s", code, &stdout, &stderr)
 	}

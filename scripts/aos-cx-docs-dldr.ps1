@@ -7,8 +7,8 @@
 #
 # Then use the tool as if it were installed natively:
 #
-#     aos-cx-docs-dldr --list --platform 6300 --version 10.18.xxxx
-#     aos-cx-docs-dldr --platform 6300 --version 10.18.xxxx --all
+#     aos-cx-docs-dldr --list --platform 6300 --release 10.18.xxxx
+#     aos-cx-docs-dldr --platform 6300 --release 10.18.xxxx --all
 #     aos-cx-docs-dldr                # guided flow, destination already fixed
 #
 # The published library appears in a normal Windows folder. Override the

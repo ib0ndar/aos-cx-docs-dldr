@@ -66,7 +66,7 @@ for platform in $PLATFORMS; do
 
 	# The image verified its sidecars at build time. Confirm the finished
 	# image also starts and reports the expected version before saving it.
-	reported=$(docker run --rm --platform "$platform" --network none "$TAG" --app-version)
+	reported=$(docker run --rm --platform "$platform" --network none "$TAG" --version)
 	[ "$reported" = "aos-cx-docs-dldr $VERSION" ] || {
 		echo "image reports ${reported}, expected aos-cx-docs-dldr ${VERSION}" >&2
 		exit 1

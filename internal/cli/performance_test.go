@@ -108,7 +108,7 @@ func TestPlannedTopicWorkersImproveRealCLIPipeline(t *testing.T) {
 		state.reset()
 		root := t.TempDir()
 		args := []string{
-			"--platform", "6300", "--version", "10.16", "--guides", "guide",
+			"--platform", "6300", "--release", "10.16", "--guides", "guide",
 			"--destination", filepath.Join(root, "library"), "--raw-cache", filepath.Join(root, "cache"),
 			"--portal-url", server.URL + "/portal/aoscx.html", "--delay", "0.001",
 			"--timeout", "10", "--attempt-timeout", "10", "--retries", "0", "--workers", fmt.Sprint(workers), "--json",
@@ -197,7 +197,7 @@ func TestPlannedTopicPrefetchDoesNotMultiplyRefresh(t *testing.T) {
 	defer server.Close()
 	root := t.TempDir()
 	args := []string{
-		"--platform", "6300", "--version", "10.16", "--guides", "guide",
+		"--platform", "6300", "--release", "10.16", "--guides", "guide",
 		"--destination", filepath.Join(root, "library"), "--raw-cache", filepath.Join(root, "cache"),
 		"--portal-url", server.URL + "/portal/aoscx.html", "--delay", "0",
 		"--timeout", "10", "--attempt-timeout", "10", "--retries", "0", "--workers", "4", "--json",
@@ -263,7 +263,7 @@ func TestPrefetchLookaheadStopsBeforeWholeOversizedInventory(t *testing.T) {
 	root := t.TempDir()
 	var stdout, stderr bytes.Buffer
 	code := run(context.Background(), []string{
-		"--platform", "6300", "--version", "10.16", "--guides", "guide",
+		"--platform", "6300", "--release", "10.16", "--guides", "guide",
 		"--destination", filepath.Join(root, "library"), "--raw-cache", filepath.Join(root, "cache"),
 		"--portal-url", server.URL + "/portal/aoscx.html", "--delay", "0",
 		"--timeout", "10", "--attempt-timeout", "10", "--retries", "0", "--workers", "4",
@@ -325,7 +325,7 @@ func TestCancellationStopsQueuedAndActiveTopicPrefetch(t *testing.T) {
 	go func() {
 		var stdout, stderr bytes.Buffer
 		code := run(ctx, []string{
-			"--platform", "6300", "--version", "10.16", "--guides", "guide",
+			"--platform", "6300", "--release", "10.16", "--guides", "guide",
 			"--destination", filepath.Join(root, "library"), "--raw-cache", filepath.Join(root, "cache"),
 			"--portal-url", server.URL + "/portal/aoscx.html", "--delay", "0",
 			"--timeout", "10", "--attempt-timeout", "10", "--retries", "0", "--workers", "4", "--json",

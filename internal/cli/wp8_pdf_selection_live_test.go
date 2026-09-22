@@ -145,7 +145,7 @@ func TestLiveWP8PDFAvailabilityFirstSelection(t *testing.T) {
 		t.Fatal(err)
 	}
 	candidateDigest := sha256.Sum256(candidateBody)
-	candidateVersion, err := exec.Command(candidate, "--app-version").CombinedOutput()
+	candidateVersion, err := exec.Command(candidate, "--version").CombinedOutput()
 	if err != nil {
 		t.Fatalf("run source candidate version check: %v: %s", err, candidateVersion)
 	}
@@ -187,7 +187,7 @@ func TestLiveWP8PDFAvailabilityFirstSelection(t *testing.T) {
 	args := []string{
 		"--transport", "compatible",
 		"--platform", platform,
-		"--version", version,
+		"--release", version,
 		"--destination", destination,
 		"--raw-cache", filepath.Join(absolute, "raw-cache"),
 		"--workers", "4",
@@ -408,7 +408,7 @@ func TestLiveWP8ProgressPTYHelper(t *testing.T) {
 	args := []string{
 		"--transport", "compatible",
 		"--platform", platform,
-		"--version", version,
+		"--release", version,
 		"--destination", filepath.Join(root, "library"),
 		"--raw-cache", filepath.Join(root, "raw-cache"),
 		"--workers", "4",
@@ -473,7 +473,7 @@ func TestLiveWP8ProgressPTY(t *testing.T) {
 		t.Fatal(err)
 	}
 	candidateDigest := sha256.Sum256(candidateBody)
-	versionOutput, err := exec.Command(candidate, "--app-version").CombinedOutput()
+	versionOutput, err := exec.Command(candidate, "--version").CombinedOutput()
 	if err != nil || strings.TrimSpace(string(versionOutput)) != model.ExecutableName+" "+model.Version {
 		t.Fatalf("invalid frozen candidate: %v %q", err, versionOutput)
 	}
