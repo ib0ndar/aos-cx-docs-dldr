@@ -21,7 +21,7 @@ search within the limits above.
 
 **Supported delivery paths**
 
-Version **0.8** has exactly two complete deliverables. Both package the pinned
+Two complete packages are available. Both include the pinned
 Chrome and qpdf components required for optional HTML-to-PDF conversion.
 
 | Use on | Deliverable | Architecture | Status |
@@ -35,20 +35,18 @@ local generated-PDF rendering, and sidecars are never downloaded at runtime.
 
 The source is public at
 [github.com/ib0ndar/aos-cx-docs-dldr](https://github.com/ib0ndar/aos-cx-docs-dldr).
-Prebuilt packages are available from
-[release `v0.8`](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/tag/v0.8).
-
-The application and executable are **`aos-cx-docs-dldr`**. The replacement
-`v0.8` release uses this name for both executables, packages and the container.
-It uses a new application/cache identity: choose a new library destination and
-cache rather than reusing libraries from the former product. No automatic
-migration occurs. Re-download `v0.8` if you obtained it before the rename; see
-the [changelog](CHANGELOG.md) for release history.
+Get prebuilt packages from the
+[latest release](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/latest).
+For a specific version, use
+[all releases](https://github.com/ib0ndar/aos-cx-docs-dldr/releases).
+Each release provides its downloads, checksums, and release notes; the
+[changelog](CHANGELOG.md) records the full history.
 
 **Contents**
 
 - [Install on macOS](#install-on-macos)
 - [Install on Windows](#install-on-windows)
+- [Update the application](#update-the-application)
 - [Everyday use](#everyday-use)
 - [Output and library lifecycle](#output-and-library-lifecycle)
 - [Command reference](#command-reference)
@@ -63,8 +61,13 @@ the [changelog](CHANGELOG.md) for release history.
 | Term | Meaning |
 | --- | --- |
 | Platform | A switch family, such as `6300` or `8320`. |
-| Release | A software version label, such as `10.18.xxxx`. Treated as text, not a number. |
+| Release | An AOS-CX documentation version label, such as `10.18.xxxx`. Treated as text, not a number. |
 | Guide | One document, such as the Job Scheduler guide. Each has a short ID like `jobscheduler`. |
+
+The **application version** is separate from the AOS-CX documentation release.
+In installation examples, replace `VERSION` with the application version from
+your chosen release tag, **without the leading `v`**. Download all files for an
+installation from that same release.
 
 ---
 
@@ -72,15 +75,21 @@ the [changelog](CHANGELOG.md) for release history.
 
 macOS runs the application directly. It is built for Apple Silicon (arm64).
 
-Download `aos-cx-docs-dldr-0.8-macos-arm64.zip` and its `.sha256` file from
-[release `v0.8`](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/tag/v0.8).
+Download `aos-cx-docs-dldr-VERSION-macos-arm64.zip` and its `.sha256` file from
+your chosen [release](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/latest).
 In Terminal, change to the folder containing both downloads, then verify and
-unpack them:
+unpack them. Set `APP_VERSION` once, replacing `VERSION` as described above:
 
 ```sh
-shasum -a 256 -c aos-cx-docs-dldr-0.8-macos-arm64.zip.sha256
-unzip aos-cx-docs-dldr-0.8-macos-arm64.zip
-cd aos-cx-docs-dldr-0.8-macos-arm64
+APP_VERSION='VERSION'
+shasum -a 256 -c "aos-cx-docs-dldr-${APP_VERSION}-macos-arm64.zip.sha256"
+```
+
+If the archive checksum passes, extract it and check the bundle contents:
+
+```sh
+unzip "aos-cx-docs-dldr-${APP_VERSION}-macos-arm64.zip"
+cd "aos-cx-docs-dldr-${APP_VERSION}-macos-arm64"
 shasum -a 256 -c SHA256SUMS
 ```
 
@@ -90,7 +99,7 @@ the release metadata; they do not replace Developer ID signing or notarization.
 The folder must stay together as a unit:
 
 ```text
-aos-cx-docs-dldr-0.8-macos-arm64/
+aos-cx-docs-dldr-VERSION-macos-arm64/
   aos-cx-docs-dldr         <- the application
   sidecars/                <- needed only for PDF creation
   LICENSE
@@ -122,11 +131,11 @@ software, create a permanent exception, or disable Gatekeeper globally. No
 `sudo` is normally needed for a bundle extracted into your own folder.
 
 Move the **whole folder** somewhere permanent, for example
-`$HOME/Applications/aos-cx-docs-dldr/0.8/`. Moving only the executable will break
+`$HOME/Applications/aos-cx-docs-dldr/VERSION/`. Moving only the executable will break
 PDF creation. If you already installed the bundle there, use its exact path:
 
 ```sh
-xattr -dr com.apple.quarantine "$HOME/Applications/aos-cx-docs-dldr/0.8"
+xattr -dr com.apple.quarantine "$HOME/Applications/aos-cx-docs-dldr/${APP_VERSION}"
 ```
 
 Apply this only to the verified bundle, never to your Downloads folder, home
@@ -157,8 +166,9 @@ content itself is offline except for links explicitly retained online.
 On Windows the tool runs inside a Linux container that includes everything,
 including PDF creation. You do not need to install Go or compile anything. The
 documented route is Windows 11 x64 with Docker Desktop using its WSL 2 backend.
-It was verified on Windows 11 Pro 25H2 x64 with Docker Desktop 4.91.0 against a
-fixture portal; live publisher retrieval from Windows has not been tested.
+The workflow was verified against a fixture portal; live publisher retrieval
+from Windows has not been tested. See [Windows status](#limits-and-current-status)
+for the verification scope.
 
 ### Step 1 — Install Docker Desktop
 
@@ -173,23 +183,29 @@ primary installation path.
 
 ### Step 2 — Load the image
 
-Download `aos-cx-docs-dldr-0.8-linux-amd64.tar.gz`, `SHA256SUMS`, and
+Download `aos-cx-docs-dldr-VERSION-linux-amd64.tar.gz`, `SHA256SUMS`, and
 `aos-cx-docs-dldr.ps1` from
-[release `v0.8`](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/tag/v0.8).
+your chosen [release](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/latest).
 
 The image requires an x64 Windows host capable of running a `linux/amd64`
 container. Windows on ARM is not supported.
 
-Check the file is intact, then load it:
+In PowerShell, change to the download folder. Set `$appVersion` once, replacing
+`VERSION` with the application version without the leading `v`, then check the
+archive's hash:
 
 ```powershell
-Get-FileHash aos-cx-docs-dldr-0.8-linux-amd64.tar.gz -Algorithm SHA256
-docker load -i aos-cx-docs-dldr-0.8-linux-amd64.tar.gz
+$appVersion = 'VERSION'
+Get-FileHash "aos-cx-docs-dldr-$appVersion-linux-amd64.tar.gz" -Algorithm SHA256
 ```
 
 Compare the printed hash with the archive's line in `SHA256SUMS`. Stop if it
-does not match. The archive is about 230 MB and stays compressed; `docker load`
-handles it directly.
+does not match. If it matches, load the archive; `docker load` handles the
+compressed file directly:
+
+```powershell
+docker load -i "aos-cx-docs-dldr-$appVersion-linux-amd64.tar.gz"
+```
 
 ### Step 3 — Install the shortcut command
 
@@ -212,8 +228,13 @@ Check the current session before making the shortcut permanent:
 aos-cx-docs-dldr --app-version
 ```
 
-You should see `aos-cx-docs-dldr 0.8`. To load the command in future PowerShell
-sessions, add the same dot-source line to your profile once:
+The printed application version should match the release you downloaded. The
+shortcut defaults to a specific image tag; always use the script supplied with
+your image. An existing `AOSCX_DOCS_IMAGE` override takes precedence, so update
+or remove it when switching releases.
+
+To load the command in future PowerShell sessions, add the same dot-source line
+to your profile once:
 
 ```powershell
 if (-not (Test-Path $PROFILE)) { New-Item -ItemType File -Path $PROFILE -Force | Out-Null }
@@ -235,6 +256,26 @@ different folder, set `AOSCX_DOCS_LIBRARY` before running the command.
 > Progress messages come from inside the container, so they show paths like
 > `/library/6300/...`. The shortcut prints your real Windows folder when the
 > run finishes.
+
+---
+
+## Update the application
+
+1. Check the [latest release](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/latest)
+   and read its release notes for compatibility changes.
+2. Follow the installation steps again with files from that release. On macOS,
+   extract the complete bundle into its own folder. On Windows, load the new
+   image, replace the PowerShell shortcut, and dot-source it again (or open a
+   new PowerShell session if it is already in your profile).
+3. Run `--app-version` to confirm the version being used.
+4. Choose a new library destination when changing application versions. On
+   macOS, use `--destination`; on Windows, set `AOSCX_DOCS_LIBRARY` before
+   running the shortcut. Then download the guides you need again.
+
+There is no automatic library migration. Existing libraries remain browsable
+through their `index.html`; see [Libraries from other versions](#libraries-from-other-versions)
+for compatibility details. Libraries and caches created under the former
+product name also require new locations; incompatible state is left untouched.
 
 ---
 
@@ -358,9 +399,10 @@ guides in the batch can still be published.
 
 ### Libraries from other versions
 
-This application reads and writes one library version only. If you point it at
-a folder created by a different version, it refuses and leaves that folder
-untouched. Choose a new folder and download again.
+This application reads and writes libraries created by the same application
+version only. If you point it at a folder created by a different application
+version, it refuses and leaves that folder untouched. Choose a new folder and
+download again.
 
 A library is also tied to the runtime platform that produced it: native macOS
 or the Linux container used on Windows. Integrity digests include Unix
@@ -458,16 +500,18 @@ NO_PROXY='localhost,127.0.0.1' \
 The Windows shortcut does not forward PowerShell proxy or CA variables. Call
 Docker directly and pass them explicitly. If the proxy inspects encrypted
 traffic, mount its CA file because the Linux container does not read the
-Windows certificate store:
+Windows certificate store. Replace `VERSION` below with the application version
+of the image you loaded, without the leading `v`:
 
 ```powershell
+$image = 'aos-cx-docs-dldr:VERSION'
 docker run --rm -i `
   -v aos-cx-docs-dldr-cache:/cache `
   -v "C:\certs\corporate-ca.pem:/certs/ca.pem:ro" `
   -e SSL_CERT_FILE=/certs/ca.pem `
   -e HTTPS_PROXY=$env:HTTPS_PROXY `
   -e NO_PROXY=$env:NO_PROXY `
-  aos-cx-docs-dldr:0.8 --list
+  $image --list
 ```
 
 ---
@@ -536,7 +580,7 @@ application. Set them in PowerShell before running `aos-cx-docs-dldr`.
 | --- | --- | --- |
 | `AOSCX_DOCS_LIBRARY` | `%USERPROFILE%\Documents\AOS-CX` | Windows folder where downloads are saved. |
 | `AOSCX_DOCS_ENGINE` | `docker` | Container command. The `podman` override exists but is unverified. |
-| `AOSCX_DOCS_IMAGE` | `aos-cx-docs-dldr:0.8` | Container image to run, including a company-registry image. |
+| `AOSCX_DOCS_IMAGE` | Versioned image tag pinned in the downloaded shortcut | Container image to run, including a company-registry image. |
 
 No other PowerShell environment variables are forwarded by the shortcut.
 
@@ -563,19 +607,16 @@ Linux container for 64-bit Intel/AMD. Both include PDF creation. There is no
 native Windows program, no Linux native package, no Intel Mac build, and no
 ARM container.
 
-**Why no ARM container.** qpdf 12.4.1, which the tool pins exactly, publishes
-no Linux ARM binary. An ARM container therefore cannot carry the accepted pin
-and is not built.
+**Why no ARM container.** The pinned qpdf distribution has no Linux ARM binary,
+so an ARM container cannot carry the required component. See
+[container details](docs/container.md#what-is-inside) for exact component pins.
 
-**Windows status.** The container and its PDF conversion were proven end to
-end on a macOS host and then on a real Windows host: Windows 11 Pro 25H2 x64,
-Windows PowerShell 5.1, Docker Desktop 4.91.0 (WSL 2 backend). There the
-archive loads, the PowerShell shortcut runs with the real engine, the
-container writes into `Documents\AOS-CX`, a generated PDF passes `qpdf
---check`, and a second run reopens the library it wrote. Podman Desktop and
-other Windows releases have not been tried. The Windows runs used a fixture
-portal, not live publisher retrieval. See
-[docs/container.md](docs/container.md) for what exactly was checked.
+**Windows status.** Image loading, the PowerShell shortcut, library writes,
+generated-PDF validation, and library reopening have been verified on Windows
+11 x64 with Docker Desktop's WSL 2 backend. The runs used a fixture portal;
+live publisher retrieval from Windows, Podman Desktop, and other Windows
+releases have not been tested. See [docs/container.md](docs/container.md) for
+the exact tested environment and verification record.
 
 ---
 
@@ -595,6 +636,13 @@ For release assembly, sidecar acquisition, container packaging, and complete
 validation commands, use the authoritative documents below rather than this
 README. Ordinary tests make no publisher requests; live publisher traffic
 requires explicit authorization.
+
+Keep this README focused on installation, everyday use, and current behavior.
+Record version-specific changes and one-time upgrade notices in the changelog
+and release notes. A version bump alone should not require editing the README;
+update it when supported platforms, installation steps, options, or compatibility
+rules change. Keep the released PowerShell shortcut's default image tag aligned
+with its container image.
 
 ### Further reading
 

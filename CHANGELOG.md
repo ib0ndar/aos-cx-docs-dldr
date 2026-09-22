@@ -7,6 +7,8 @@
   Library/cache identities also change: old-name state is rejected read-only
   and requires new destinations. The owner authorized replacement of all v0.8
   assets and its tag; use the new package checksums and detached provenance.
+  Re-download v0.8 if you obtained it before the rename. No automatic migration
+  of old-name libraries or caches occurs.
 
 - License original application code, scripts, and project documentation under
   Apache-2.0. Include `LICENSE` in new macOS bundles and container images, and
