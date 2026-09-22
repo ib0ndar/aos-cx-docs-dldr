@@ -3,8 +3,8 @@
 ## Scope and trust
 
 Release 0.8 defines a self-contained macOS arm64 command-line bundle. It is
-unsigned, unnotarized, and requires manual approval. Prebuilt packages are not
-currently distributed through the public repository. Signing/notarization and
+unsigned, unnotarized, and requires manual approval. The bundle and detached
+checksum are published on the public GitHub release. Signing/notarization and
 other architectures remain deferred.
 
 The package source is native-only. The pre-cutover implementation is historical

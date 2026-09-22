@@ -35,8 +35,8 @@ local generated-PDF rendering, and sidecars are never downloaded at runtime.
 
 The source is public at
 [github.com/ib0ndar/aos-cx-docs-dldr](https://github.com/ib0ndar/aos-cx-docs-dldr).
-Prebuilt packages are not currently distributed publicly. The build and
-packaging scripts remain available for review and maintainer use.
+Prebuilt packages are available from
+[release `v0.8`](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/tag/v0.8).
 
 The application and executable are **`aos-cx-docs-dldr`**. The replacement
 `v0.8` release uses this name for both executables, packages and the container.
@@ -72,9 +72,8 @@ the [changelog](CHANGELOG.md) for release history.
 
 macOS runs the application directly. It is built for Apple Silicon (arm64).
 
-Obtain `aos-cx-docs-dldr-0.8-macos-arm64.zip` and its `.sha256` file from a
-trusted maintainer-provided package. Prebuilt packages are not currently
-distributed through this public repository.
+Download `aos-cx-docs-dldr-0.8-macos-arm64.zip` and its `.sha256` file from
+[release `v0.8`](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/tag/v0.8).
 In Terminal, change to the folder containing both downloads, then verify and
 unpack them:
 
@@ -174,10 +173,9 @@ primary installation path.
 
 ### Step 2 — Load the image
 
-Obtain `aos-cx-docs-dldr-0.8-linux-amd64.tar.gz` and `SHA256SUMS` from a trusted
-maintainer-provided package. The PowerShell wrapper is available at
-[`scripts/aos-cx-docs-dldr.ps1`](scripts/aos-cx-docs-dldr.ps1). Prebuilt
-packages are not currently distributed through this public repository.
+Download `aos-cx-docs-dldr-0.8-linux-amd64.tar.gz`, `SHA256SUMS`, and
+`aos-cx-docs-dldr.ps1` from
+[release `v0.8`](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/tag/v0.8).
 
 The image requires an x64 Windows host capable of running a `linux/amd64`
 container. Windows on ARM is not supported.

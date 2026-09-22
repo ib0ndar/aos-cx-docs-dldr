@@ -46,7 +46,9 @@ keeps Chrome's own sandbox.
 ## Get the image
 
 Users load a prebuilt archive; they need no source, no Go toolchain, and no
-access to the Go module proxy.
+access to the Go module proxy. Download the archive, `SHA256SUMS`, and the
+PowerShell wrapper from
+[release `v0.8`](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/tag/v0.8).
 
 ```powershell
 Get-FileHash aos-cx-docs-dldr-0.8-linux-amd64.tar.gz -Algorithm SHA256
