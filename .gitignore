@@ -1,0 +1,7 @@
+build/
+.DS_Store
+
+# Compiled command binaries left in place by a bare `go build` inside cmd/.
+/cmd/aos-cx-docs-dldr/aos-cx-docs-dldr
+/cmd/aoscx-pdf-acceptance/aoscx-pdf-acceptance
+/cmd/aoscx-release-package/aoscx-release-package

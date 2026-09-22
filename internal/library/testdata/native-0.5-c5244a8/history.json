@@ -1,0 +1,28 @@
+[
+  {
+    "at": "2026-09-16T19:53:00.780211Z",
+    "application_version": "0.5",
+    "changes": {
+      "job": {
+        "added": [
+          "https://example.test/job.pdf"
+        ],
+        "removed": [],
+        "changed": []
+      }
+    },
+    "attempts": [
+      {
+        "id": "job",
+        "title": "job Guide",
+        "status": "complete",
+        "format": "pdf",
+        "errors": [],
+        "notices": [],
+        "warnings": [],
+        "stylesheet_recoveries": [],
+        "retained_previous": false
+      }
+    ]
+  }
+]

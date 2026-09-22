@@ -1,0 +1,31 @@
+# Keep the build context minimal and deterministic. Only the Go module, its
+# sources, and the vendored third_party module are needed to build the CLI.
+
+.git
+.gitignore
+.DS_Store
+
+# Build outputs and local evidence
+build/
+*.exe
+*.zip
+*.heapsnapshot
+*.trace
+
+# Documentation and release tooling are not build inputs
+docs/
+scripts/
+CHANGELOG.md
+README.md
+Dockerfile
+.dockerignore
+
+# Retired-implementation leftovers, should they ever reappear
+.venv/
+venv/
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.ruff_cache/
+.mypy_cache/
+*.egg-info/

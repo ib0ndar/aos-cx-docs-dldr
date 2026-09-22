@@ -1,0 +1,73 @@
+{
+  "application": "aoscx-docs",
+  "application_version": "0.5",
+  "schema_version": 1,
+  "native_schema_version": 1,
+  "run_id": "20260916T195300.747408000Z-3RVIEZN4D5AJ2XBZ6AHWIIHI6P",
+  "platform": "6300",
+  "version": "10.10",
+  "updated_at": "2026-09-16T19:53:00.780214Z",
+  "status": "complete",
+  "guides": [
+    {
+      "id": "job",
+      "title": "job Guide",
+      "path": "job",
+      "format": "pdf",
+      "status": "complete",
+      "source_url": "https://example.test/job.pdf",
+      "route_origin": "publisher-url",
+      "topic_count": 0,
+      "asset_count": 0
+    }
+  ],
+  "pdf_guides": {
+    "job": {
+      "document": {
+        "id": "job",
+        "title": "job Guide",
+        "platform": "6300",
+        "version": "10.10",
+        "url": "https://example.test/job.pdf",
+        "kind": "pdf",
+        "route_origin": "publisher-url"
+      },
+      "status": "complete",
+      "format": "pdf",
+      "pdf": {
+        "url": "https://example.test/job.pdf",
+        "final_url": "https://example.test/job.pdf",
+        "path": "6300 - 10.10 - job Guide.pdf",
+        "status": "complete",
+        "content_type": "application/pdf",
+        "size": 353,
+        "source_sha256": "b8ba9509e9e1532a02f121a2456ccccde6e56787c1abbeeab72bfe198b2ed03e",
+        "sha256": "b8ba9509e9e1532a02f121a2456ccccde6e56787c1abbeeab72bfe198b2ed03e",
+        "retrieved_at": "2026-09-16T19:53:00.771379Z",
+        "provenance": "unmodified publisher PDF (HTTP transfer decoding only)",
+        "origin": "direct-mapped"
+      },
+      "errors": [],
+      "notices": [],
+      "warnings": [],
+      "stylesheet_recoveries": null
+    }
+  },
+  "latest_attempts": [
+    {
+      "id": "job",
+      "title": "job Guide",
+      "status": "complete",
+      "format": "pdf",
+      "errors": [],
+      "notices": [],
+      "warnings": [],
+      "stylesheet_recoveries": [],
+      "retained_previous": false
+    }
+  ],
+  "errors": [],
+  "catalogue_source_url": "",
+  "catalogue_fetched_at": "",
+  "catalogue_warnings": null
+}
