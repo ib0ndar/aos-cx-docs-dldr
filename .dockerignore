@@ -20,6 +20,12 @@ README.md
 Dockerfile
 .dockerignore
 
+# Coding-agent instructions and local agent state
+AGENTS.md
+CLAUDE.local.md
+.claude/
+artifacts/
+
 # Retired-implementation leftovers, should they ever reappear
 .venv/
 venv/

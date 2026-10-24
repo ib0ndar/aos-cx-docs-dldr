@@ -38,7 +38,10 @@ func TestRepositoryContainsOnlyNativeImplementation(t *testing.T) {
 		if err != nil {
 			return err
 		}
-		if entry.IsDir() && (relative == ".git" || relative == "build") {
+		// build/ holds local outputs; artifacts/ and .claude/ hold local agent
+		// scratch work and worktrees, which are never part of the source tree.
+		if entry.IsDir() && (relative == ".git" || relative == "build" ||
+			relative == "artifacts" || relative == ".claude") {
 			return filepath.SkipDir
 		}
 		if !entry.IsDir() && filepath.Ext(entry.Name()) == ".py" {

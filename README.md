@@ -649,6 +649,8 @@ with its container image.
 - [`docs/container.md`](docs/container.md) — container workflow in detail
 - [`docs/go-architecture.md`](docs/go-architecture.md) — how the application is built
 - [`docs/native-macos-arm64-release.md`](docs/native-macos-arm64-release.md) — macOS packaging
+- [`docs/chrome-sidecar.md`](docs/chrome-sidecar.md) — pinned Chrome component
+- [`docs/qpdf-sidecar.md`](docs/qpdf-sidecar.md) — pinned qpdf component
 - [`CHANGELOG.md`](CHANGELOG.md)
 
 ---

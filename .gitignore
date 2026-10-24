@@ -5,3 +5,9 @@ build/
 /cmd/aos-cx-docs-dldr/aos-cx-docs-dldr
 /cmd/aoscx-pdf-acceptance/aoscx-pdf-acceptance
 /cmd/aoscx-release-package/aoscx-release-package
+/cmd/aoscx-verify-sidecars/aoscx-verify-sidecars
+
+# Personal Claude Code state.
+/.claude/worktrees/
+/.claude/settings.local.json
+CLAUDE.local.md
