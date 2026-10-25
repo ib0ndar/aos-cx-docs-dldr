@@ -42,6 +42,10 @@ select#platform"); this change restores catalogue, listing and downloads.
   is never requested.
 - Keep TOC entries whose anchor the publisher's page lacks as warnings on both
   generated navigation pages instead of failing the guide.
+- Revalidate cached publisher PDFs on `--refresh` and "Check sources for
+  updates". The availability check counted a direct PDF as freshly fetched,
+  although its HEAD request never reaches the cache, so the cached bytes were
+  reused without asking the publisher. 0.8 has the same fault.
 - Size library limits for the largest guides: manifests and indexes are read
   up to 128 MiB instead of 8 MiB, and source bookmark evidence is recorded up
   to 524,288 identifiers or 32 MiB per guide instead of 65,536 or 2 MiB. The

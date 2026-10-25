@@ -63,7 +63,9 @@ func TestExecutableRefusesOwnershipLossDuringDownload(t *testing.T) {
 			w.WriteHeader(404)
 			return
 		}
-		if replace.Load() {
+		if replace.Load() && r.Method == http.MethodGet {
+			// Only the download itself: the HEAD availability check runs before
+			// this process takes the lock, and must not see a foreign owner yet.
 			if err := os.WriteFile(lockPath, foreignLock, 0o600); err != nil {
 				t.Error(err)
 			}

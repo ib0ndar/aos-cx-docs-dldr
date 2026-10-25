@@ -47,6 +47,18 @@ func binary(t *testing.T) string {
 	return value
 }
 
+// resolvedTempDir is t.TempDir with symbolic links resolved. The application
+// reports a destination by its real path, and macOS temporary directories sit
+// behind the /var -> /private/var link.
+func resolvedTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func execute(t *testing.T, args []string) (int, []byte, string) {
 	t.Helper()
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -96,8 +108,12 @@ func TestExecutablePDFPublicationResumeRefreshAndFailedUpdate(t *testing.T) {
 			w.WriteHeader(404)
 			return
 		}
-		gets.Add(1)
 		w.Header().Set("Content-Type", "application/pdf")
+		if r.Method == http.MethodHead {
+			// Every run checks source availability first; only GETs transfer PDFs.
+			return
+		}
+		gets.Add(1)
 		w.Header().Set("ETag", `"v1"`)
 		if mode.Load() == 1 && r.Header.Get("If-None-Match") == `"v1"` {
 			conditional.Add(1)
@@ -111,7 +127,7 @@ func TestExecutablePDFPublicationResumeRefreshAndFailedUpdate(t *testing.T) {
 		w.Write(testutil.PDF(filepath.Base(r.URL.Path)))
 	}))
 	defer server.Close()
-	base, cache := filepath.Join(t.TempDir(), "new", "library"), t.TempDir()
+	base, cache := filepath.Join(resolvedTempDir(t), "new", "library"), t.TempDir()
 	args := []string{"--transport", "compatible", "--platform", "6300", "--release", "10.10", "--guides", "first", "first", "second",
 		"--destination", base, "--raw-cache", cache, "--portal-url", server.URL + "/portal/aoscx.html", "--delay", "0", "--retries", "0", "--json", "--zip",
 		"--convert-html-to-pdf", "--chrome-path", filepath.Join(t.TempDir(), "must-not-be-used")}
@@ -162,6 +178,49 @@ func TestExecutablePDFPublicationResumeRefreshAndFailedUpdate(t *testing.T) {
 	}
 	if _, err := os.Stat(filepath.Join(base, "6300", ".10.10.lock")); !os.IsNotExist(err) {
 		t.Fatal("native lock leaked")
+	}
+}
+
+func TestRefreshRevalidatesCachedPublisherPDF(t *testing.T) {
+	var gets, conditional atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fixtureCatalog(w, r) {
+			return
+		}
+		if r.URL.Path != "/pdf/first.pdf" {
+			t.Errorf("unexpected request: %s", r.URL)
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.Header().Set("Content-Type", "application/pdf")
+		w.Header().Set("ETag", `"v1"`)
+		if r.Method == http.MethodHead {
+			return
+		}
+		gets.Add(1)
+		if r.Header.Get("If-None-Match") == `"v1"` {
+			conditional.Add(1)
+			w.WriteHeader(http.StatusNotModified)
+			return
+		}
+		w.Write(testutil.PDF("first.pdf"))
+	}))
+	defer server.Close()
+	root := t.TempDir()
+	args := []string{"--transport", "http", "--platform", "6300", "--release", "10.10", "--guides", "first",
+		"--destination", filepath.Join(root, "library"), "--raw-cache", filepath.Join(root, "cache"),
+		"--portal-url", server.URL + "/portal/aoscx.html", "--delay", "0", "--retries", "0", "--json"}
+	for _, extra := range [][]string{nil, {"--refresh"}} {
+		var stdout, stderr bytes.Buffer
+		if code := run(context.Background(), append(append([]string{}, args...), extra...), &stdout, &stderr, newNativeClient); code != 0 {
+			t.Fatalf("CLI %v exit=%d stdout=%s stderr=%s", extra, code, &stdout, &stderr)
+		}
+	}
+	// The availability check before planning is a HEAD, which leaves the
+	// cached PDF bytes unvalidated; the refresh must still ask the publisher.
+	if gets.Load() != 2 || conditional.Load() != 1 {
+		t.Fatalf("refresh did not revalidate the cached publisher PDF: GETs=%d conditional=%d",
+			gets.Load(), conditional.Load())
 	}
 }
 
@@ -460,7 +519,18 @@ func TestExecutableCancellationPublishesAcceptedPDFs(t *testing.T) {
 		if fixtureCatalog(w, r) {
 			return
 		}
+		if r.URL.Path == "/guide.html" && r.Method == http.MethodGet {
+			// --all checks the HTML guide's front page before any download; the
+			// batch is cancelled before the guide itself is archived.
+			w.Header().Set("Content-Type", "text/html")
+			io.WriteString(w, `<html><body><nav class="wh_publication_toc"><ul><li><a href="topic.html">Topic</a></li></ul></nav>
+<main class="wh_topic_content"><h1>HTML</h1></main></body></html>`)
+			return
+		}
 		w.Header().Set("Content-Type", "application/pdf")
+		if r.Method == http.MethodHead && (r.URL.Path == "/pdf/first.pdf" || r.URL.Path == "/pdf/second.pdf") {
+			return
+		}
 		if r.URL.Path == "/pdf/first.pdf" {
 			w.Write(testutil.PDF("first.pdf"))
 			return
@@ -502,7 +572,7 @@ func TestExecutableCancellationPublishesAcceptedPDFs(t *testing.T) {
 	}
 	data, err := os.ReadFile(filepath.Join(base, "6300", "10.10", "manifest.json"))
 	if err != nil {
-		t.Fatal(err)
+		t.Fatalf("%v\nstderr=%s", err, &stderr)
 	}
 	var manifest library.Manifest
 	if err := json.Unmarshal(data, &manifest); err != nil {

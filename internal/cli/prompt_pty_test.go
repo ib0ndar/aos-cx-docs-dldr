@@ -226,7 +226,7 @@ func promptStartupProgressFixtureServer(t *testing.T) *httptest.Server {
 	return server
 }
 
-func promptIncompleteFixtureServer(t *testing.T) *httptest.Server {
+func promptDegradedFixtureServer(t *testing.T) *httptest.Server {
 	t.Helper()
 	portal := testutil.Portal{Platforms: []string{"8320"}, Versions: []string{"10.18.xxxx"},
 		Guides: []testutil.PortalGuide{{ID: "acl", Title: "ACL Guide"}}}
@@ -253,7 +253,7 @@ func promptIncompleteFixtureServer(t *testing.T) *httptest.Server {
 		case "/book/missing.png":
 			w.WriteHeader(http.StatusNotFound)
 		default:
-			t.Errorf("unexpected incomplete PTY request: %s", r.URL)
+			t.Errorf("unexpected degraded PTY request: %s", r.URL)
 			w.WriteHeader(http.StatusNotFound)
 		}
 	}))
@@ -286,6 +286,11 @@ func promptCancellationFixtureServer(t *testing.T) (*httptest.Server, <-chan str
 			w.Header().Set("Content-Type", "application/pdf")
 			w.Write(testutil.PDF("first"))
 		case "/second.pdf":
+			w.Header().Set("Content-Type", "application/pdf")
+			if r.Method == http.MethodHead {
+				// Availability check before any download.
+				return
+			}
 			select {
 			case active <- struct{}{}:
 			default:
@@ -463,6 +468,8 @@ func TestActualPTYFullySpecifiedCommandDoesNotPrompt(t *testing.T) {
 	}
 	waitForPTY(t, output, "Save documentation under which directory?")
 	_, _ = terminal.Write([]byte(destination + "\r"))
+	waitForPTY(t, output, "Generate PDF companions for the 1 HTML guide?")
+	_, _ = terminal.Write([]byte("\r"))
 	waitForPTY(t, output, "An existing library was found")
 	_, _ = terminal.Write([]byte("\r"))
 	finishPTYCLI(t, terminal, command, output, 0)
@@ -594,9 +601,7 @@ func TestActualPTYStartupAndAvailabilityProgressPrecedePrompts(t *testing.T) {
 	server := promptStartupProgressFixtureServer(t)
 	root := t.TempDir()
 	destination := filepath.Join(root, "library")
-	if err := os.MkdirAll(filepath.Join(destination, "6300", "10.16"), 0o700); err != nil {
-		t.Fatal(err)
-	}
+	createCurrentSelectionLibrary(t, destination, "6300", "10.16")
 	terminal, command, output := startPTYCLI(
 		t, server, root, "--destination", destination,
 	)
@@ -638,6 +643,8 @@ func TestActualPTYStartupAndAvailabilityProgressPrecedePrompts(t *testing.T) {
 	}
 	waitForPTY(t, output, "High Availability [HTML (static)]")
 	_, _ = terminal.Write([]byte(" \r"))
+	waitForPTY(t, output, "Generate PDF companions for the 1 HTML guide?")
+	_, _ = terminal.Write([]byte("\r"))
 	waitForPTY(t, output, "An existing library was found")
 	if strings.Contains(ansi.Strip(output.String()), "Prefer a source-verified PDF when available?") {
 		t.Fatalf("HTML-only selection regained the misleading preference prompt:\n%s", output.String())
@@ -756,9 +763,9 @@ func TestActualPTYDumbTerminalUsesSparsePlainProgress(t *testing.T) {
 	}
 }
 
-func TestActualPTYIncompleteResultShowsReasonsAndWarningStatus(t *testing.T) {
-	server := promptIncompleteFixtureServer(t)
-	root := t.TempDir()
+func TestActualPTYDegradedResultShowsReasonsAndWarningStatus(t *testing.T) {
+	server := promptDegradedFixtureServer(t)
+	root := resolvedTempDir(t)
 	destination := filepath.Join(root, "library")
 	terminal, command, output := startPTYCLI(t, server, root,
 		"--platform", "8320", "--release", "10.18.xxxx",
@@ -769,20 +776,20 @@ func TestActualPTYIncompleteResultShowsReasonsAndWarningStatus(t *testing.T) {
 	text := output.String()
 	plain := ansi.Strip(text)
 	for _, expected := range []string{
-		"Guide acl archive error:",
+		"Guide acl publisher/source warning:",
 		"missing.png",
 		"Full diagnostics: " + filepath.Join(destination, "8320", "10.18.xxxx", "manifest.json"),
-		"Published incomplete library",
+		"Published degraded library",
 	} {
 		if !strings.Contains(plain, expected) {
-			t.Fatalf("PTY incomplete diagnostics omitted %q:\n%s", expected, plain)
+			t.Fatalf("PTY degraded diagnostics omitted %q:\n%s", expected, plain)
 		}
 	}
 	if strings.Contains(plain, "Published complete library") {
-		t.Fatalf("incomplete PTY reported success:\n%s", plain)
+		t.Fatalf("degraded PTY reported success:\n%s", plain)
 	}
 	if !regexp.MustCompile(`\x1b\[[0-9;]*m`).MatchString(text) {
-		t.Fatal("incomplete PTY diagnostics were not semantically colored")
+		t.Fatal("degraded PTY diagnostics were not semantically colored")
 	}
 }
 
@@ -853,6 +860,8 @@ func TestActualPTYGuidedAllAndMultiSelect(t *testing.T) {
 			}
 			waitForPTY(t, output, "Save documentation under which directory?")
 			_, _ = terminal.Write([]byte(destination + "\r"))
+			waitForPTY(t, output, "Generate PDF companions for the 1 HTML guide?")
+			_, _ = terminal.Write([]byte("\r"))
 			finishPTYCLI(t, terminal, command, output, 0)
 			manifest := filepath.Join(destination, "6300", "10.16", "manifest.json")
 			if _, err := os.Stat(manifest); err != nil {
@@ -869,7 +878,7 @@ func TestActualPTYBurstInputCrossesPromptTransitions(t *testing.T) {
 	terminal, command, output := startPTYCLI(t, server, root)
 	defer terminal.Close()
 	waitForPTY(t, output, "Switch platform")
-	_, _ = terminal.Write([]byte("\r\x1b[B\r\r" + destination + "\r"))
+	_, _ = terminal.Write([]byte("\r\x1b[B\r\r" + destination + "\r\r"))
 	finishPTYCLI(t, terminal, command, output, 0)
 	manifest := filepath.Join(destination, "6300", "10.16", "manifest.json")
 	if _, err := os.Stat(manifest); err != nil {
@@ -892,7 +901,8 @@ func TestActualPTYLeftBackRebuildsSelectionAndPreservesDestination(t *testing.T)
 			"\r" + // all mapped guides
 			destination + "\x1b[D" + // destination -> mode, retaining draft
 			"\r" + // confirm all again
-			"\r", // accept restored destination
+			"\r" + // accept restored destination
+			"\r", // keep the complete HTML only
 	))
 	finishPTYCLI(t, terminal, command, output, 0)
 	manifest := filepath.Join(destination, "6400", "10.16", "manifest.json")
@@ -921,6 +931,8 @@ func TestActualPTYPartialFixedGuidesAndExplicitAllFalse(t *testing.T) {
 		defer terminal.Close()
 		waitForPTY(t, output, "Switch platform")
 		_, _ = terminal.Write([]byte("\x1b[B\r\r"))
+		waitForPTY(t, output, "Generate PDF companions for the 1 HTML guide?")
+		_, _ = terminal.Write([]byte("\r"))
 		finishPTYCLI(t, terminal, command, output, 0)
 		if _, err := os.Stat(filepath.Join(destination, "6400", "10.16", "manifest.json")); err != nil {
 			t.Fatalf("fixed partial guide was lost: %v\n%s", err, output.String())
@@ -940,6 +952,8 @@ func TestActualPTYPartialFixedGuidesAndExplicitAllFalse(t *testing.T) {
 			"--destination", destination, "--all=false")
 		defer terminal.Close()
 		waitForPTY(t, output, "Documents to retrieve")
+		_, _ = terminal.Write([]byte("\r"))
+		waitForPTY(t, output, "Generate PDF companions for the 1 HTML guide?")
 		_, _ = terminal.Write([]byte("\r"))
 		finishPTYCLI(t, terminal, command, output, 0)
 		if _, err := os.Stat(filepath.Join(destination, "6400", "10.16", "manifest.json")); err != nil {
@@ -1001,6 +1015,8 @@ func TestActualPTYDirectoryAutocompletePublishesAtCompletedPath(t *testing.T) {
 	_, _ = terminal.Write([]byte("\t"))
 	waitForPTYCount(t, output, "Child Folder/", childCount+1)
 	_, _ = terminal.Write([]byte("\r"))
+	waitForPTY(t, output, "Generate PDF companions for the 1 HTML guide?")
+	_, _ = terminal.Write([]byte("\r"))
 	finishPTYCLI(t, terminal, command, output, 0)
 	if _, err := os.Stat(manifest); err != nil {
 		t.Fatalf("completed directory was not the publication base: %v\n%s", err, output.String())
@@ -1022,6 +1038,8 @@ func TestActualPTYDirectoryAutocompleteAllowsNewPathAndCancelsRestoredDraft(t *t
 		}
 		waitForPTY(t, output, "Save documentation under which directory?")
 		_, _ = terminal.Write([]byte("\r"))
+		waitForPTY(t, output, "Generate PDF companions for the 1 HTML guide?")
+		_, _ = terminal.Write([]byte("\r"))
 		finishPTYCLI(t, terminal, command, output, 0)
 		if _, err := os.Stat(filepath.Join(root, "6300", "10.16", "manifest.json")); err != nil {
 			t.Fatalf("blank destination did not immediately publish under the displayed CWD: %v\n%s",
@@ -1040,6 +1058,8 @@ func TestActualPTYDirectoryAutocompleteAllowsNewPathAndCancelsRestoredDraft(t *t
 		}
 		waitForPTY(t, output, "Save documentation under which directory?")
 		_, _ = terminal.Write([]byte(destination + "\r"))
+		waitForPTY(t, output, "Generate PDF companions for the 1 HTML guide?")
+		_, _ = terminal.Write([]byte("\r"))
 		finishPTYCLI(t, terminal, command, output, 0)
 		if _, err := os.Stat(filepath.Join(destination, "6300", "10.16", "manifest.json")); err != nil {
 			t.Fatalf("new typed destination was not created after confirmation: %v\n%s", err, output.String())

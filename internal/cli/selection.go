@@ -987,8 +987,11 @@ func (w *selectionWizard) scanAvailability(
 			return result.err
 		}
 		w.sourceStatus[item.document.URL] = result.sourceStatus
+		// HTML and HPE probes read their front page through the raw cache, so a
+		// refresh need not fetch it again. A direct PDF is probed with HEAD,
+		// which never reaches the cache: its cached bytes still need revalidation.
 		if result.sourceStatus.Checked && result.sourceStatus.Available &&
-			result.sourceStatus.ProbeURL != "" {
+			result.sourceStatus.ProbeURL != "" && item.document.Kind != "pdf" {
 			if w.state.preflightFresh == nil {
 				w.state.preflightFresh = map[string]bool{}
 			}
