@@ -47,7 +47,7 @@ age.
 | --- | --- |
 | `internal/model` | Stable shared data contracts and `Version = 0.8`. |
 | `internal/cli` | Cobra flags, guided terminal flow, progress, availability, and orchestration. |
-| `internal/source` | Portal catalogue, mapping resolution, Flare/HPE/static planners, source PDF discovery. |
+| `internal/source` | Portal catalogue and route-adapter check, mapping resolution, Flare/HPE/Oxygen/static planners, source PDF discovery. |
 | `internal/fetch` | Compatible and standard HTTP transports, robots, leases, retries, deadlines, diagnostics. |
 | `internal/cache` | Integrity-checked raw-v2 persistence and same-URL flight sharing. |
 | `internal/archive` | DOM/CSS/SVG processing, assets, local links, search records, and archive validation. |
@@ -102,6 +102,19 @@ serial and ordered.
 
 ## Source planning
 
+The catalogue comes from the Product Documentation portal, a JavaScript
+application that is read, never run. Its page names the product and loads
+`js/shell.js`; the portal root beside the shell holds the registry
+`models/products.json` and the product configuration, whose selectors give the
+platforms and releases and whose `catalog` resources give the guides. Guide
+mappings are `json/aoscx/<key>.json` beside the page. A per-product adapter
+module turns a mapping into a guide URL; the catalogue refresh checks that the
+adapter still contains the routing statements `resolve` reproduces, takes the
+documentation root from it, and stops with an update-required error if they
+changed. Releases from 10.17 route to Oxygen at
+`AOS-CX/<release>.xxxx/HTML/<folder>/index.html`, releases after 10.12 to Flare
+(the `cli` guide to its PDF), and older releases to archived PDFs.
+
 `Topic.URL` retains public identity; `Topic.FetchURL` identifies the body
 endpoint. `TocEntry` retains hierarchy, duplicates, and fragments while topic
 downloads are deduplicated.
@@ -114,9 +127,18 @@ HPE planning preserves exact document, page, query, final URL, and optional
 identity-header agreement. `content.json` is the complete TOC; only genuine
 same-document `main.ditasrc` content accepts HPE `multiPage`.
 
-Static/Oxygen requires an explicit complete supported plan and substantive
-content. It is fixture-verified only, with zero current mappings in the
-2026-09-16 production-resolution snapshot.
+Oxygen WebHelp publications, used from release 10.17, open on a tile index
+whose first tile is the planner's seed topic, as it is the portal's. A topic
+page carries only the top level of the TOC; every deeper level is a data file,
+`oxygen-webhelp/app/nav-links/json/<id>.js`, that assigns
+`oxy_webhelp_navlinks`. The planner parses those files with the bounded JSON5
+module and never executes them. A topic's children are inline in `topics` or
+in the file named by its `next` value; `menu.hasChildren` describes the top
+menu, not the TOC, and is ignored. Topics outside the TOC, such as a legal
+disclaimer, are found by following `rel="prev"` from the first TOC page and
+`rel="next"` from the last, within the publication and up to a fixed limit.
+The nav-links files are recorded as inventory chunks. Other static sources
+still require an explicit complete TOC; a lazy one is refused.
 
 ## Archive and publication
 
@@ -132,6 +154,19 @@ verified targets, SVG is rebuilt from its XML tokens with real namespaces, and
 unrecognized assets are stored as `.bin`. Every generated page carries a
 Content Security Policy with `base-uri`, `form-action` and `object-src` set to
 `'none'`; only index pages run their own scripts.
+
+Inside the `src` descriptor of an `@font-face` rule only (stylesheets,
+`<style>` blocks, SVG `<style>`), a source whose host answers HTTP 403, 404 or
+410 after redirects and retries, or refuses its robots.txt with 403 or 410 so
+the font is never requested, is dropped. A rule left with no source is removed;
+text falls back to the next family in each `font-family` stack, as it does
+online. Each rule is recorded in `stylesheet_recoveries`
+(`unavailable-font-face-sources`) with a warning, and the guide stays complete.
+Timeouts, 5xx, connection errors, robots disallow rules, the destination
+policy, size limits, invalid bodies, non-font resources and fonts used outside
+`@font-face src` still make the guide incomplete. Font recoveries are not
+missing resources. A TOC entry whose fragment the publisher's page does not
+define keeps its link to the page and is reported as a warning.
 
 Active references are validated according to element/attribute semantics.
 Cross-guide links localize only to a unique accepted topic identity. HTML search

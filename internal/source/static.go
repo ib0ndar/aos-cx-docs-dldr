@@ -112,6 +112,9 @@ func (p *planner) static(in input, flare func(input) (model.DocumentPlan, error)
 			return flare(in)
 		}
 	}
+	if first, ok := oxygenFirstTile(tree); ok {
+		return p.oxygen(in, tree, first)
+	}
 	root, err := joinSource(in.url, "./", false)
 	if err != nil {
 		return model.DocumentPlan{}, err

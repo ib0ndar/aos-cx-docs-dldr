@@ -15,6 +15,8 @@ import (
 	"strings"
 	"sync/atomic"
 	"testing"
+
+	"aos-cx-docs-dldr/internal/testutil"
 )
 
 func TestActualBinaryRetriesHeaderAndBodyAttemptTimeouts(t *testing.T) {
@@ -26,15 +28,16 @@ func TestActualBinaryRetriesHeaderAndBodyAttemptTimeouts(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.16"},
+		Guides: []testutil.PortalGuide{{ID: "retry", Title: "Retry Guide"}}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			w.Header().Set("Content-Type", "text/html")
-			io.WriteString(w, `<select id="platform"><option>6300</option></select><select id="ver"><option>10.16</option></select>
-<div id="menu1"><table><tr><td id="retry" onclick="openFile('HTML','retry','aoscx')">Retry Guide</td></tr></table></div>`)
 		case "/portal/json/aoscx/retry.json":
 			io.WriteString(w, `{"10.16":{"6300":"`+server.URL+`/guide/Content/home.htm"}}`)
 		case "/guide/Content/home.htm":

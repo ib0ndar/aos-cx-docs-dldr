@@ -50,6 +50,7 @@ type Catalog struct {
 	Versions  []string `json:"versions"`
 	Guides    []Guide  `json:"guides"`
 	SourceURL string   `json:"source_url"`
+	RouteRoot string   `json:"route_root,omitempty"`
 	FetchedAt string   `json:"fetched_at"`
 	Warnings  []string `json:"warnings"`
 }

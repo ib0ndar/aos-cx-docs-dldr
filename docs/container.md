@@ -115,9 +115,9 @@ engine.
 ## Use it
 
 ```powershell
-aos-cx-docs-dldr --list --platform 6300 --release 10.18.xxxx
-aos-cx-docs-dldr --platform 6300 --release 10.18.xxxx --all
-aos-cx-docs-dldr --platform 6300 --release 10.18.xxxx --all --convert-html-to-pdf
+aos-cx-docs-dldr --list --platform 6300 --release 10.18
+aos-cx-docs-dldr --platform 6300 --release 10.18 --all
+aos-cx-docs-dldr --platform 6300 --release 10.18 --all --convert-html-to-pdf
 aos-cx-docs-dldr
 ```
 
@@ -130,12 +130,12 @@ Results appear as normal Windows files:
 ```text
 C:\Users\<you>\Documents\AOS-CX\
   6300\
-    10.18.xxxx\
+    10.18\
       index.html
       manifest.json
       jobscheduler\
         index.html
-        6300 - 10.18.xxxx - Job Scheduler Guide.pdf   <- with --convert-html-to-pdf
+        6300 - 10.18 - Job Scheduler Guide.pdf   <- with --convert-html-to-pdf
         pages\
         assets\
 ```
@@ -181,7 +181,7 @@ docker run --rm -i --cap-drop ALL --security-opt no-new-privileges `
   -v aos-cx-docs-dldr-cache:/cache `
   -v "C:\certs\corporate-ca.pem:/certs/ca.pem:ro" `
   -e SSL_CERT_FILE=/certs/ca.pem -e HTTPS_PROXY=$env:HTTPS_PROXY `
-  aos-cx-docs-dldr:0.8 --destination /library --platform 6300 --release 10.18.xxxx --all
+  aos-cx-docs-dldr:0.8 --destination /library --platform 6300 --release 10.18 --all
 ```
 
 Both behaviours were verified against local fixtures: a dead proxy produces a
@@ -206,7 +206,7 @@ docker run --rm -i --cap-drop ALL --security-opt no-new-privileges `
   -v "$env:USERPROFILE\Documents\AOS-CX:/library" `
   -v aos-cx-docs-dldr-cache:/cache `
   aos-cx-docs-dldr:0.8 --destination /library `
-  --platform 6300 --release 10.18.xxxx --all --json > result.json
+  --platform 6300 --release 10.18 --all --json > result.json
 ```
 
 ## Libraries from other versions or platforms

@@ -5,12 +5,13 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
-	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
+
+	"aos-cx-docs-dldr/internal/testutil"
 )
 
 func TestExecutableRetainedPublisherPDFLocalReplay(t *testing.T) {
@@ -24,12 +25,15 @@ func TestExecutableRetainedPublisherPDFLocalReplay(t *testing.T) {
 		t.Fatal(err)
 	}
 	sum := sha256.Sum256(body)
+	portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.10"},
+		Guides: []testutil.PortalGuide{{ID: "jobscheduler", Title: "Job Scheduler Guide"}}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(404)
-		case "/aoscx.html":
-			io.WriteString(w, `<html><select id="platform"><option>6300</option></select><select id="ver"><option>10.10</option></select><div id="menu1"><table><tr><td id="jobscheduler" onclick="openFile('PDF','jobscheduler','aoscx')">Job Scheduler Guide</td></tr></table></div></html>`)
 		case "/json/aoscx/jobscheduler.json":
 			json.NewEncoder(w).Encode(map[string]any{"10.10": map[string]string{"6300": "http://" + r.Host + "/guide.pdf"}})
 		case "/guide.pdf":

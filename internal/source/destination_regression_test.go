@@ -47,7 +47,7 @@ func TestCatalogueAcceptsPublicHTTPAndRefusesNonPublicTargets(t *testing.T) {
 		{"https://2130706433/guide.pdf", "numeric host"},
 		{"https://docs.localhost/guide.pdf", "localhost"},
 	} {
-		_, err := resolve(model.Guide{ID: "guide"}, "6300", "10.16", tc.target)
+		_, err := resolve(model.Guide{ID: "guide"}, "6300", "10.16", tc.target, "https://example.test/techdocs/")
 		if err == nil || !strings.Contains(err.Error(), tc.target) || !strings.Contains(err.Error(), tc.reason) {
 			t.Errorf("unsafe mapping target %s was not refused clearly: %v", tc.target, err)
 		}

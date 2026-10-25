@@ -21,11 +21,12 @@ func (w cancelOnWrite) Write(p []byte) (int, error) {
 
 func TestCancellationOnFinalSuccessfulOutputReturns130(t *testing.T) {
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if fixturePortal.Serve(w, r, "/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(404)
-		case "/aoscx.html":
-			io.WriteString(w, fixturePortal)
 		default:
 			io.WriteString(w, `{}`)
 		}

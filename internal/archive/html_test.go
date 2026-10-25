@@ -973,6 +973,28 @@ func TestHTMLArchiveBookmarkAndUnsupportedContentClassification(t *testing.T) {
 	}
 }
 
+func TestHTMLArchiveTOCBookmarkAbsentAtPublisherIsAWarning(t *testing.T) {
+	fetcher := &archiveFixture{resources: map[string]model.Resource{
+		testHome: fixtureResource(testHome, "text/html", []byte(`<main id="mc-main-content"><h1>Home</h1><p>Body</p></main>`)),
+	}, calls: map[string]int{}}
+	plan := flarePlan()
+	plan.TOC = append(plan.TOC, model.TocEntry{Title: "Missing section", URL: testHome + "#GUID-MISSING"})
+	output := t.TempDir()
+	result, err := HTML(context.Background(), plan, fetcher, output, false, 1<<20, 2<<20)
+	if err != nil || result.Status != "complete" {
+		t.Fatalf("status=%s err=%v errors=%v", result.Status, err, result.Errors)
+	}
+	if !slices.ContainsFunc(result.Warnings, func(value string) bool { return strings.Contains(value, "Publisher bookmark #GUID-MISSING") }) {
+		t.Fatalf("missing publisher-bookmark warning: %v", result.Warnings)
+	}
+	for _, name := range []string{"index.html", "toc.html"} {
+		page, err := os.ReadFile(filepath.Join(output, name))
+		if err != nil || !strings.Contains(string(page), "#GUID-MISSING") {
+			t.Fatalf("%s lost the publisher TOC link: %v", name, err)
+		}
+	}
+}
+
 func TestHTMLArchiveCrossPageBookmarkClassification(t *testing.T) {
 	second := testRoot + "Content/second.htm"
 	for _, tc := range []struct {

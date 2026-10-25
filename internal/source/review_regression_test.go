@@ -11,6 +11,7 @@ import (
 
 	"aos-cx-docs-dldr/internal/model"
 	"aos-cx-docs-dldr/internal/testutil"
+	"golang.org/x/net/html"
 )
 
 func minimalFlare(chunk string) (*planFixture, model.Document) {
@@ -101,11 +102,9 @@ func catalogueHTML(title []byte, meta, headerCharset string, bom bool) model.Res
 	if bom {
 		body = append(body, 0xef, 0xbb, 0xbf)
 	}
-	body = append(body, []byte("<html><head>"+meta+`</head><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="guide" onclick="openFile('HTML','guide','aoscx')">`)...)
+	body = append(body, []byte("<html><head>"+meta+`<title>`)...)
 	body = append(body, title...)
-	body = append(body, []byte(`</td></tr></table></div></html>`)...)
+	body = append(body, []byte(`</title></head><body></body></html>`)...)
 	contentType := "text/html"
 	if headerCharset != "" {
 		contentType += "; charset=" + headerCharset
@@ -115,7 +114,6 @@ func catalogueHTML(title []byte, meta, headerCharset string, bom bool) model.Res
 }
 
 func TestHTMLDecodingHonorsBOMHeaderAndMetaCharset(t *testing.T) {
-	base := strings.TrimSuffix(model.PortalURL, "aoscx.html") + "json/aoscx/guide.json"
 	for _, tc := range []struct {
 		name     string
 		resource model.Resource
@@ -128,15 +126,13 @@ func TestHTMLDecodingHonorsBOMHeaderAndMetaCharset(t *testing.T) {
 			`<meta charset="windows-1252">`, "windows-1252", true)},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			mapping := model.Resource{URL: base, Status: 200, Headers: http.Header{"Content-Type": {"application/json"}},
-				Body: io.NopCloser(strings.NewReader(`{"10.16":{"6300":"guide"}}`))}
-			f := &planFixture{responses: map[string]model.Resource{model.PortalURL: tc.resource, base: mapping}}
-			catalog, err := LoadCatalog(context.Background(), f, model.PortalURL)
+			tree, err := parseHTML(tc.resource)
 			if err != nil {
 				t.Fatal(err)
 			}
-			if catalog.Guides[0].Title != "Café" {
-				t.Fatalf("HTML charset priority produced %q", catalog.Guides[0].Title)
+			titles := nodes(tree, func(n *html.Node) bool { return n.Data == "title" })
+			if len(titles) != 1 || text(titles[0]) != "Café" {
+				t.Fatalf("HTML charset priority produced %q", text(titles[0]))
 			}
 		})
 	}

@@ -70,15 +70,15 @@ func waitForPTYCount(t *testing.T, output *lockedBuffer, text string, count int)
 func promptFixtureServer(t *testing.T, advertiseNativePDF ...bool) *httptest.Server {
 	t.Helper()
 	nativePDF := len(advertiseNativePDF) > 0 && advertiseNativePDF[0]
+	portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.17", "10.16"},
+		Guides: []testutil.PortalGuide{{ID: "guide", Title: "PTY Guide"}}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			io.WriteString(w, `<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.17</option><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="guide" onclick="openFile('HTML','guide','aoscx')">PTY Guide</td>
-</tr></table></div></html>`)
 		case "/portal/json/aoscx/guide.json":
 			fmt.Fprintf(w, `{"10.16":{"6300":%q}}`, "http://"+r.Host+"/book/index.html")
 		case "/book/index.html":
@@ -114,17 +114,16 @@ func promptFixtureServer(t *testing.T, advertiseNativePDF ...bool) *httptest.Ser
 
 func promptMixedPDFFixtureServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.16"},
+		Guides: []testutil.PortalGuide{{ID: "native", Title: "Native-capable Guide"}, {ID: "html", Title: "HTML-only Guide"}}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			io.WriteString(w, `<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="native" onclick="openFile('HTML','native','aoscx')">Native-capable Guide</td>
-<td id="html" onclick="openFile('HTML','html','aoscx')">HTML-only Guide</td>
-</tr></table></div></html>`)
 		case "/portal/json/aoscx/native.json":
 			fmt.Fprintf(w, `{"10.16":{"6300":%q}}`, server.URL+"/native/index.html")
 		case "/portal/json/aoscx/html.json":
@@ -154,16 +153,16 @@ func promptMixedPDFFixtureServer(t *testing.T) *httptest.Server {
 
 func promptProgressFixtureServer(t *testing.T, topics int) *httptest.Server {
 	t.Helper()
+	portal := testutil.Portal{Platforms: []string{"8320"}, Versions: []string{"10.18.xxxx"},
+		Guides: []testutil.PortalGuide{{ID: "acl", Title: "ACLs 文档 and Classifiers Policy Guide with a very long title"}}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch {
 		case r.URL.Path == "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case r.URL.Path == "/portal/aoscx.html":
-			io.WriteString(w, `<html><select id="platform"><option>8320</option></select>
-<select id="ver"><option>10.18.xxxx</option></select><div id="menu1"><table><tr>
-<td id="acl" onclick="openFile('HTML','acl','aoscx')">ACLs 文档 and Classifiers Policy Guide with a very long title</td>
-</tr></table></div></html>`)
 		case r.URL.Path == "/portal/json/aoscx/acl.json":
 			json.NewEncoder(w).Encode(map[string]any{
 				"10.18.xxxx": map[string]string{"8320": server.URL + "/book/index.html"},
@@ -192,19 +191,19 @@ func promptProgressFixtureServer(t *testing.T, topics int) *httptest.Server {
 
 func promptStartupProgressFixtureServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.16"},
+		Guides: []testutil.PortalGuide{{ID: "ha", Title: "High Availability"}, {ID: "job", Title: "Job Scheduler"}, {ID: "vsx", Title: "VSX"}}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/portal/aoscx.html" {
+			time.Sleep(375 * time.Millisecond)
+		}
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			time.Sleep(375 * time.Millisecond)
-			io.WriteString(w, `<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="ha" onclick="openFile('HTML','ha','aoscx')">High Availability</td>
-<td id="job" onclick="openFile('HTML','job','aoscx')">Job Scheduler</td>
-<td id="vsx" onclick="openFile('HTML','vsx','aoscx')">VSX</td>
-</tr></table></div></html>`)
 		case "/portal/json/aoscx/ha.json", "/portal/json/aoscx/job.json", "/portal/json/aoscx/vsx.json":
 			id := strings.TrimSuffix(filepath.Base(r.URL.Path), ".json")
 			delay := map[string]time.Duration{"ha": 150, "job": 300, "vsx": 450}[id]
@@ -229,16 +228,16 @@ func promptStartupProgressFixtureServer(t *testing.T) *httptest.Server {
 
 func promptIncompleteFixtureServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	portal := testutil.Portal{Platforms: []string{"8320"}, Versions: []string{"10.18.xxxx"},
+		Guides: []testutil.PortalGuide{{ID: "acl", Title: "ACL Guide"}}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			io.WriteString(w, `<html><select id="platform"><option>8320</option></select>
-<select id="ver"><option>10.18.xxxx</option></select><div id="menu1"><table><tr>
-<td id="acl" onclick="openFile('HTML','acl','aoscx')">ACL Guide</td>
-</tr></table></div></html>`)
 		case "/portal/json/aoscx/acl.json":
 			json.NewEncoder(w).Encode(map[string]any{
 				"10.18.xxxx": map[string]string{"8320": server.URL + "/book/index.html"},
@@ -265,17 +264,16 @@ func promptIncompleteFixtureServer(t *testing.T) *httptest.Server {
 func promptCancellationFixtureServer(t *testing.T) (*httptest.Server, <-chan struct{}) {
 	t.Helper()
 	active := make(chan struct{}, 1)
+	portal := testutil.Portal{Platforms: []string{"8320"}, Versions: []string{"10.18.xxxx"},
+		Guides: []testutil.PortalGuide{{ID: "first", Title: "First PDF"}, {ID: "second", Title: "Second PDF"}}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			io.WriteString(w, `<html><select id="platform"><option>8320</option></select>
-<select id="ver"><option>10.18.xxxx</option></select><div id="menu1"><table><tr>
-<td id="first" onclick="openFile('PDF','first','aoscx')">First PDF</td>
-<td id="second" onclick="openFile('PDF','second','aoscx')">Second PDF</td>
-</tr></table></div></html>`)
 		case "/portal/json/aoscx/first.json":
 			json.NewEncoder(w).Encode(map[string]any{
 				"10.18.xxxx": map[string]string{"8320": server.URL + "/first.pdf"},
@@ -304,15 +302,15 @@ func promptCancellationFixtureServer(t *testing.T) (*httptest.Server, <-chan str
 
 func promptTypeaheadFixtureServer(t *testing.T) *httptest.Server {
 	t.Helper()
+	portal := testutil.Portal{Platforms: []string{"6300", "6400"}, Versions: []string{"10.17", "10.16"},
+		Guides: []testutil.PortalGuide{{ID: "guide", Title: "PTY Guide"}}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			io.WriteString(w, `<html><select id="platform"><option>6300</option><option>6400</option></select>
-<select id="ver"><option>10.17</option><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="guide" onclick="openFile('HTML','guide','aoscx')">PTY Guide</td>
-</tr></table></div></html>`)
 		case "/portal/json/aoscx/guide.json":
 			fmt.Fprintf(w, `{"10.17":{"6300":%q},"10.16":{"6300":%q}}`,
 				"http://"+r.Host+"/book/index.html", "http://"+r.Host+"/book/index.html")
@@ -337,19 +335,18 @@ func promptBackFixtureServer(t *testing.T) (*httptest.Server, *[]string, *sync.M
 	t.Helper()
 	requests := &[]string{}
 	var requestsMu sync.Mutex
+	portal := testutil.Portal{Platforms: []string{"6300", "6400"}, Versions: []string{"10.17", "10.16"},
+		Guides: []testutil.PortalGuide{{ID: "guide-a", Title: "Guide A"}, {ID: "guide-b", Title: "Guide B"}}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		requestsMu.Lock()
 		*requests = append(*requests, r.URL.Path)
 		requestsMu.Unlock()
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			io.WriteString(w, `<html><select id="platform"><option>6300</option><option>6400</option></select>
-<select id="ver"><option>10.17</option><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="guide-a" onclick="openFile('HTML','guide-a','aoscx')">Guide A</td>
-<td id="guide-b" onclick="openFile('HTML','guide-b','aoscx')">Guide B</td>
-</tr></table></div></html>`)
 		case "/portal/json/aoscx/guide-a.json":
 			fmt.Fprintf(w, `{"10.17":{"6300":%q},"10.16":{"6400":%q}}`,
 				"http://"+r.Host+"/old/index.html", "http://"+r.Host+"/new/index.html")
@@ -1082,22 +1079,15 @@ func TestActualPTYShowsAllPlatformsAndReleases(t *testing.T) {
 	platforms := []string{"4100i", "5420", "6000", "6100", "6200", "6300", "6400", "8100",
 		"8320", "8325", "8360", "8400", "9300", "10000", "10040"}
 	versions := []string{"10.18.xxxx", "10.17.1000", "10.17", "10.16", "10.15", "10.14", "10.13", "10.10"}
+	portal := testutil.Portal{Platforms: platforms, Versions: versions,
+		Guides: []testutil.PortalGuide{{ID: "guide", Title: "PTY Guide"}}}
 	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			fmt.Fprint(w, `<html><select id="platform">`)
-			for _, value := range platforms {
-				fmt.Fprintf(w, "<option>%s</option>", value)
-			}
-			fmt.Fprint(w, `</select><select id="ver">`)
-			for _, value := range versions {
-				fmt.Fprintf(w, "<option>%s</option>", value)
-			}
-			fmt.Fprint(w, `</select><div id="menu1"><table><tr>
-<td id="guide" onclick="openFile('HTML','guide','aoscx')">PTY Guide</td>
-</tr></table></div></html>`)
 		case "/portal/json/aoscx/guide.json":
 			mappings := map[string]map[string]string{}
 			for _, version := range versions {

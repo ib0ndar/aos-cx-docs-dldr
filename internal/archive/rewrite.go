@@ -165,6 +165,7 @@ func (a *htmlArchiver) rewriteContent(content *html.Node, page *pageInput) error
 			if err != nil {
 				fail(err)
 			} else {
+				a.assets.recordFontFaceRecoveries(page.topic.URL, diagnostics.FontFaces)
 				node.AppendChild(&html.Node{Type: html.TextNode, Data: string(rewritten)})
 			}
 		}

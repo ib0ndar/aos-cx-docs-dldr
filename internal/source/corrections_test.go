@@ -16,7 +16,7 @@ func TestAbsoluteMappedDocumentPreservesBookmark(t *testing.T) {
 		{"https://publisher.example/some guide%20name.html#install step%202", "https://publisher.example/some%20guide%20name.html#install%20step%202"},
 		{"https://publisher.example/some%2Fguide name.html#installation%2Fpart 1", "https://publisher.example/some%2Fguide%20name.html#installation%2Fpart%201"},
 	} {
-		d, err := resolve(model.Guide{ID: "guide"}, "6300", "10.16", tc.target)
+		d, err := resolve(model.Guide{ID: "guide"}, "6300", "10.16", tc.target, "https://example.test/techdocs/")
 		if err != nil || d.URL != tc.want {
 			t.Fatalf("mapped bookmark lost: got=%q want=%q error=%v", d.URL, tc.want, err)
 		}

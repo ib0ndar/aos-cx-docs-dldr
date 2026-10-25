@@ -43,7 +43,10 @@ type CatalogProgress struct {
 type CatalogProgressObserver func(CatalogProgress)
 
 var bookPattern = regexp.MustCompile(`^[A-Za-z0-9_-]+$`)
-var handlerPattern = regexp.MustCompile(`^\s*(?:return\s+)?openFile\(\s*('HTML'|"HTML"|'PDF'|"PDF")\s*,\s*('([A-Za-z0-9_-]+)'|"([A-Za-z0-9_-]+)")\s*,\s*('aoscx'|"aoscx")\s*\)\s*;?\s*$`)
+
+// folderPattern admits publisher guide folder names, which since 10.17 can
+// contain spaces, parentheses and commas, but never a path separator.
+var folderPattern = regexp.MustCompile(`^[A-Za-z0-9](?:[A-Za-z0-9 _().,-]*[A-Za-z0-9)_.-])?$`)
 var releasePattern = regexp.MustCompile(`^\d+\.\d+(?:\.(?:\d+|[xX]+))*$`)
 var errorTitle = regexp.MustCompile(`(?i)^(?:error(?:\s+\d+)?|access denied|unauthorized|forbidden|(?:404[ :\-]*)?(?:page|document|file) not found|sign in|log in|request rejected|service unavailable)(?:[.!:]|$)`)
 
@@ -90,47 +93,6 @@ func nodes(root *html.Node, match func(*html.Node) bool) []*html.Node {
 
 func label(value string) bool {
 	return utf8.ValidString(value) && strings.TrimSpace(value) != "" && utf8.RuneCountInString(value) <= 4096
-}
-
-func options(root *html.Node, id string) ([]string, error) {
-	selects := nodes(root, func(n *html.Node) bool {
-		v, _ := attr(n, "id")
-		return n.Data == "select" && v == id
-	})
-	if len(selects) != 1 {
-		return nil, fmt.Errorf("portal must contain one select#%s", id)
-	}
-	var values []string
-	seen := map[string]bool{}
-	for _, n := range nodes(selects[0], func(n *html.Node) bool { return n.Data == "option" }) {
-		if _, disabled := attr(n, "disabled"); disabled {
-			continue
-		}
-		if _, hidden := attr(n, "hidden"); hidden {
-			continue
-		}
-		value, present := attr(n, "value")
-		if !present {
-			value = text(n)
-		}
-		if value == "" {
-			continue
-		}
-		if !label(value) || strings.TrimSpace(value) != value {
-			return nil, fmt.Errorf("invalid portal %s value %q", id, value)
-		}
-		if !seen[value] {
-			if len(values) >= 1000 {
-				return nil, fmt.Errorf("portal select#%s has no usable options or too many options", id)
-			}
-			seen[value] = true
-			values = append(values, value)
-		}
-	}
-	if len(values) == 0 {
-		return nil, fmt.Errorf("portal select#%s has no usable options or too many options", id)
-	}
-	return values, nil
 }
 
 func get(ctx context.Context, f model.Fetcher, raw string) (model.Resource, error) {
@@ -245,64 +207,11 @@ func LoadCatalogWithWorkersObserved(
 	if err != nil {
 		return model.Catalog{}, err
 	}
-	tree, err := parseHTMLContext(ctx, r)
+	catalog, entries, err := loadPortal(ctx, f, r)
 	if err != nil {
-		return model.Catalog{}, err
-	}
-	catalog := model.Catalog{SourceURL: r.URL, FetchedAt: time.Now().UTC().Format(time.RFC3339),
-		Guides: []model.Guide{}, Warnings: []string{}}
-	if catalog.Platforms, err = options(tree, "platform"); err != nil {
 		return catalog, err
 	}
-	if catalog.Versions, err = options(tree, "ver"); err != nil {
-		return catalog, err
-	}
-	menus := nodes(tree, func(n *html.Node) bool { id, _ := attr(n, "id"); return id == "menu1" })
-	if len(menus) != 1 {
-		return catalog, errors.New("missing or ambiguous Product Documentation inventory #menu1")
-	}
-	cells := nodes(menus[0], func(n *html.Node) bool {
-		_, id := attr(n, "id")
-		_, handler := attr(n, "onclick")
-		return n.Data == "td" && id && handler
-	})
-	if len(cells) == 0 || len(cells) > 1000 {
-		return catalog, errors.New("missing or oversized Product Documentation inventory")
-	}
-	seen := make(map[string]bool)
-	base, _ := url.Parse(r.URL)
-	type entry struct {
-		guide      model.Guide
-		mappingURL string
-	}
-	entries := make([]entry, 0, len(cells))
-	for _, cell := range cells {
-		if err := ctx.Err(); err != nil {
-			return catalog, err
-		}
-		id, _ := attr(cell, "id")
-		handler, _ := attr(cell, "onclick")
-		match := handlerPattern.FindStringSubmatch(handler)
-		book := id
-		if match != nil {
-			book = match[3] + match[4]
-		}
-		if !label(book) || !label(text(cell)) {
-			return catalog, errors.New("invalid guide identifier or title")
-		}
-		if seen[book] {
-			return catalog, fmt.Errorf("duplicate Product Documentation identifier %q", book)
-		}
-		seen[book] = true
-		guide := model.Guide{ID: book, Title: text(cell), Mappings: map[string]map[string]string{}}
-		item := entry{guide: guide}
-		if match == nil || book != id {
-			item.guide.Error = fmt.Sprintf("unsupported Product Documentation handler for %q", book)
-		} else {
-			item.mappingURL = base.ResolveReference(&url.URL{Path: "json/aoscx/" + book + ".json"}).String()
-		}
-		entries = append(entries, item)
-	}
+	catalog.FetchedAt = time.Now().UTC().Format(time.RFC3339)
 	mappingTotal := 0
 	for _, item := range entries {
 		if item.mappingURL != "" {
@@ -429,38 +338,48 @@ func parseMappings(r model.Resource) (map[string]map[string]string, error) {
 	return result, nil
 }
 
-func releaseAfter(version string, boundary int) (bool, error) {
-	if !releasePattern.MatchString(version) {
-		return false, fmt.Errorf("unsupported release label %q; cannot infer publisher route", version)
-	}
-	parts := strings.Split(version, ".")
-	bound := []int{10, boundary, 0}
-	result := 0
-	for i, part := range parts {
-		v := 0
-		if !strings.ContainsAny(part, "xX") {
-			var err error
-			v, err = strconv.Atoi(part)
-			if err != nil {
-				return false, fmt.Errorf("invalid release component: %w", err)
+// compareRelease orders two release labels exactly as the publisher's route
+// adapter does: a trailing .xxxx counts as .9999, every other component is
+// read as a decimal number, and components that are not numbers count as 0.
+func compareRelease(first, second string) int {
+	parts := func(value string) []int {
+		if strings.HasSuffix(strings.ToLower(value), ".xxxx") {
+			value = value[:len(value)-len(".xxxx")] + ".9999"
+		}
+		var result []int
+		for _, part := range strings.Split(value, ".") {
+			digits := part
+			if end := strings.IndexFunc(part, func(r rune) bool { return r < '0' || r > '9' }); end >= 0 {
+				digits = part[:end]
 			}
+			n, _ := strconv.Atoi(digits)
+			result = append(result, n)
 		}
-		b := 0
-		if i < len(bound) {
-			b = bound[i]
+		return result
+	}
+	left, right := parts(first), parts(second)
+	for index := range max(len(left), len(right)) {
+		var a, b int
+		if index < len(left) {
+			a = left[index]
 		}
-		if result == 0 && v != b {
-			if v > b {
-				result = 1
-			} else {
-				result = -1
+		if index < len(right) {
+			b = right[index]
+		}
+		if a != b {
+			if a > b {
+				return 1
 			}
+			return -1
 		}
 	}
-	return result > 0, nil
+	return 0
 }
 
-func resolve(guide model.Guide, platform, version, target string) (model.Document, error) {
+// resolve turns one publisher mapping into a guide document. Folder targets
+// follow the publisher's route adapter, which the catalog has verified;
+// root is the documentation root that adapter builds URLs from.
+func resolve(guide model.Guide, platform, version, target, root string) (model.Document, error) {
 	d := model.Document{ID: guide.ID, Title: guide.Title, Platform: platform, Version: version}
 	if strings.Contains(target, ":") || strings.HasPrefix(target, "//") {
 		normalized, err := fetch.NormalizeURL(target)
@@ -496,35 +415,32 @@ func resolve(guide model.Guide, platform, version, target string) (model.Documen
 		}
 		return d, nil
 	}
-	if !bookPattern.MatchString(target) {
+	if !folderPattern.MatchString(target) || strings.Contains(target, "..") {
 		return d, fmt.Errorf("unsupported publisher target %q; refusing to guess a route", target)
 	}
-	newer, err := releaseAfter(version, 17)
-	if err != nil {
-		return d, err
+	if !releasePattern.MatchString(version) {
+		return d, fmt.Errorf("unsupported release label %q; cannot infer publisher route", version)
 	}
-	modern, err := releaseAfter(version, 12)
-	if err != nil {
-		return d, err
+	if root == "" {
+		return d, errors.New("catalog has no verified documentation root")
 	}
-	base := "https://arubanetworking.hpe.com/techdocs/"
+	folder := url.PathEscape(target)
+	d.RouteOrigin = "adapter-derived-book-stem"
 	switch {
-	case newer && strings.Contains(target, "en_us"):
-		d.Kind, d.URL = "hpe", "https://support.hpe.com/hpesc/public/docDisplay?mask=sh-rs&docId="+target
-		d.RouteOrigin = "hpe-document-id"
-	case newer:
-		d.Kind, d.URL = "static", base+"AOS-CX/"+version+"/HTML/"+target+"/index.html"
-		d.RouteOrigin = "adapter-derived-book-stem"
-	case modern && guide.ID != "cli":
-		d.Kind, d.URL = "flare", base+"AOS-CX/"+version+"/HTML/"+target+"/Content/home.htm"
-		d.RouteOrigin = "adapter-derived-book-stem"
-	case modern:
-		d.Kind, d.URL = "pdf", base+"AOS-CX/"+version+"/PDF/"+target+".pdf"
-		d.RouteOrigin = "adapter-derived-book-stem"
+	case compareRelease(version, "10.17") >= 0:
+		d.Kind, d.URL = "static", root+"AOS-CX/"+version+".xxxx/HTML/"+folder+"/index.html"
+	case compareRelease(version, "10.12") > 0 && guide.ID == "cli":
+		d.Kind, d.URL = "pdf", root+"AOS-CX/"+version+"/PDF/"+folder+".pdf"
+	case compareRelease(version, "10.12") > 0:
+		d.Kind, d.URL = "flare", root+"AOS-CX/"+version+"/HTML/"+folder+"/Content/home.htm"
 	default:
-		d.Kind, d.URL = "pdf", base+"Archived/AOS-CX/"+version+"/PDF/"+target+".pdf"
-		d.RouteOrigin = "adapter-derived-book-stem"
+		d.Kind, d.URL = "pdf", root+"Archived/AOS-CX/"+version+"/PDF/"+folder+".pdf"
 	}
+	normalized, err := fetch.NormalizeURL(d.URL)
+	if err != nil {
+		return d, err
+	}
+	d.URL = normalized
 	return d, nil
 }
 
@@ -543,7 +459,7 @@ func ResolveDocuments(c model.Catalog, platform, version string) ([]model.Docume
 		if !mapped {
 			continue
 		}
-		d, err := resolve(g, platform, version, target)
+		d, err := resolve(g, platform, version, target, c.RouteRoot)
 		if err != nil {
 			diagnostics = append(diagnostics, g.Title+": "+err.Error())
 		} else {

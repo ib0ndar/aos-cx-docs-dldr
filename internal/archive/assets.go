@@ -23,6 +23,7 @@ type assetState struct {
 	svgStyles      bool
 	needsSVGStyles bool
 	reported       bool
+	unavailable    *unavailableFontError
 }
 
 type assetManager struct {
@@ -39,16 +40,17 @@ type assetManager struct {
 	notices       *[]model.Notice
 	warnings      *[]string
 	errors        *[]string
+	recoveries    *[]model.StylesheetRecovery
 	relevant      cssSelectorFilter
 	inlineSVGs    int
 	progress      func(discovered, completed int)
 	completed     int
 }
 
-func newAssetManager(ctx context.Context, fetcher model.Fetcher, root *os.Root, refresh bool, maxBytes int64, budget *sourceBudget, notices *[]model.Notice, warnings, errs *[]string, progress func(discovered, completed int)) *assetManager {
+func newAssetManager(ctx context.Context, fetcher model.Fetcher, root *os.Root, refresh bool, maxBytes int64, budget *sourceBudget, notices *[]model.Notice, warnings, errs *[]string, recoveries *[]model.StylesheetRecovery, progress func(discovered, completed int)) *assetManager {
 	return &assetManager{ctx: ctx, fetcher: fetcher, root: root, refresh: refresh, maxBytes: maxBytes, budget: budget,
 		states: map[string]*assetState{}, probeFailures: map[string]error{}, imageFailures: map[string]rasterFailure{},
-		notices: notices, warnings: warnings, errors: errs, progress: progress}
+		notices: notices, warnings: warnings, errors: errs, recoveries: recoveries, progress: progress}
 }
 
 func (m *assetManager) local(reference, base, owner string, kind dependencyKind) (string, error) {
@@ -105,6 +107,12 @@ func (m *assetManager) load(raw string, kind dependencyKind, depth int) (*assetS
 		if existing.record.Status == "substituted" {
 			return m.fail(existing, errors.New(existing.record.Error))
 		}
+		if existing.record.Status == "unavailable" {
+			if kind == dependencyFontSource {
+				return existing, existing.unavailable
+			}
+			return m.fail(existing, errors.New(existing.record.Error))
+		}
 		if kind == dependencySVGStyle && !existing.svgStyles &&
 			classifyAsset(key, existing.record.ContentType, existing.sourceBody, kind) == "css" {
 			if existing.processing {
@@ -130,6 +138,11 @@ func (m *assetManager) load(raw string, kind dependencyKind, depth int) (*assetS
 	state := m.install(key)
 	resource, body, err := readResource(m.ctx, m.fetcher, key, m.refresh, m.maxBytes)
 	if err != nil {
+		if kind == dependencyFontSource {
+			if status, final, refused := unavailableFontStatus(err); refused {
+				return m.unavailable(state, status, final, err)
+			}
+		}
 		return m.fail(state, err)
 	}
 	return m.processLoaded(state, resource, body, kind, depth)
@@ -150,6 +163,9 @@ func (m *assetManager) probe(raw string, kind dependencyKind, depth int) (*asset
 		if existing.record.Status == "failed" {
 			return existing, errors.New(existing.record.Error)
 		}
+		if existing.record.Status == "unavailable" {
+			return m.fail(existing, errors.New(existing.record.Error))
+		}
 		return existing, nil
 	}
 	if len(m.states) >= maxHTMLAssets {
@@ -169,6 +185,9 @@ func (m *assetManager) recordFailure(raw string, err error) (*assetState, error)
 		return nil, canonicalErr
 	}
 	if existing := m.states[key]; existing != nil {
+		if existing.record.Status == "unavailable" {
+			return m.fail(existing, errors.New(existing.record.Error))
+		}
 		return existing, errors.New(existing.record.Error)
 	}
 	return m.fail(m.install(key), err)
@@ -272,6 +291,7 @@ func (m *assetManager) rewriteStylesheet(state *assetState, kind dependencyKind,
 	if err := storage.Atomic(m.root, state.record.Path, output); err != nil {
 		return err
 	}
+	m.recordFontFaceRecoveries(state.record.URL, diagnostics.FontFaces)
 	state.body = append([]byte{}, output...)
 	state.record.SHA256 = sourceHash(output)
 	state.record.Size = int64(len(output))
@@ -309,7 +329,7 @@ func (m *assetManager) records() []model.FileRecord {
 	records := make([]model.FileRecord, 0, len(m.order))
 	for _, key := range m.order {
 		record := m.states[key].record
-		if record.Status == "substituted" {
+		if record.Status == "substituted" || record.Status == "unavailable" {
 			continue
 		}
 		records = append(records, record)

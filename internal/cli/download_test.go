@@ -30,11 +30,13 @@ import (
 	"github.com/charmbracelet/x/ansi"
 )
 
-const pdfPortal = `<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.10</option><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="first" onclick="openFile('PDF','first','aoscx')">First Guide</td>
-<td id="second" onclick="openFile('PDF','second','aoscx')">Second Guide</td>
-<td id="html" onclick="openFile('HTML','html','aoscx')">HTML Guide</td></tr></table></div></html>`
+var pdfPortal = testutil.Portal{
+	Platforms: []string{"6300"},
+	Versions:  []string{"10.10", "10.16"},
+	Guides: []testutil.PortalGuide{
+		{ID: "first", Title: "First Guide"}, {ID: "second", Title: "Second Guide"}, {ID: "html", Title: "HTML Guide"},
+	},
+}
 
 func binary(t *testing.T) string {
 	t.Helper()
@@ -65,11 +67,12 @@ func execute(t *testing.T, args []string) (int, []byte, string) {
 }
 
 func fixtureCatalog(w http.ResponseWriter, r *http.Request) bool {
+	if pdfPortal.Serve(w, r, "/portal/aoscx.html") {
+		return true
+	}
 	switch r.URL.Path {
 	case "/robots.txt":
 		w.WriteHeader(404)
-	case "/portal/aoscx.html":
-		io.WriteString(w, pdfPortal)
 	case "/portal/json/aoscx/first.json", "/portal/json/aoscx/second.json":
 		id := strings.TrimSuffix(filepath.Base(r.URL.Path), ".json")
 		json.NewEncoder(w).Encode(map[string]any{"10.10": map[string]string{"6300": "http://" + r.Host + "/pdf/" + id + ".pdf"}})
@@ -304,16 +307,16 @@ func TestExecutableStaticHTMLPublication(t *testing.T) {
 func TestCLIInitiallyStaticRoutePublishesVerifiedPDF(t *testing.T) {
 	body := testutil.PDF("resolved static route")
 	sum := sha256.Sum256(body)
+	portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.18.xxxx"},
+		Guides: []testutil.PortalGuide{{ID: "guide", Title: "Resolved PDF Guide"}}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			io.WriteString(w, `<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.18.xxxx</option></select><div id="menu1"><table><tr>
-<td id="guide" onclick="openFile('HTML','guide','aoscx')">Resolved PDF Guide</td>
-</tr></table></div></html>`)
 		case "/portal/json/aoscx/guide.json":
 			json.NewEncoder(w).Encode(map[string]any{
 				"10.18.xxxx": map[string]string{"6300": server.URL + "/guide/index.html"},
@@ -386,16 +389,16 @@ func TestCLIInvalidResolvedPDFAndHTMLFailureStayIncomplete(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var guessedPDF atomic.Int32
+			portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.18.xxxx"},
+				Guides: []testutil.PortalGuide{{ID: "guide", Title: "Broken HTML Guide"}}}
 			var server *httptest.Server
 			server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				if portal.Serve(w, r, "/portal/aoscx.html") {
+					return
+				}
 				switch r.URL.Path {
 				case "/robots.txt":
 					w.WriteHeader(http.StatusNotFound)
-				case "/portal/aoscx.html":
-					io.WriteString(w, `<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.18.xxxx</option></select><div id="menu1"><table><tr>
-<td id="guide" onclick="openFile('HTML','guide','aoscx')">Broken HTML Guide</td>
-</tr></table></div></html>`)
 				case "/portal/json/aoscx/guide.json":
 					json.NewEncoder(w).Encode(map[string]any{
 						"10.18.xxxx": map[string]string{"6300": server.URL + "/guide/index.html"},
@@ -536,7 +539,9 @@ func TestAttemptBudgetExhaustionPublishesAcceptedGuideAndReturnsNonzero(t *testi
 		t.Fatalf("budget allowed unexpected request: %s", r.URL)
 	}))
 	defer server.Close()
-	budget, err := fetch.NewAttemptBudget(8, 1)
+	// Robots, the product page, three portal data files, three mappings, the
+	// two PDF HEAD probes and the first PDF body leave nothing for the second.
+	budget, err := fetch.NewAttemptBudget(11, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -560,8 +565,8 @@ func TestAttemptBudgetExhaustionPublishesAcceptedGuideAndReturnsNonzero(t *testi
 	if output.Manifest.Status != "incomplete" || len(output.Manifest.PDFGuides) != 1 ||
 		output.Manifest.PDFGuides["first"].Status != "complete" ||
 		!strings.Contains(strings.Join(output.Manifest.Errors, " "), "attempt budget exhausted") ||
-		hits.Load() != 8 || budget.Stats().AttemptedTransmissions != 8 ||
-		budget.Stats().ObservedHeaderWrites != 8 {
+		hits.Load() != 11 || budget.Stats().AttemptedTransmissions != 11 ||
+		budget.Stats().ObservedHeaderWrites != 11 {
 		t.Fatalf("budget exhaustion publication invalid: hits=%d stats=%+v output=%+v", hits.Load(), budget.Stats(), output)
 	}
 }
@@ -749,16 +754,16 @@ func TestPublisherNoticeSummariesArePlainAndPerGuide(t *testing.T) {
 }
 
 func TestDegradedHTMLPublishesImagePlaceholderThroughCLI(t *testing.T) {
+	portal := testutil.Portal{Platforms: []string{"8320"}, Versions: []string{"10.18.xxxx"},
+		Guides: []testutil.PortalGuide{{ID: "acl", Title: "ACL Guide"}}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			io.WriteString(w, `<html><select id="platform"><option>8320</option></select>
-<select id="ver"><option>10.18.xxxx</option></select><div id="menu1"><table><tr>
-<td id="acl" onclick="openFile('HTML','acl','aoscx')">ACL Guide</td>
-</tr></table></div></html>`)
 		case "/portal/json/aoscx/acl.json":
 			json.NewEncoder(w).Encode(map[string]any{
 				"10.18.xxxx": map[string]string{"8320": server.URL + "/book/index.html"},
@@ -879,16 +884,15 @@ func TestAuthoritativeFlareTopic404FailsGuideAndRetainsPreviousComplete(t *testi
 	var server *httptest.Server
 	var missing atomic.Bool
 	var topicRequests atomic.Int32
+	portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.16"},
+		Guides: []testutil.PortalGuide{{ID: "job", Title: "Job Scheduler Guide"}}}
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			w.Header().Set("Content-Type", "text/html")
-			io.WriteString(w, `<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="job" onclick="openFile('HTML','job','aoscx')">Job Scheduler Guide</td>
-</tr></table></div></html>`)
 		case "/portal/json/aoscx/job.json":
 			w.Header().Set("Content-Type", "application/json")
 			json.NewEncoder(w).Encode(map[string]any{

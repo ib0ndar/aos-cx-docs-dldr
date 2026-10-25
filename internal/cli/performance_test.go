@@ -15,6 +15,8 @@ import (
 	"sync"
 	"testing"
 	"time"
+
+	"aos-cx-docs-dldr/internal/testutil"
 )
 
 type topicConcurrency struct {
@@ -57,20 +59,23 @@ func (s *topicConcurrency) current() int {
 	return s.active
 }
 
+// performancePortal offers one guide for 6300 and 10.16.
+func performancePortal(title string) testutil.Portal {
+	return testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.16"},
+		Guides: []testutil.PortalGuide{{ID: "guide", Title: title}}}
+}
+
 func TestPlannedTopicWorkersImproveRealCLIPipeline(t *testing.T) {
 	const topics = 24
 	state := &topicConcurrency{}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if performancePortal("Performance Guide").Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch {
 		case r.URL.Path == "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case r.URL.Path == "/portal/aoscx.html":
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="guide" onclick="openFile('HTML','guide','aoscx')">Performance Guide</td>
-</tr></table></div></html>`)
 		case r.URL.Path == "/portal/json/aoscx/guide.json":
 			json.NewEncoder(w).Encode(map[string]any{"10.16": map[string]string{"6300": server.URL + "/book/index.html"}})
 		case r.URL.Path == "/book/index.html":
@@ -172,13 +177,10 @@ func TestPlannedTopicPrefetchDoesNotMultiplyRefresh(t *testing.T) {
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
+		if performancePortal("Refresh Guide").Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
-		case "/portal/aoscx.html":
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="guide" onclick="openFile('HTML','guide','aoscx')">Refresh Guide</td>
-</tr></table></div></html>`)
 		case "/portal/json/aoscx/guide.json":
 			json.NewEncoder(w).Encode(map[string]any{"10.16": map[string]string{"6300": server.URL + "/book/index.html"}})
 		case "/book/index.html":
@@ -229,15 +231,12 @@ func TestPrefetchLookaheadStopsBeforeWholeOversizedInventory(t *testing.T) {
 	var mu sync.Mutex
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if performancePortal("Bounded Guide").Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch {
 		case r.URL.Path == "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case r.URL.Path == "/portal/aoscx.html":
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="guide" onclick="openFile('HTML','guide','aoscx')">Bounded Guide</td>
-</tr></table></div></html>`)
 		case r.URL.Path == "/portal/json/aoscx/guide.json":
 			json.NewEncoder(w).Encode(map[string]any{"10.16": map[string]string{"6300": server.URL + "/book/index.html"}})
 		case r.URL.Path == "/book/index.html":
@@ -285,15 +284,12 @@ func TestCancellationStopsQueuedAndActiveTopicPrefetch(t *testing.T) {
 	state := &topicConcurrency{}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if performancePortal("Cancellation Guide").Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch {
 		case r.URL.Path == "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case r.URL.Path == "/portal/aoscx.html":
-			w.Header().Set("Content-Type", "text/html")
-			fmt.Fprint(w, `<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="guide" onclick="openFile('HTML','guide','aoscx')">Cancellation Guide</td>
-</tr></table></div></html>`)
 		case r.URL.Path == "/portal/json/aoscx/guide.json":
 			json.NewEncoder(w).Encode(map[string]any{"10.16": map[string]string{"6300": server.URL + "/book/index.html"}})
 		case r.URL.Path == "/book/index.html":

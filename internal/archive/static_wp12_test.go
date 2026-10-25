@@ -148,11 +148,12 @@ func TestStaticAuthoredArchiveCorpusPreservesAssetsSemanticsAndIdentity(t *testi
 func TestStaticRasterDegradesButRequiredDependenciesAndTopicsFailClosed(t *testing.T) {
 	plan := staticWP12ArchivePlan()
 	for _, test := range []struct {
-		name        string
-		target      string
-		replacement model.Resource
-		wantStatus  string
-		wantMissing int
+		name           string
+		target         string
+		replacement    model.Resource
+		wantStatus     string
+		wantMissing    int
+		wantRecoveries int
 	}{
 		{
 			name: "standalone-raster", target: staticWP12Root + "images/photo.png",
@@ -171,12 +172,26 @@ func TestStaticRasterDegradesButRequiredDependenciesAndTopicsFailClosed(t *testi
 			wantStatus: "incomplete",
 		},
 		{
+			// Only @font-face sources the host refuses permanently are dropped.
 			name: "font", target: staticWP12Root + "fonts/oxygen.woff2",
 			replacement: model.Resource{
 				URL: staticWP12Root + "fonts/oxygen.woff2", Status: http.StatusNotFound,
 				Headers: http.Header{}, Body: http.NoBody,
 			},
+			wantStatus: "complete", wantRecoveries: 1,
+		},
+		{
+			name: "font-unavailable-transiently", target: staticWP12Root + "fonts/oxygen.woff2",
+			replacement: model.Resource{
+				URL: staticWP12Root + "fonts/oxygen.woff2", Status: http.StatusServiceUnavailable,
+				Headers: http.Header{}, Body: http.NoBody,
+			},
 			wantStatus: "incomplete",
+		},
+		{
+			name: "font-invalid", target: staticWP12Root + "fonts/oxygen.woff2",
+			replacement: fixtureResource(staticWP12Root+"fonts/oxygen.woff2", "font/woff2", []byte("not a font")),
+			wantStatus:  "incomplete",
 		},
 		{
 			name: "svg", target: staticWP12Root + "images/whole.svg",
@@ -192,7 +207,8 @@ func TestStaticRasterDegradesButRequiredDependenciesAndTopicsFailClosed(t *testi
 				&archiveFixture{resources: resources, calls: map[string]int{}},
 				t.TempDir(), false, 1<<20, 4<<20)
 			if err != nil || result.Status != test.wantStatus ||
-				len(result.MissingResources) != test.wantMissing {
+				len(result.MissingResources) != test.wantMissing ||
+				len(result.StylesheetRecoveries) != test.wantRecoveries {
 				t.Fatalf("static dependency classification changed: result=%+v err=%v", result, err)
 			}
 			if test.wantStatus == "incomplete" && len(result.Errors) == 0 {

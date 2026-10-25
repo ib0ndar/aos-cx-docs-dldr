@@ -196,7 +196,7 @@ func HTMLInRoot(ctx context.Context, plan model.DocumentPlan, fetcher model.Fetc
 		progress:                 Progress{SchemaVersion: ProgressSchemaVersion, Stage: ProgressTopics}}
 	a.observe = observe
 	a.assets = newAssetManager(ctx, fetcher, root, refresh, min(maxResource, maxTotal), budget,
-		&a.notices, &a.warnings, &a.errors,
+		&a.notices, &a.warnings, &a.errors, &a.stylesheetRecoveries,
 		func(discovered, completed int) {
 			a.progress.AssetsDiscovered, a.progress.AssetsCompleted = discovered, completed
 			a.reportProgress()
@@ -562,7 +562,9 @@ func (a *htmlArchiver) inventory() error {
 					if target != nil {
 						key = canonicalNoFragment(target.topic.URL)
 					}
+					// Both generated pages carry the TOC links.
 					a.requireFragmentFrom("toc.html", key, parsed.Fragment)
+					a.requireFragmentFrom("index.html", key, parsed.Fragment)
 				}
 				if target == nil && a.plan.Document.Kind != "flare" {
 					return fmt.Errorf("%s TOC references a topic absent from its authoritative plan: %s",
@@ -957,6 +959,7 @@ func (a *htmlArchiver) pageInlineStyles(doc *html.Node, page *pageInput) []strin
 			a.errors = append(a.errors, page.topic.URL+": inline stylesheet: "+err.Error())
 			return
 		}
+		a.assets.recordFontFaceRecoveries(page.topic.URL, diagnostics.FontFaces)
 		styles = append(styles, string(rewritten))
 	})
 	return styles

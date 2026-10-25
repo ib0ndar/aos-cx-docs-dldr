@@ -129,6 +129,9 @@ func TestRetainedZeroSixBinaryRejectsZeroSevenStateReadOnly(t *testing.T) {
 		case "/robots.txt":
 			io.WriteString(w, "User-agent: *\nAllow: /\n")
 		case "/portal":
+			// Deliberately the retired select/#menu1 portal page: only the
+			// retained 0.6 binary runs here, and it understands no other format.
+			// It must reach preflight and refuse the current state read-only.
 			io.WriteString(w, `<select id="platform"><option>6300</option></select>
 <select id="ver"><option>10.10</option></select><div id="menu1"><table><tr>
 <td id="job" onclick="openFile('PDF','job','aoscx')">Job Scheduler</td></tr></table></div>`)

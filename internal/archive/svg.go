@@ -272,6 +272,7 @@ func (m *assetManager) rewriteSVGNode(svg *html.Node, base, owner string, depth 
 			if err != nil {
 				errs = append(errs, err)
 			} else {
+				m.recordFontFaceRecoveries(base, diagnostics.FontFaces)
 				n.AppendChild(&html.Node{Type: html.TextNode, Data: string(rewritten)})
 			}
 		}

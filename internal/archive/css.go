@@ -25,19 +25,42 @@ const (
 	dependencyAsset dependencyKind = iota
 	dependencyCSS
 	dependencySVGStyle
+	// dependencyFontSource is the single URL of one entry in the src
+	// descriptor of an @font-face rule. Only it may resolve to an
+	// unavailableFontError instead of failing.
+	dependencyFontSource
 )
 
 type cssResolver func(reference string, kind dependencyKind) (string, error)
 type cssSelectorFilter func(selector []css.Token) bool
 
 type cssDiagnostics struct {
-	Notices  []model.Notice
-	Warnings []string
+	Notices   []model.Notice
+	Warnings  []string
+	FontFaces []fontFaceRecovery
 }
 
 type recoverableCSSReferenceError struct{ message string }
 
 func (e *recoverableCSSReferenceError) Error() string { return e.message }
+
+// fontFaceRecovery describes one @font-face rule that lost src entries
+// because their hosts refused the fonts permanently.
+type fontFaceRecovery struct {
+	Family  string
+	Dropped []model.BrokenStylesheetReference
+	Removed bool
+}
+
+// fontFaceRule tracks the @font-face rule being rewritten: depth is the
+// block depth of its descriptors and start the output offset of the rule.
+type fontFaceRule struct {
+	depth   int
+	start   int
+	family  string
+	dropped []model.BrokenStylesheetReference
+	emptied bool
+}
 
 func decodeCSS(body []byte, contentType string) ([]byte, error) {
 	name := ""
@@ -93,6 +116,7 @@ func rewriteCSSWithProperties(body []byte, inline bool, resolve cssResolver, rel
 	skippedRules := 0
 	obsolete := map[string]int{}
 	invalid := map[string]int{}
+	var fontFace *fontFaceRule
 	// The parser reports the contents of at-rules it does not know, including
 	// escaped spellings of known ones, as raw tokens. They are buffered so their
 	// URLs pass through the same rewriting as declaration values.
@@ -160,15 +184,39 @@ func rewriteCSSWithProperties(body []byte, inline bool, resolve cssResolver, rel
 			if err != nil {
 				return nil, diagnostics, err
 			}
+			start := out.Len()
 			out.Write(data)
 			writeTokens(&out, values)
 			if grammar == css.BeginAtRuleGrammar {
 				out.WriteByte('{')
 				skipped = append(skipped, false)
+				// Only a literal @font-face, which the parser reads as a
+				// descriptor list, in a stylesheet or <style> block. A style
+				// attribute cannot hold one, and escaped spellings stay on
+				// the ordinary path.
+				if !inline && fontFace == nil && name == "@font-face" && string(data) == name {
+					fontFace = &fontFaceRule{depth: len(skipped), start: start}
+				}
 			} else {
 				out.WriteByte(';')
 			}
 		case css.EndAtRuleGrammar, css.EndRulesetGrammar:
+			if fontFace != nil && len(skipped) == fontFace.depth {
+				rule := fontFace
+				fontFace = nil
+				skipped = skipped[:len(skipped)-1]
+				if len(rule.dropped) > 0 {
+					diagnostics.FontFaces = append(diagnostics.FontFaces, fontFaceRecovery{
+						Family: rule.family, Dropped: rule.dropped, Removed: rule.emptied,
+					})
+				}
+				if rule.emptied {
+					out.Truncate(rule.start)
+				} else {
+					out.WriteByte('}')
+				}
+				continue
+			}
 			wasSkipped := false
 			if len(skipped) > 0 {
 				wasSkipped = skipped[len(skipped)-1]
@@ -215,6 +263,34 @@ func rewriteCSSWithProperties(body []byte, inline bool, resolve cssResolver, rel
 			if obsoleteCSSProperty(property) {
 				obsolete[property]++
 				continue
+			}
+			if fontFace != nil && len(skipped) == fontFace.depth {
+				switch property {
+				case "font-family":
+					fontFace.family = fontFaceFamily(p.Values())
+				case "src":
+					values, dropped, kept, bad, err := rewriteFontFaceSources(append([]css.Token{}, p.Values()...), resolve)
+					if err != nil {
+						return nil, diagnostics, err
+					}
+					if bad {
+						invalid[property]++
+						continue
+					}
+					fontFace.dropped = append(fontFace.dropped, dropped...)
+					// Browsers use the last src descriptor. When every source
+					// of that one is gone, the rule can no longer load a font
+					// and is removed, so text falls back as it does online.
+					fontFace.emptied = len(dropped) > 0 && kept == 0
+					if fontFace.emptied {
+						continue
+					}
+					out.Write(data)
+					out.WriteByte(':')
+					writeTokens(&out, values)
+					out.WriteByte(';')
+					continue
+				}
 			}
 			values, bad, err := rewriteCSSTokens(append([]css.Token{}, p.Values()...), resolve, false)
 			if err != nil {
@@ -398,6 +474,93 @@ func rewriteImport(values []css.Token, resolve cssResolver) ([]css.Token, error)
 		}
 	}
 	return nil, errors.New("empty CSS @import")
+}
+
+// rewriteFontFaceSources rewrites the entries of an @font-face src
+// descriptor. An entry whose single URL resolves to an unavailableFontError
+// is dropped and reported; every other entry, and every other error, is
+// handled as in any declaration. kept counts the entries that remain.
+func rewriteFontFaceSources(values []css.Token, resolve cssResolver) (
+	[]css.Token, []model.BrokenStylesheetReference, int, bool, error,
+) {
+	var result []css.Token
+	var dropped []model.BrokenStylesheetReference
+	kept := 0
+	// Source entries are split at top-level commas, as selector lists are.
+	for _, entry := range splitSelectorTokens(values) {
+		eligible := fontSourceEntry(entry)
+		entryResolve := resolve
+		if eligible {
+			entryResolve = func(reference string, kind dependencyKind) (string, error) {
+				if kind == dependencyAsset {
+					kind = dependencyFontSource
+				}
+				return resolve(reference, kind)
+			}
+		}
+		rewritten, bad, err := rewriteCSSTokens(entry, entryResolve, false)
+		var unavailable *unavailableFontError
+		if eligible && errors.As(err, &unavailable) {
+			source := model.BrokenStylesheetReference{URL: unavailable.URL, HTTPStatus: unavailable.Status}
+			if unavailable.FinalURL != unavailable.URL {
+				source.FinalURL = unavailable.FinalURL
+			}
+			dropped = append(dropped, source)
+			continue
+		}
+		if err != nil || bad {
+			return nil, nil, 0, bad, err
+		}
+		if len(result) > 0 {
+			result = append(result, css.Token{TokenType: css.CommaToken, Data: []byte(",")})
+		}
+		result = append(result, rewritten...)
+		if slices.ContainsFunc(rewritten, func(token css.Token) bool {
+			return token.TokenType != css.WhitespaceToken && token.TokenType != css.CommentToken
+		}) {
+			kept++
+		}
+	}
+	return result, dropped, kept, false, nil
+}
+
+// fontSourceEntry reports whether a src entry loads exactly one URL, written
+// as a url() token, so that dropping the entry drops only that source.
+func fontSourceEntry(entry []css.Token) bool {
+	urls := 0
+	for _, token := range entry {
+		switch token.TokenType {
+		case css.URLToken:
+			urls++
+		case css.FunctionToken:
+			name, err := cssName(token.Data)
+			if err != nil || name == "image-set(" || name == "-webkit-image-set(" {
+				return false
+			}
+		}
+	}
+	return urls == 1
+}
+
+// fontFaceFamily is the family name a font-family descriptor declares.
+func fontFaceFamily(values []css.Token) string {
+	var parts []string
+	for _, token := range values {
+		var value string
+		var err error
+		switch token.TokenType {
+		case css.StringToken:
+			value, err = cssString(token.Data)
+		case css.IdentToken:
+			value, err = cssUnescape(string(token.Data))
+		default:
+			continue
+		}
+		if err == nil {
+			parts = append(parts, value)
+		}
+	}
+	return strings.Join(parts, " ")
 }
 
 func rewriteCSSValue(value []byte, resolve cssResolver) ([]byte, bool, error) {

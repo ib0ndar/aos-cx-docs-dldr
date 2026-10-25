@@ -13,7 +13,7 @@ links intentionally retained to online content still require internet access.
 **What you get**
 
 ```text
-$HOME/Documents/AOS-CX/6300/10.18.xxxx/index.html      <- open this
+$HOME/Documents/AOS-CX/6300/10.18/index.html           <- open this
 ```
 
 A contents page lists each downloaded guide and provides offline navigation and
@@ -61,7 +61,7 @@ Each release provides its downloads, checksums, and release notes; the
 | Term | Meaning |
 | --- | --- |
 | Platform | A switch family, such as `6300` or `8320`. |
-| Release | An AOS-CX documentation version label, such as `10.18.xxxx`. Treated as text, not a number. |
+| Release | An AOS-CX documentation release as the portal lists it, such as `10.18`. Treated as text, not a number. |
 | Guide | One document, such as the Job Scheduler guide. Each has a short ID like `jobscheduler`. |
 
 The **application version** is separate from the AOS-CX documentation release.
@@ -361,7 +361,7 @@ code 130. Run the same download again to reuse valid cached data.
 ```text
 your-chosen-folder/
   6300/                          <- platform
-    10.18.xxxx/                  <- release; open index.html here
+    10.18/                       <- release; open index.html here
       index.html                 <- contents page for the whole release
       manifest.json              <- what was downloaded, and from where
       history.json
@@ -616,9 +616,12 @@ The tool is honest about what it cannot do rather than guessing:
   AOS-CX portal surface or historical document.
 - Guides unavailable at their resolved mapped routes are reported, not replaced
   with guessed alternatives.
-- Direct PDF, Flare HTML, HPE multipage HTML, and explicit complete
-  static/Oxygen plans are implemented. Static/Oxygen is fixture-verified only;
-  the 2026-09-16 production snapshot contained no current static mappings.
+- Releases 10.17 and later are Oxygen WebHelp HTML, 10.13 to 10.16 are Flare
+  HTML (the Command Line Interface Guide is a publisher PDF there), and older
+  releases are archived publisher PDFs. Oxygen guides have no publisher PDF.
+- The catalogue follows the portal's own routing rules. If the publisher
+  changes how its portal routes guides, the catalogue refresh stops and says an
+  updated aos-cx-docs-dldr is required, rather than guessing new addresses.
 - PDF creation from HTML is optional and never changes the HTML, which stays
   the authoritative copy.
 

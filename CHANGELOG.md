@@ -1,5 +1,37 @@
 # Release notes
 
+## Unreleased - new documentation portal
+
+The publisher replaced the Product Documentation portal on 2026-10-22. Version
+0.8 cannot read it (`--list` fails with "portal must contain one
+select#platform"); this change restores catalogue, listing and downloads.
+
+- Read the new portal's JSON registry and product configuration for platforms,
+  releases and guides. Guide mappings keep their location and shape. The
+  publisher's route adapter is checked on every refresh: if its routing
+  statements change, the refresh stops with an update-required error instead of
+  guessing addresses.
+- Follow the portal's routes: releases 10.17 and later are Oxygen WebHelp HTML,
+  10.13 to 10.16 are Flare HTML with the Command Line Interface Guide as a
+  publisher PDF, and older releases are archived publisher PDFs. Release 10.17
+  moved from Flare to Oxygen. The support.hpe.com document-ID route is gone
+  from the portal and is no longer derived from mappings.
+- Plan Oxygen guides from their lazily loaded TOC data and include topics
+  outside the TOC, such as the legal disclaimer, found through the topic
+  links.
+- Releases are now labelled as the portal lists them, such as `10.18` instead
+  of `10.18.xxxx`. Libraries and automation that use the old labels need the
+  new values; existing libraries are left untouched.
+- Accept publisher folder names that contain spaces, parentheses and commas,
+  as 10.17 uses, and encode them in guide URLs.
+- Archive guides whose stylesheets declare fonts the publisher no longer
+  serves (HPE Metric on every Oxygen guide) as complete: unavailable
+  `@font-face` sources are dropped and recorded in `stylesheet_recoveries`.
+  A font host that refuses even its robots.txt counts as unavailable; the font
+  is never requested.
+- Keep TOC entries whose anchor the publisher's page lacks as warnings on both
+  generated navigation pages instead of failing the guide.
+
 ## Unreleased - security hardening
 
 Archived HTML:

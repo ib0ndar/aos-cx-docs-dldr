@@ -60,13 +60,13 @@ func TestAllMappedGuidesMixedFormatsThroughActualCLI(t *testing.T) {
 	set := func(raw, mime, body string) {
 		fixtures[raw] = hpeHTTPFixture{contentType: mime, body: []byte(body)}
 	}
-	set(portal, "text/html", `<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.18.xxxx</option></select><div id="menu1"><table><tr>
-<td id="pdf" onclick="openFile('PDF','pdf','aoscx')">PDF Guide</td>
-<td id="flare" onclick="openFile('HTML','flare','aoscx')">Flare Guide</td>
-<td id="hpe" onclick="openFile('HTML','hpe','aoscx')">HPE Guide</td>
-<td id="static" onclick="openFile('HTML','static','aoscx')">Static Guide</td>
-</tr></table></div></html>`)
+	addPortalFixtures(fixtures, portal, testutil.Portal{
+		Platforms: []string{"6300"}, Versions: []string{"10.18.xxxx"},
+		Guides: []testutil.PortalGuide{
+			{ID: "pdf", Title: "PDF Guide"}, {ID: "flare", Title: "Flare Guide"},
+			{ID: "hpe", Title: "HPE Guide"}, {ID: "static", Title: "Static Guide"},
+		},
+	})
 	mapping := func(id, target string) {
 		body, err := json.Marshal(map[string]any{"10.18.xxxx": map[string]string{"6300": target}})
 		if err != nil {

@@ -284,6 +284,10 @@ func (m *assetManager) tryRaster(raw, expected string) (*assetState, rasterFailu
 	if failure, ok := m.imageFailures[cacheKey]; ok {
 		return nil, failure, nil
 	}
+	if existing := m.states[key]; existing != nil && existing.record.Status == "unavailable" {
+		_, err := m.fail(existing, errors.New(existing.record.Error))
+		return nil, rasterFailure{}, err
+	}
 	if existing := m.states[key]; existing != nil && existing.record.Status == "complete" {
 		if classifyAsset(key, existing.record.ContentType, existing.sourceBody, dependencyAsset) != expected {
 			return nil, rasterFailure{}, fmt.Errorf("image candidate type is ambiguous: %s", key)

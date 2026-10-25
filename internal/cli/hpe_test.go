@@ -161,10 +161,6 @@ func TestCLIHPEAdvertisedSameDocumentPDF(t *testing.T) {
 	body := testutil.PDF("HPE advertised")
 	sum := sha256.Sum256(body)
 	fixtures := hpeRoundTripper{
-		portal: {"text/html", []byte(`<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.18.xxxx</option></select><div id="menu1"><table><tr>
-<td id="hpe" onclick="openFile('HTML','hpe','aoscx')">HPE PDF Guide</td>
-</tr></table></div></html>`)},
 		"https://portal.example.test/json/aoscx/hpe.json": {
 			"application/json", []byte(`{"10.18.xxxx":{"6300":"` + public + `"}}`),
 		},
@@ -173,6 +169,7 @@ func TestCLIHPEAdvertisedSameDocumentPDF(t *testing.T) {
 		},
 		pdfURL: {"application/pdf", body},
 	}
+	addPortalFixtures(fixtures, portal, hpePortal("HPE PDF Guide"))
 
 	tracker := &trackedRoundTripper{delegate: fixtures}
 	clientFactory := func(_ string, config fetch.Config, notify func(string)) (*fetch.Client, error) {
@@ -225,14 +222,17 @@ func TestCLIHPEAdvertisedSameDocumentPDF(t *testing.T) {
 	}
 }
 
+// hpePortal offers the single "hpe" guide for 6300 and 10.18.xxxx; its
+// mapping points at an absolute HPE docDisplay URL, the only HPE route left.
+func hpePortal(title string) testutil.Portal {
+	return testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.18.xxxx"},
+		Guides: []testutil.PortalGuide{{ID: "hpe", Title: title}}}
+}
+
 func hpePreferenceCLIFixtures(portal, id string, exportBody []byte) hpeRoundTripper {
 	public := "https://support.hpe.com/hpesc/public/docDisplay?docId=" + id
 	api := "https://support.hpe.com/hpesc/public/api/document/" + id
 	fixtures := hpeRoundTripper{
-		portal: {"text/html", []byte(`<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.18.xxxx</option></select><div id="menu1"><table><tr>
-<td id="hpe" onclick="openFile('HTML','hpe','aoscx')">HPE Guide</td>
-</tr></table></div></html>`)},
 		"https://portal.example.test/json/aoscx/hpe.json": {
 			"application/json", []byte(`{"10.18.xxxx":{"6300":"` + public + `"}}`),
 		},
@@ -258,6 +258,7 @@ func hpePreferenceCLIFixtures(portal, id string, exportBody []byte) hpeRoundTrip
 			"font/woff2", []byte("wOF2bold"),
 		},
 	}
+	addPortalFixtures(fixtures, portal, hpePortal("HPE Guide"))
 	if exportBody != nil {
 		fixtures[api+"/exportpdf?exportType=all"] = hpeHTTPFixture{
 			contentType: "application/pdf",
@@ -376,7 +377,7 @@ func TestFailedPreferredPDFAndHTMLUpdateRetainsPreviousComplete(t *testing.T) {
 	}
 	root := t.TempDir()
 	args := []string{
-			"--transport", "http", "--platform", "6300", "--release", "10.18.xxxx",
+		"--transport", "http", "--platform", "6300", "--release", "10.18.xxxx",
 		"--guides", "hpe", "--destination", filepath.Join(root, "library"),
 		"--raw-cache", filepath.Join(root, "cache"), "--portal-url", portal,
 		"--delay", "0", "--retries", "0", "--workers", "1", "--json", "--prefer-pdf",
@@ -486,10 +487,6 @@ func TestCLIHPEAdvertisedPDFForeignIdentityFailsClosed(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			fixtures := hpeRoundTripper{
-				portal: {"text/html", []byte(`<html><select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.18.xxxx</option></select><div id="menu1"><table><tr>
-<td id="hpe" onclick="openFile('HTML','hpe','aoscx')">HPE PDF Guide</td>
-</tr></table></div></html>`)},
 				"https://portal.example.test/json/aoscx/hpe.json": {
 					"application/json", []byte(`{"10.18.xxxx":{"6300":"` + public + `"}}`),
 				},
@@ -497,6 +494,7 @@ func TestCLIHPEAdvertisedPDFForeignIdentityFailsClosed(t *testing.T) {
 					"text/html", []byte(`<html><body><embed type="application/pdf" src="` + tc.advertised + `"></body></html>`),
 				},
 			}
+			addPortalFixtures(fixtures, portal, hpePortal("HPE PDF Guide"))
 			if tc.expectPDFRequest {
 				fixtures[tc.advertised] = hpeHTTPFixture{"application/pdf", testutil.PDF("wrong final")}
 			}

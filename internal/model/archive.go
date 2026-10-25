@@ -32,10 +32,14 @@ type StylesheetRecovery struct {
 	ReplacementSourceSize   int64                       `json:"replacement_source_size"`
 	TableStyleFamilies      []string                    `json:"table_style_families"`
 	AffectedTopics          []string                    `json:"affected_topics"`
+	StylesheetURL           string                      `json:"stylesheet_url,omitempty"`
+	FontFamily              string                      `json:"font_family,omitempty"`
+	FontFaceRemoved         bool                        `json:"font_face_removed,omitempty"`
 }
 
 type BrokenStylesheetReference struct {
 	URL        string `json:"url"`
+	FinalURL   string `json:"final_url,omitempty"`
 	HTTPStatus int    `json:"http_status"`
 }
 

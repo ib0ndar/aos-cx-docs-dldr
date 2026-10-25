@@ -16,6 +16,7 @@ import (
 
 	"aos-cx-docs-dldr/internal/fetch"
 	"aos-cx-docs-dldr/internal/pdfgen"
+	"aos-cx-docs-dldr/internal/testutil"
 )
 
 func generatedPDFServer(t *testing.T) *httptest.Server {
@@ -28,15 +29,16 @@ func generatedPDFServerWithImageStatus(t *testing.T, imageStatus int) *httptest.
 	if err != nil {
 		t.Fatal(err)
 	}
+	portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.16"},
+		Guides: []testutil.PortalGuide{{ID: "job", Title: "Job Scheduler Guide"}}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			io.WriteString(w, "User-agent: *\nAllow: /\n")
-		case "/portal/aoscx.html":
-			w.Header().Set("Content-Type", "text/html")
-			io.WriteString(w, `<select id="platform"><option>6300</option></select><select id="ver"><option>10.16</option></select>
-<div id="menu1"><table><tr><td id="job" onclick="openFile('HTML','job','aoscx')">Job Scheduler Guide</td></tr></table></div>`)
 		case "/portal/json/aoscx/job.json":
 			io.WriteString(w, `{"10.16":{"6300":"`+server.URL+`/guide/Content/home.htm"}}`)
 		case "/guide/Content/home.htm":

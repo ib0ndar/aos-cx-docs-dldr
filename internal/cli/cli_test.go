@@ -23,12 +23,11 @@ import (
 	"aos-cx-docs-dldr/internal/testutil"
 )
 
-const fixturePortal = `<html><select id="platform"><option>6300</option><option>6400</option></select>
-<select id="ver"><option>10.16</option><option>10.18.xxxx</option></select>
-<div id="menu1"><table><tr>
-<td id="fundamentals" onclick="openFile('HTML', 'fundamentals', 'aoscx')">Fundamentals Guide</td>
-<td id="cli" onclick="openFile('HTML', 'cli', 'aoscx')">CLI</td>
-</tr></table></div></html>`
+var fixturePortal = testutil.Portal{
+	Platforms: []string{"6300", "6400"},
+	Versions:  []string{"10.16", "10.18.xxxx"},
+	Guides:    []testutil.PortalGuide{{ID: "fundamentals", Title: "Fundamentals Guide"}, {ID: "cli", Title: "CLI"}},
+}
 
 func TestEndToEndFreshListingAndConditionalCache(t *testing.T) {
 	var mu sync.Mutex
@@ -60,12 +59,12 @@ func TestEndToEndFreshListingAndConditionalCache(t *testing.T) {
 			w.WriteHeader(304)
 			return
 		}
+		if fixturePortal.Serve(w, r, "/current/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
-		case "/current/aoscx.html":
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			io.WriteString(w, fixturePortal)
 		case "/current/json/aoscx/fundamentals.json":
-			io.WriteString(w, `{"10.16":{"6300":"`+server.URL+`/guide/index.html","6400":"fund_6300-6400"},"10.18.xxxx":{"6300":"sd00007433en_us"}}`)
+			io.WriteString(w, `{"10.16":{"6300":"`+server.URL+`/guide/index.html","6400":"fund_6300-6400"},"10.18.xxxx":{"6300":"fund_6300-6400"}}`)
 		case "/current/json/aoscx/cli.json":
 			io.WriteString(w, `{"10.16":{"6300":"`+server.URL+`/guide/cli.pdf"}}`)
 		case "/guide/index.html":
@@ -114,8 +113,16 @@ func TestEndToEndFreshListingAndConditionalCache(t *testing.T) {
 	}
 	mu.Lock()
 	defer mu.Unlock()
-	if validators != 4 || counts["/robots.txt"] != 2 || len(counts) != 7 {
+	// Each run requests the redirecting portal URL, the product page, the three
+	// portal data files, two mappings, the static front and a PDF HEAD; the
+	// second run revalidates the page, portal data, mappings and front.
+	if validators != 7 || counts["/robots.txt"] != 2 || len(counts) != 10 {
 		t.Fatalf("not all portal/mapping requests revalidated: counts=%v validators=%d", counts, validators)
+	}
+	for _, path := range portalDataPaths {
+		if counts[path] != 2 {
+			t.Fatalf("portal data %s was not refreshed once per run: counts=%v", path, counts)
+		}
 	}
 }
 
@@ -123,18 +130,18 @@ func TestListingReportsSourceBackedNativePDFAvailability(t *testing.T) {
 	var server *httptest.Server
 	var mu sync.Mutex
 	methods := map[string]int{}
+	portal := testutil.Portal{Platforms: []string{"8360"}, Versions: []string{"10.16"},
+		Guides: []testutil.PortalGuide{{ID: "ha", Title: "High Availability"}}}
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		methods[r.Method+" "+r.URL.Path]++
 		mu.Unlock()
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			io.WriteString(w, `<select id="platform"><option>8360</option></select>
-<select id="ver"><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="ha" onclick="openFile('HTML','ha','aoscx')">High Availability</td>
-</tr></table></div>`)
 		case "/portal/json/aoscx/ha.json":
 			fmt.Fprintf(w, `{"10.16":{"8360":%q}}`, server.URL+"/guide/index.html")
 		case "/guide/index.html":
@@ -193,20 +200,18 @@ func TestDefinitiveMappedSourceAbsenceIsListedAndRejectedBeforeOutput(t *testing
 	var server *httptest.Server
 	var mu sync.Mutex
 	methods := map[string]int{}
+	portal := testutil.Portal{Platforms: []string{"6000"}, Versions: []string{"10.17", "10.17.1000"},
+		Guides: []testutil.PortalGuide{{ID: "webUI", Title: "Introduction to the WebUI Guide"}, {ID: "cli", Title: "CLI Guide"}}}
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		mu.Lock()
 		methods[r.Method+" "+r.URL.Path]++
 		mu.Unlock()
+		if portal.Serve(w, r, "/portal/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal/aoscx.html":
-			io.WriteString(w, `<select id="platform"><option>6000</option></select>
-<select id="ver"><option>10.17</option><option>10.17.1000</option></select>
-<div id="menu1"><table><tr>
-<td id="webUI" onclick="openFile('HTML','webUI','aoscx')">Introduction to the WebUI Guide</td>
-<td id="cli" onclick="openFile('HTML','cli','aoscx')">CLI Guide</td>
-</tr></table></div>`)
 		case "/portal/json/aoscx/webUI.json":
 			fmt.Fprintf(w, `{"10.17":{"6000":%q},"10.17.1000":{"6000":%q}}`,
 				server.URL+"/missing/Content/home.htm", server.URL+"/working/index.html")
@@ -294,15 +299,16 @@ func TestDefinitiveMappedSourceAbsenceIsListedAndRejectedBeforeOutput(t *testing
 func TestEndToEndFlareHTMLDownload(t *testing.T) {
 	var server *httptest.Server
 	counts := map[string]int{}
+	portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.16"},
+		Guides: []testutil.PortalGuide{{ID: "job", Title: "Job Scheduler Guide"}}}
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		counts[r.URL.Path]++
+		if portal.Serve(w, r, "/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			io.WriteString(w, "User-agent: *\nAllow: /\n")
-		case "/aoscx.html":
-			w.Header().Set("Content-Type", "text/html")
-			io.WriteString(w, `<select id="platform"><option>6300</option></select><select id="ver"><option>10.16</option></select>
-<div id="menu1"><table><tr><td id="job" onclick="openFile('HTML','job','aoscx')">Job Scheduler Guide</td></tr></table></div>`)
 		case "/json/aoscx/job.json":
 			io.WriteString(w, `{"10.16":{"6300":"`+server.URL+`/guide/Content/home.htm"}}`)
 		case "/guide/Content/home.htm":
@@ -334,7 +340,9 @@ func TestEndToEndFlareHTMLDownload(t *testing.T) {
 	args := []string{"--json", "--platform", "6300", "--release", "10.16", "--guides", "job",
 		"--destination", base, "--portal-url", server.URL + "/aoscx.html", "--raw-cache", filepath.Join(base, "raw"),
 		"--delay", "0", "--retries", "0", "--max-resource-mb", "1", "--max-archive-mb", "4", "--zip"}
-	budget, err := fetch.NewAttemptBudget(9, 1)
+	// Robots, the product page, three portal data files, the mapping, two
+	// topics, the TOC module and chunk, the stylesheet and the image.
+	budget, err := fetch.NewAttemptBudget(12, 1)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -368,8 +376,8 @@ func TestEndToEndFlareHTMLDownload(t *testing.T) {
 	for _, count := range counts {
 		total += count
 	}
-	if stats := budget.Stats(); stats.AttemptedTransmissions != 9 || stats.ObservedHeaderWrites != 9 ||
-		stats.AdmittedRequests != 9 || stats.ReservedAttempts != 0 || stats.Exhausted ||
+	if stats := budget.Stats(); stats.AttemptedTransmissions != 12 || stats.ObservedHeaderWrites != 12 ||
+		stats.AdmittedRequests != 12 || stats.ReservedAttempts != 0 || stats.Exhausted ||
 		total != stats.AttemptedTransmissions {
 		t.Fatalf("catalogue/plan/topic/asset budget was not shared: %+v hits=%d counts=%v", stats, total, counts)
 	}
@@ -475,15 +483,16 @@ func TestHelpDocumentsOverallAndAttemptTimeoutDefaults(t *testing.T) {
 }
 
 func TestHumanDownloadReportsZIPPath(t *testing.T) {
+	portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.10"},
+		Guides: []testutil.PortalGuide{{ID: "job", Title: "Job Scheduler"}}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/portal") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/portal":
-			io.WriteString(w, `<select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.10</option></select><div id="menu1"><table><tr>
-<td id="job" onclick="openFile('PDF','job','aoscx')">Job Scheduler</td></tr></table></div>`)
 		case "/json/aoscx/job.json":
 			io.WriteString(w, `{"10.10":{"6300":"`+server.URL+`/job.pdf"}}`)
 		case "/job.pdf":
@@ -526,11 +535,12 @@ func TestPartialMappingAndUnavailablePairAreDistinct(t *testing.T) {
 	for _, partial := range []bool{true, false} {
 		var server *httptest.Server
 		server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if fixturePortal.Serve(w, r, "/aoscx.html") {
+				return
+			}
 			switch r.URL.Path {
 			case "/robots.txt":
 				w.WriteHeader(404)
-			case "/aoscx.html":
-				io.WriteString(w, fixturePortal)
 			case "/json/aoscx/fundamentals.json":
 				io.WriteString(w, `{"10.16":{"6300":"fund"}}`)
 			case "/json/aoscx/cli.json":
@@ -558,6 +568,71 @@ func TestPartialMappingAndUnavailablePairAreDistinct(t *testing.T) {
 	}
 }
 
+// TestChangedPortalFailsBeforeMappingsOrOutput replaces one portal file at a
+// time with a version the loader must refuse, and checks the refusal is
+// actionable and happens before any guide mapping is read or output exists.
+func TestChangedPortalFailsBeforeMappingsOrOutput(t *testing.T) {
+	portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.16"},
+		Guides: []testutil.PortalGuide{{ID: "job", Title: "Job Scheduler Guide"}}}
+	for _, tc := range []struct {
+		name, path, contentType, body, want string
+	}{
+		{"changed-route-adapter", testutil.PortalBase + "adapters/aoscx-adapter.js", "application/javascript",
+			strings.Replace(testutil.PortalAdapter("/techdocs/"), `"10.17"`, `"10.19"`, 1),
+			"no longer matches the guide routes"},
+		{"registry-without-product", testutil.PortalBase + "models/products.json", "application/json",
+			`{"products":[{"id":"instant","config":"models/instant/product.json"}]}`, `does not list product "aoscx"`},
+		{"malformed-product-configuration", testutil.PortalBase + "models/aoscx/product.json", "application/json",
+			`{"id":"aoscx","adapter":"aoscx-adapter","selectors":[`, "invalid portal data"},
+		{"page-without-shell", "/aoscx.html", "text/html",
+			strings.Replace(portal.Page(), testutil.PortalBase+"js/shell.js", "/js/app.js", 1), "must load exactly one js/shell.js"},
+		{"retired-select-page", "/aoscx.html", "text/html", `<html><select id="platform"><option>6300</option></select>
+<select id="ver"><option>10.16</option></select><div id="menu1"><table><tr>
+<td id="job" onclick="openFile('HTML','job','aoscx')">Job Scheduler Guide</td></tr></table></div></html>`,
+			`must name exactly one product "aoscx"`},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var mu sync.Mutex
+			var mappings int
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch {
+				case r.URL.Path == "/robots.txt":
+					w.WriteHeader(http.StatusNotFound)
+				case r.URL.Path == tc.path:
+					w.Header().Set("Content-Type", tc.contentType)
+					io.WriteString(w, tc.body)
+				case strings.HasPrefix(r.URL.Path, "/json/"):
+					mu.Lock()
+					mappings++
+					mu.Unlock()
+					io.WriteString(w, `{"10.16":{"6300":"job_scheduler"}}`)
+				case !portal.Serve(w, r, "/aoscx.html"):
+					t.Errorf("unexpected request: %s", r.URL)
+					w.WriteHeader(http.StatusNotFound)
+				}
+			}))
+			defer server.Close()
+			destination := filepath.Join(t.TempDir(), "must-not-exist")
+			args := []string{"--platform", "6300", "--release", "10.16", "--guides", "job",
+				"--destination", destination, "--portal-url", server.URL + "/aoscx.html",
+				"--raw-cache", filepath.Join(t.TempDir(), "raw"), "--delay", "0", "--retries", "0"}
+			var out, stderr bytes.Buffer
+			if code := runContract(context.Background(), args, &out, &stderr); code != 1 ||
+				!strings.Contains(stderr.String(), tc.want) {
+				t.Fatalf("changed portal exit=%d, want 1 with %q: stdout=%s stderr=%s", code, tc.want, &out, &stderr)
+			}
+			if _, err := os.Lstat(destination); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("refused portal created output destination: %v", err)
+			}
+			mu.Lock()
+			defer mu.Unlock()
+			if mappings != 0 {
+				t.Fatalf("refused portal still read %d guide mappings", mappings)
+			}
+		})
+	}
+}
+
 func TestCancelledRunReturns130(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -582,17 +657,16 @@ func TestBoundedPlainDiagnosticsRetainJSONDetails(t *testing.T) {
 
 func TestPublisherControlsAreEscapedOnlyInHumanListing(t *testing.T) {
 	title := "Guide \x1b[2J\x1b]0;owned\a\u009b31m 文档"
+	portal := testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.16"},
+		Guides: []testutil.PortalGuide{{ID: "guide", Title: title}}}
 	var server *httptest.Server
 	server = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if portal.Serve(w, r, "/aoscx.html") {
+			return
+		}
 		switch r.URL.Path {
 		case "/robots.txt":
 			w.WriteHeader(http.StatusNotFound)
-		case "/aoscx.html":
-			w.Header().Set("Content-Type", "text/html; charset=utf-8")
-			io.WriteString(w, `<select id="platform"><option>6300</option></select>
-<select id="ver"><option>10.16</option></select><div id="menu1"><table><tr>
-<td id="guide" onclick="openFile('HTML','guide','aoscx')">`+title+`</td>
-</tr></table></div>`)
 		case "/json/aoscx/guide.json":
 			io.WriteString(w, `{"10.16":{"6300":"`+server.URL+`/guide/index.html"}}`)
 		case "/guide/index.html":
@@ -637,39 +711,23 @@ func TestBuiltExecutableFixtureAndSIGINT(t *testing.T) {
 		t.Skip("set AOSCX_TEST_BINARY to validate the built native executable")
 	}
 	requestStarted := make(chan struct{}, 1)
-	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		switch r.URL.Path {
-		case "/robots.txt":
-			w.WriteHeader(404)
-		case "/slow":
-			requestStarted <- struct{}{}
-			<-r.Context().Done()
-		case "/html-aoscx.html":
-			io.WriteString(w, `<select id="platform"><option>6300</option></select><select id="ver"><option>10.16</option></select>
-<div id="menu1"><table><tr><td id="job" onclick="openFile('HTML','job','aoscx')">Job Scheduler</td></tr></table></div>`)
-		case "/json/aoscx/job.json":
-			io.WriteString(w, `{"10.16":{"6300":"http://`+r.Host+`/guide/Content/home.htm"}}`)
-		case "/guide/Content/home.htm":
-			io.WriteString(w, `<html data-mc-path-to-help-system="../"><ul data-mc-linked-toc="Data/Tocs/Guide.js"></ul>
-<main id="mc-main-content"><h1>Home</h1><p>Built executable fixture.</p><img src="../Resources/icon.png"></main></html>`)
-		case "/guide/Data/Tocs/Guide.js":
-			io.WriteString(w, `define({numchunks:1,prefix:'Chunk',tree:{n:[{i:0,c:0}]}});`)
-		case "/guide/Data/Tocs/Chunk0.js":
-			io.WriteString(w, `define({'/Content/home.htm':{i:[0],t:['Home'],b:['']}});`)
-		case "/guide/Resources/icon.png":
-			w.Header().Set("Content-Type", "image/png")
-			w.Write(tinyPNGFixture)
-		case "/aoscx.html":
-			io.WriteString(w, fixturePortal)
-		case "/json/aoscx/fundamentals.json":
-			io.WriteString(w, `{"10.16":{"6300":"fund"}}`)
-		case "/json/aoscx/cli.json":
-			io.WriteString(w, `{"10.16":{"6300":"cli"}}`)
-		default:
-			w.WriteHeader(404)
-		}
-	}))
+	// The listing portal maps its guides to publisher folder names, which the
+	// route adapter turns into URLs under the fixture server's /techdocs/. The
+	// archive portal is a second server because both portals share the fixed
+	// portal data paths.
+	fixtureServer := func(portal testutil.Portal, page string) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if portal.Serve(w, r, page) {
+				return
+			}
+			builtExecutableFixture(w, r, requestStarted)
+		}))
+	}
+	server := fixtureServer(fixturePortal, "/aoscx.html")
 	defer server.Close()
+	htmlServer := fixtureServer(testutil.Portal{Platforms: []string{"6300"}, Versions: []string{"10.16"},
+		Guides: []testutil.PortalGuide{{ID: "job", Title: "Job Scheduler"}}}, "/html-aoscx.html")
+	defer htmlServer.Close()
 	args := []string{"--list", "--json", "--platform", "6300", "--release", "10.16",
 		"--portal-url", server.URL + "/aoscx.html", "--raw-cache", t.TempDir(), "--delay", "0", "--retries", "0"}
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
@@ -684,9 +742,15 @@ func TestBuiltExecutableFixtureAndSIGINT(t *testing.T) {
 		strings.Contains(listOut.String(), "Refreshing guide mappings") {
 		t.Fatalf("built binary fixture failed: stdout=%s stderr=%s %v", &listOut, &listErr, err)
 	}
+	for _, document := range listing.Documents {
+		if !strings.HasPrefix(document.URL, server.URL+"/techdocs/AOS-CX/10.16/") ||
+			document.RouteOrigin != "adapter-derived-book-stem" {
+			t.Fatalf("folder target did not route to the fixture documentation root: %+v", document)
+		}
+	}
 	base := t.TempDir()
 	command = exec.CommandContext(ctx, binary, "--json", "--platform", "6300", "--release", "10.16", "--guides", "job",
-		"--destination", base, "--portal-url", server.URL+"/html-aoscx.html", "--raw-cache", filepath.Join(base, "raw"),
+		"--destination", base, "--portal-url", htmlServer.URL+"/html-aoscx.html", "--raw-cache", filepath.Join(base, "raw"),
 		"--delay", "0", "--retries", "0", "--max-resource-mb", "1", "--max-archive-mb", "4")
 	var htmlOut, htmlErr bytes.Buffer
 	command.Stdout, command.Stderr = &htmlOut, &htmlErr
@@ -722,5 +786,40 @@ func TestBuiltExecutableFixtureAndSIGINT(t *testing.T) {
 	exit, ok := err.(*exec.ExitError)
 	if !ok || exit.ExitCode() != 130 || !strings.Contains(stderr.String(), "Cancelled") {
 		t.Fatalf("SIGINT exit=%v stderr=%s", err, &stderr)
+	}
+}
+
+// builtExecutableFixture serves TestBuiltExecutableFixtureAndSIGINT's guides
+// and its slow catalogue request.
+func builtExecutableFixture(w http.ResponseWriter, r *http.Request, requestStarted chan<- struct{}) {
+	switch r.URL.Path {
+	case "/robots.txt":
+		w.WriteHeader(404)
+	case "/slow":
+		requestStarted <- struct{}{}
+		<-r.Context().Done()
+	case "/json/aoscx/job.json":
+		io.WriteString(w, `{"10.16":{"6300":"http://`+r.Host+`/guide/Content/home.htm"}}`)
+	case "/guide/Content/home.htm":
+		io.WriteString(w, `<html data-mc-path-to-help-system="../"><ul data-mc-linked-toc="Data/Tocs/Guide.js"></ul>
+<main id="mc-main-content"><h1>Home</h1><p>Built executable fixture.</p><img src="../Resources/icon.png"></main></html>`)
+	case "/guide/Data/Tocs/Guide.js":
+		io.WriteString(w, `define({numchunks:1,prefix:'Chunk',tree:{n:[{i:0,c:0}]}});`)
+	case "/guide/Data/Tocs/Chunk0.js":
+		io.WriteString(w, `define({'/Content/home.htm':{i:[0],t:['Home'],b:['']}});`)
+	case "/guide/Resources/icon.png":
+		w.Header().Set("Content-Type", "image/png")
+		w.Write(tinyPNGFixture)
+	case "/json/aoscx/fundamentals.json":
+		io.WriteString(w, `{"10.16":{"6300":"fund"}}`)
+	case "/json/aoscx/cli.json":
+		io.WriteString(w, `{"10.16":{"6300":"cli"}}`)
+	case "/techdocs/AOS-CX/10.16/HTML/fund/Content/home.htm":
+		w.Header().Set("Content-Type", "text/html")
+		io.WriteString(w, `<html><body><main id="mc-main-content"><h1>Fundamentals</h1></main></body></html>`)
+	case "/techdocs/AOS-CX/10.16/PDF/cli.pdf":
+		w.Header().Set("Content-Type", "application/pdf")
+	default:
+		w.WriteHeader(404)
 	}
 }
