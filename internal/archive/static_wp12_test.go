@@ -166,10 +166,19 @@ func TestStaticRasterDegradesButRequiredDependenciesAndTopicsFailClosed(t *testi
 		{
 			name: "stylesheet", target: staticWP12Root + "styles/site.css",
 			replacement: model.Resource{
-				URL: staticWP12Root + "styles/site.css", Status: http.StatusNotFound,
+				URL: staticWP12Root + "styles/site.css", Status: http.StatusServiceUnavailable,
 				Headers: http.Header{}, Body: http.NoBody,
 			},
 			wantStatus: "incomplete",
+		},
+		{
+			// A stylesheet the publisher does not serve is omitted.
+			name: "unserved stylesheet", target: staticWP12Root + "styles/site.css",
+			replacement: model.Resource{
+				URL: staticWP12Root + "styles/site.css", Status: http.StatusNotFound,
+				Headers: http.Header{}, Body: http.NoBody,
+			},
+			wantStatus: "complete", wantRecoveries: 1,
 		},
 		{
 			// Only @font-face sources the host refuses permanently are dropped.
@@ -221,13 +230,28 @@ func TestStaticRasterDegradesButRequiredDependenciesAndTopicsFailClosed(t *testi
 		resources := staticWP12Resources()
 		topic := plan.Topics[1].URL
 		resources[topic] = model.Resource{
-			URL: topic, Status: http.StatusNotFound, Headers: http.Header{}, Body: http.NoBody,
+			URL: topic, Status: http.StatusServiceUnavailable, Headers: http.Header{}, Body: http.NoBody,
 		}
 		result, err := HTML(context.Background(), plan,
 			&archiveFixture{resources: resources, calls: map[string]int{}},
 			t.TempDir(), false, 1<<20, 4<<20)
 		if err == nil || result.Status != "failed" || len(result.Errors) == 0 {
-			t.Fatalf("missing static topic did not fail closed: result=%+v err=%v", result, err)
+			t.Fatalf("failed static topic did not fail closed: result=%+v err=%v", result, err)
+		}
+	})
+
+	t.Run("unpublished topic", func(t *testing.T) {
+		resources := staticWP12Resources()
+		topic := plan.Topics[1].URL
+		resources[topic] = model.Resource{
+			URL: topic, Status: http.StatusNotFound, Headers: http.Header{}, Body: http.NoBody,
+		}
+		result, err := HTML(context.Background(), plan,
+			&archiveFixture{resources: resources, calls: map[string]int{}},
+			t.TempDir(), false, 1<<20, 4<<20)
+		if err != nil || result.Status != "degraded" || len(result.UnpublishedTopics) != 1 ||
+			result.UnpublishedTopics[0].URL != topic || result.UnpublishedTopics[0].HTTPStatus != http.StatusNotFound {
+			t.Fatalf("unpublished static topic was not recorded: result=%+v err=%v", result, err)
 		}
 	})
 }

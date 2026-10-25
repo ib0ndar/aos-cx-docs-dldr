@@ -192,13 +192,10 @@ func fontRecoveryFixture() *archiveFixture {
 		},
 		calls: map[string]int{},
 		failures: map[string]error{
-			// The transport reports refusals this way. Like the live
-			// third-party font host, this one refuses its robots.txt, so the
-			// font itself is never requested.
+			// The transport reports refusals this way.
 			fontRecoveryThirdParty: &fetch.RetrievalError{
-				RequestURL: fontRecoveryThirdParty, FinalURL: fontRecoveryRobots, Stage: fetch.StageRobots,
-				ApplicationAttempts: 1, Cause: fmt.Errorf("cannot establish publisher robots rules: %w",
-					&fetch.StatusError{URL: fontRecoveryRobots, Status: http.StatusForbidden}),
+				RequestURL: fontRecoveryThirdParty, FinalURL: fontRecoveryThirdParty, Stage: fetch.StageHeaders,
+				ApplicationAttempts: 1, Cause: &fetch.StatusError{URL: fontRecoveryThirdParty, Status: http.StatusGone},
 			},
 			fontRecoveryFonts + "mixed-gone.woff2": &fetch.RetrievalError{
 				RequestURL: fontRecoveryFonts + "mixed-gone.woff2", FinalURL: fontRecoveryFonts + "mixed-gone.woff2",
@@ -237,7 +234,7 @@ func TestUnavailablePublisherFontSourcesAreDroppedAndRecorded(t *testing.T) {
 	want := sortedRecoveries([]model.StylesheetRecovery{
 		fontRecoveryRecord(fontRecoveryStylesheet, "Metric", true,
 			model.BrokenStylesheetReference{URL: metricLight, HTTPStatus: http.StatusNotFound},
-			model.BrokenStylesheetReference{URL: fontRecoveryThirdParty, FinalURL: fontRecoveryRobots, HTTPStatus: http.StatusForbidden}),
+			model.BrokenStylesheetReference{URL: fontRecoveryThirdParty, HTTPStatus: http.StatusGone}),
 		fontRecoveryRecord(fontRecoveryStylesheet, "Mixed", false,
 			model.BrokenStylesheetReference{URL: fontRecoveryFonts + "mixed-gone.woff2", HTTPStatus: http.StatusForbidden}),
 		fontRecoveryRecord(fontRecoveryHome, "Inline Face", false, inline),
@@ -313,7 +310,7 @@ func TestUnavailablePublisherFontSourcesAreDroppedAndRecorded(t *testing.T) {
 	}
 	warned := slices.ContainsFunc(result.Warnings, func(warning string) bool {
 		return strings.Contains(warning, fontRecoveryStylesheet) &&
-			strings.Contains(warning, "HTTP 403 (1), HTTP 404 (1), robots.txt HTTP 403 (1)") &&
+			strings.Contains(warning, "HTTP 403 (1), HTTP 404 (1), HTTP 410 (1)") &&
 			strings.Contains(warning, "removed 1 of 2 affected rules")
 	})
 	if !warned {
@@ -361,9 +358,9 @@ func TestUnavailableFontRecoveryKeepsOtherFailuresFailClosed(t *testing.T) {
 		{"robots unavailable", []func(*archiveFixture){failure(fontRecoveryThirdParty, retrieval(fontRecoveryThirdParty, fetch.StageRobots,
 			fmt.Errorf("cannot establish publisher robots rules: %w",
 				&fetch.StatusError{URL: fontRecoveryRobots, Status: http.StatusServiceUnavailable})))}, fontRecoveryThirdParty, false},
-		{"robots unauthorized", []func(*archiveFixture){failure(fontRecoveryThirdParty, retrieval(fontRecoveryThirdParty, fetch.StageRobots,
+		{"robots rate limited", []func(*archiveFixture){failure(fontRecoveryThirdParty, retrieval(fontRecoveryThirdParty, fetch.StageRobots,
 			fmt.Errorf("cannot establish publisher robots rules: %w",
-				&fetch.StatusError{URL: fontRecoveryRobots, Status: http.StatusUnauthorized})))}, fontRecoveryThirdParty, false},
+				&fetch.StatusError{URL: fontRecoveryRobots, Status: http.StatusTooManyRequests})))}, fontRecoveryThirdParty, false},
 		{"destination policy", []func(*archiveFixture){
 			stylesheet(fontRecoveryStyles(loopback)),
 			failure(loopback, retrieval(loopback, fetch.StageScope, fetch.CheckDestination(loopback, false))),
@@ -385,7 +382,7 @@ func TestUnavailableFontRecoveryKeepsOtherFailuresFailClosed(t *testing.T) {
 			stylesheet(`@import url(gone.css);` + fontRecoveryStyles(fontRecoveryThirdParty)),
 			missing(fontRecoveryRoot+"oxygen-webhelp/css/gone.css", http.StatusNotFound),
 		}, fontRecoveryRoot + "oxygen-webhelp/css/gone.css", false},
-		{"missing stylesheet", []func(*archiveFixture){missing(fontRecoveryStylesheet, http.StatusNotFound)}, fontRecoveryStylesheet, false},
+		{"stylesheet server error", []func(*archiveFixture){missing(fontRecoveryStylesheet, http.StatusServiceUnavailable)}, fontRecoveryStylesheet, false},
 		{"font outside @font-face after recovery", []func(*archiveFixture){
 			stylesheet(fontRecoveryStyles(fontRecoveryThirdParty) + "\nh1{background:url(../fonts/Metric-Light.woff2)}"),
 		}, metricLight, false},
@@ -445,12 +442,12 @@ func TestUnavailableFontStatusRequiresAPermanentRefusal(t *testing.T) {
 		{"410", &fetch.RetrievalError{Stage: fetch.StageHeaders, Cause: &fetch.StatusError{URL: raw, Status: 410}}, 410, raw, true},
 		{"wrapped", fmt.Errorf("cache: %w", &fetch.RetrievalError{Stage: fetch.StageHeaders, Cause: &fetch.StatusError{URL: raw, Status: 404}}), 404, raw, true},
 		{"response", &resourceStatusError{URL: raw, Status: 404}, 404, raw, true},
-		{"robots 403", robotsRefusal(403), 403, robots, true},
-		{"robots 410", robotsRefusal(410), 410, robots, true},
 		{"401", &fetch.RetrievalError{Stage: fetch.StageHeaders, Cause: &fetch.StatusError{URL: raw, Status: 401}}, 0, "", false},
 		{"500", &resourceStatusError{URL: raw, Status: 500}, 0, "", false},
-		{"robots 401", robotsRefusal(401), 0, "", false},
-		{"robots 404", robotsRefusal(404), 0, "", false},
+		// A robots.txt the transport could not read is never a refusal of
+		// the font; 4xx answers no longer reach here at all.
+		{"robots 403", robotsRefusal(403), 0, "", false},
+		{"robots 429", robotsRefusal(429), 0, "", false},
 		{"robots 503", robotsRefusal(503), 0, "", false},
 		{"robots disallow", &fetch.RetrievalError{Stage: fetch.StageRobots, Cause: errors.New("publisher robots.txt disallows " + raw)}, 0, "", false},
 		{"scope", &fetch.RetrievalError{Stage: fetch.StageScope, Cause: &fetch.StatusError{URL: raw, Status: 404}}, 0, "", false},

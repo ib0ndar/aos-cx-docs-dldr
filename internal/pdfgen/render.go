@@ -144,9 +144,10 @@ func GenerateInRoot(
 	if result == nil || (result.Status != "complete" && result.Status != "degraded") ||
 		result.Format != "html" || result.HTML == nil || result.HTML.Status != result.Status ||
 		len(result.Errors) != 0 ||
-		(result.Status == "complete" && len(result.MissingResources) != 0) ||
-		(result.Status == "degraded" && (len(result.MissingResources) == 0 ||
-			!reflect.DeepEqual(result.MissingResources, result.HTML.MissingResources))) {
+		(result.Status == "complete" && (len(result.MissingResources) != 0 || len(result.UnpublishedTopics) != 0)) ||
+		(result.Status == "degraded" && len(result.MissingResources) == 0 && len(result.UnpublishedTopics) == 0) ||
+		!reflect.DeepEqual(result.MissingResources, result.HTML.MissingResources) ||
+		!reflect.DeepEqual(result.UnpublishedTopics, result.HTML.UnpublishedTopics) {
 		return record, errors.New("generated PDF rendering requires a publishable HTML archive")
 	}
 	record.InputStatus = result.Status

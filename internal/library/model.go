@@ -20,6 +20,7 @@ type Attempt struct {
 	Warnings             []string                   `json:"warnings"`
 	StylesheetRecoveries []model.StylesheetRecovery `json:"stylesheet_recoveries"`
 	MissingResources     []model.MissingResource    `json:"missing_resources,omitempty"`
+	UnpublishedTopics    []model.UnpublishedTopic   `json:"unpublished_topics,omitempty"`
 	RetainedPrevious     bool                       `json:"retained_previous"`
 }
 
@@ -34,6 +35,7 @@ type Guide struct {
 	TopicCount       int    `json:"topic_count"`
 	AssetCount       int    `json:"asset_count"`
 	PlaceholderCount int    `json:"image_placeholder_count,omitempty"`
+	UnpublishedCount int    `json:"unpublished_topic_count,omitempty"`
 }
 
 type Manifest struct {

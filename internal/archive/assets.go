@@ -168,6 +168,9 @@ func (m *assetManager) probe(raw string, kind dependencyKind, depth int) (*asset
 		}
 		return existing, nil
 	}
+	if probeErr := m.probeFailures[key]; probeErr != nil {
+		return nil, probeErr
+	}
 	if len(m.states) >= maxHTMLAssets {
 		return nil, errors.New("asset inventory exceeds limit")
 	}

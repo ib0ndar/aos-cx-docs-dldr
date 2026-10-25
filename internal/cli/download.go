@@ -371,7 +371,7 @@ func downloadGuidesObserved(
 			}
 			progress.GuideResult(
 				index+1, len(documents), document.Title, result.Status, topics, assets,
-				model.ImagePlaceholderCount(result.MissingResources),
+				model.ImagePlaceholderCount(result.MissingResources), len(result.UnpublishedTopics),
 			)
 		}
 		if ctx.Err() != nil || errors.Is(archiveErr, context.Canceled) {

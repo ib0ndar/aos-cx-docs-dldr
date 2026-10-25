@@ -33,13 +33,13 @@ func (c *Client) loadRobots(ctx context.Context, raw string) (group *robotstxt.G
 			return nil, fmt.Errorf("cannot establish publisher robots rules: %w", err)
 		}
 	}
-	switch r.Status {
-	case http.StatusNotFound:
-		body = []byte("User-agent: *\nAllow: /\n")
-	case http.StatusOK:
+	switch {
+	case r.Status == http.StatusOK:
 		if err := validateRobots(body, r.Headers.Get("Content-Type")); err != nil {
 			return nil, fmt.Errorf("cannot establish publisher robots rules at %s: %w", r.URL, err)
 		}
+	case robotsUnavailable(r.Status):
+		body = []byte("User-agent: *\nAllow: /\n")
 	default:
 		return nil, fmt.Errorf("cannot establish publisher robots rules: %w", &StatusError{URL: r.URL, Status: r.Status})
 	}
@@ -48,6 +48,15 @@ func (c *Client) loadRobots(ctx context.Context, raw string) (group *robotstxt.G
 		return nil, fmt.Errorf("invalid robots.txt at %s: %w", r.URL, err)
 	}
 	return data.FindGroup(userAgent), nil
+}
+
+// robotsUnavailable reports a robots.txt status that RFC 9309 section
+// 2.3.1.3 calls unavailable: any 4xx other than 429. Crawlers may then access
+// any resource on the host. Object stores such as Amazon S3 answer 403 for a
+// robots.txt that does not exist. 429 and 5xx mean the file is unreachable and
+// stop retrieval, as does any other status.
+func robotsUnavailable(status int) bool {
+	return status >= 400 && status < 500 && status != http.StatusTooManyRequests
 }
 
 func validateRobots(body []byte, contentType string) error {

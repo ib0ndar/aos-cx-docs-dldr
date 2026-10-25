@@ -126,6 +126,7 @@ func TestFlareTableStyleRecoveryFailsClosed(t *testing.T) {
 	}{
 		{
 			name: "missing candidate", brokenResource: statusResource(broken, 404),
+			wantComplete: true,
 		},
 		{
 			name: "ambiguous candidates", brokenResource: statusResource(broken, 404),
@@ -133,15 +134,18 @@ func TestFlareTableStyleRecoveryFailsClosed(t *testing.T) {
 				candidate: fixtureResource(candidate, "text/css", []byte(`.TableStyle-`+name+`{color:black}`)),
 				tableGuideRoot + "Content/Resources/Alternate/" + name + ".css": fixtureResource(tableGuideRoot+"Content/Resources/Alternate/"+name+".css", "text/css", []byte(`.TableStyle-`+name+`{color:blue}`)),
 			},
+			wantComplete: true,
 		},
 		{
 			name: "basename case mismatch", brokenResource: statusResource(strings.Replace(broken, name+".css", strings.ToUpper(name)+".css", 1), 404),
 			candidates:   map[string]model.Resource{candidate: fixtureResource(candidate, "text/css", []byte(`.TableStyle-`+name+`{color:black}`))},
 			affectedLink: strings.Replace(broken, name+".css", strings.ToUpper(name)+".css", 1),
+			wantComplete: true,
 		},
 		{
 			name: "selector family absent", brokenResource: statusResource(broken, 404),
-			candidates: map[string]model.Resource{candidate: fixtureResource(candidate, "text/css", []byte(`.TableStyle-Other{color:black}`))},
+			candidates:   map[string]model.Resource{candidate: fixtureResource(candidate, "text/css", []byte(`.TableStyle-Other{color:black}`))},
+			wantComplete: true,
 		},
 		{
 			name: "malformed candidate", brokenResource: statusResource(broken, 404),
@@ -149,15 +153,18 @@ func TestFlareTableStyleRecoveryFailsClosed(t *testing.T) {
 		},
 		{
 			name: "wrong candidate MIME", brokenResource: statusResource(broken, 404),
-			candidates: map[string]model.Resource{candidate: fixtureResource(candidate, "application/octet-stream", []byte(`.TableStyle-`+name+`{color:black}`))},
+			candidates:   map[string]model.Resource{candidate: fixtureResource(candidate, "application/octet-stream", []byte(`.TableStyle-`+name+`{color:black}`))},
+			wantComplete: true,
 		},
 		{
 			name: "candidate foreign redirect", brokenResource: statusResource(broken, 404),
-			candidates: map[string]model.Resource{candidate: fixtureResource("https://foreign.example.test/"+name+".css", "text/css", []byte(`.TableStyle-`+name+`{color:black}`))},
+			candidates:   map[string]model.Resource{candidate: fixtureResource("https://foreign.example.test/"+name+".css", "text/css", []byte(`.TableStyle-`+name+`{color:black}`))},
+			wantComplete: true,
 		},
 		{
 			name: "candidate 404", brokenResource: statusResource(broken, 404),
-			candidates: map[string]model.Resource{candidate: statusResource(candidate, 404)},
+			candidates:   map[string]model.Resource{candidate: statusResource(candidate, 404)},
+			wantComplete: true,
 		},
 		{
 			name: "broken 500", brokenResource: statusResource(broken, 500),
@@ -180,11 +187,13 @@ func TestFlareTableStyleRecoveryFailsClosed(t *testing.T) {
 			name: "ordinary stylesheet has no recovery", brokenResource: statusResource(broken, 404),
 			candidates:   map[string]model.Resource{candidate: fixtureResource(candidate, "text/css", []byte(`.TableStyle-`+name+`{color:black}`))},
 			affectedLink: `<ordinary>`,
+			wantComplete: true,
 		},
 		{
 			name: "no corresponding table class", brokenResource: statusResource(broken, 404),
 			candidates:    map[string]model.Resource{candidate: fixtureResource(candidate, "text/css", []byte(`.TableStyle-`+name+`{color:black}`))},
 			affectedTable: `<table class="TableStyle-Other"><tr><td>x</td></tr></table>`,
+			wantComplete:  true,
 		},
 	}
 	for _, test := range tests {
@@ -218,10 +227,22 @@ func TestFlareTableStyleRecoveryFailsClosed(t *testing.T) {
 			if err != nil {
 				t.Fatalf("archive returned fatal error instead of durable incomplete result: %v", err)
 			}
-			if (result.Status == "complete") != test.wantComplete || len(result.StylesheetRecoveries) != 0 {
+			if (result.Status == "complete") != test.wantComplete ||
+				slices.ContainsFunc(result.StylesheetRecoveries, func(recovery model.StylesheetRecovery) bool {
+					return recovery.Kind != unavailableStylesheetKind
+				}) {
 				t.Fatalf("fail-closed result mismatch: %+v", result)
 			}
-			if !test.wantComplete && (len(result.Errors) == 0 || !slices.ContainsFunc(result.HTML.Assets, func(record model.FileRecord) bool {
+			// Without a unique verified candidate nothing is substituted: a
+			// stylesheet the publisher does not serve is omitted, and any
+			// other failure keeps the guide incomplete.
+			omitted := test.brokenResource.Status == http.StatusNotFound || test.brokenResource.Status == http.StatusGone
+			if omitted != slices.ContainsFunc(result.StylesheetRecoveries, func(recovery model.StylesheetRecovery) bool {
+				return recovery.Kind == unavailableStylesheetKind && recovery.BrokenURL == actualBroken
+			}) {
+				t.Fatalf("unserved stylesheet omission mismatch: %+v", result.StylesheetRecoveries)
+			}
+			if !test.wantComplete && !omitted && (len(result.Errors) == 0 || !slices.ContainsFunc(result.HTML.Assets, func(record model.FileRecord) bool {
 				return record.URL == actualBroken && record.Status == "failed"
 			})) {
 				t.Fatalf("failed required stylesheet was not retained: %+v", result)

@@ -598,7 +598,7 @@ func TestIncompleteResultWithoutReturnedErrorPrintsBoundedReasons(t *testing.T) 
 		},
 	}
 	reportGuideDiagnostics(progress, &stderr, presentation, "acl", result, nil)
-	progress.GuideResult(1, 1, "Guide", result.Status, 105, 4, 0)
+	progress.GuideResult(1, 1, "Guide", result.Status, 105, 4, 0, 0)
 	manifest := library.Manifest{
 		Status: "incomplete",
 		Errors: []string{
@@ -880,7 +880,7 @@ func TestNoninteractiveAllPublishesAvailableSubsetWithSkippedMetadata(t *testing
 	}
 }
 
-func TestAuthoritativeFlareTopic404FailsGuideAndRetainsPreviousComplete(t *testing.T) {
+func TestAuthoritativeFlareTopic404DegradesGuideAndRetainsPreviousComplete(t *testing.T) {
 	var server *httptest.Server
 	var missing atomic.Bool
 	var topicRequests atomic.Int32
@@ -965,38 +965,23 @@ func TestAuthoritativeFlareTopic404FailsGuideAndRetainsPreviousComplete(t *testi
 	if err := json.Unmarshal(stdout.Bytes(), &failed); err != nil {
 		t.Fatalf("failed-run JSON was invalid: %v\n%s", err, &stdout)
 	}
-	if failed.Manifest.Status != "incomplete" || len(failed.Manifest.Attempts) != 1 {
-		t.Fatalf("failed guide did not publish an incomplete version manifest: %+v", failed.Manifest)
+	// The publisher no longer serves an authoritative topic: the refreshed
+	// guide is degraded, which never replaces the prior complete copy.
+	if failed.Manifest.Status != "degraded" || len(failed.Manifest.Attempts) != 1 {
+		t.Fatalf("degraded guide did not publish a degraded version manifest: %+v", failed.Manifest)
 	}
 	attempt := failed.Manifest.Attempts[0]
 	exactTopic := server.URL + "/guide/Content/required.htm"
-	hasExact404 := func(messages []string) bool {
-		return slices.ContainsFunc(messages, func(message string) bool {
-			return strings.Contains(message, "HTTP 404") &&
-				strings.Contains(message, exactTopic) &&
-				strings.Contains(message, "stage=headers")
-		})
+	if attempt.ID != "job" || attempt.Status != "degraded" || attempt.Format != "html" ||
+		!attempt.RetainedPrevious || len(attempt.Errors) != 0 || len(attempt.UnpublishedTopics) != 1 ||
+		attempt.UnpublishedTopics[0].URL != exactTopic || attempt.UnpublishedTopics[0].HTTPStatus != http.StatusNotFound ||
+		!slices.ContainsFunc(attempt.Warnings, func(message string) bool {
+			return strings.Contains(message, exactTopic) && strings.Contains(message, "HTTP 404")
+		}) {
+		t.Fatalf("degraded attempt omitted the unpublished topic or retention: %+v", attempt)
 	}
-	if attempt.ID != "job" || attempt.Status != "failed" || attempt.Format != "html" ||
-		!attempt.RetainedPrevious || !hasExact404(attempt.Errors) {
-		t.Fatalf("failed attempt omitted exact 404 diagnostics or retention: %+v", attempt)
-	}
-	attemptPaths, err := filepath.Glob(filepath.Join(root, "library", "6300", ".incomplete", "*", "unfinished", "job", "attempt.json"))
-	if err != nil || len(attemptPaths) != 1 {
-		t.Fatalf("retained failed guide result not found: paths=%v err=%v", attemptPaths, err)
-	}
-	var archiveResult model.ArchiveResult
-	attemptBytes, err := os.ReadFile(attemptPaths[0])
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := json.Unmarshal(attemptBytes, &archiveResult); err != nil {
-		t.Fatal(err)
-	}
-	if archiveResult.Status != "failed" || archiveResult.Format != "html" ||
-		archiveResult.Document.ID != "job" || archiveResult.HTML != nil ||
-		!hasExact404(archiveResult.Errors) {
-		t.Fatalf("retained guide result changed failure semantics: %+v", archiveResult)
+	if attemptPaths, err := filepath.Glob(filepath.Join(root, "library", "6300", ".incomplete", "*", "unfinished", "job")); err != nil || len(attemptPaths) != 0 {
+		t.Fatalf("a degraded refresh that kept the prior copy left its work behind: paths=%v err=%v", attemptPaths, err)
 	}
 	retained := failed.Manifest.HTMLGuides["job"]
 	retainedIndex := slices.IndexFunc(retained.HTML.Topics, func(topic model.FileRecord) bool {

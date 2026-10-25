@@ -42,9 +42,13 @@ func TestRobotsPolicy(t *testing.T) {
 		allowed    bool
 	}{
 		{"allow", "User-agent: *\nAllow: /\n", 200, true},
+		// RFC 9309: any 4xx but 429 means the robots.txt is unavailable and
+		// places no restrictions; 429 and 5xx mean it is unreachable.
 		{"missing", "", 404, true},
-		{"denied", "", 403, false},
-		{"unauthorized", "", 401, false},
+		{"forbidden", "<Error><Code>AccessDenied</Code></Error>", 403, true},
+		{"unauthorized", "", 401, true},
+		{"gone", "", 410, true},
+		{"rate_limited", "", 429, false},
 		{"unavailable", "", 503, false},
 		{"unexpected_status", "", 204, false},
 		{"html_error", "<html>Access denied</html>", 200, false},

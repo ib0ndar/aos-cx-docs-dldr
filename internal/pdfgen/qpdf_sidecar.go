@@ -148,7 +148,7 @@ func verifyQPDFComponent(platform sidecarPlatform, path, expectedHash string, ex
 	if pinnedContentCurrent(path, info, expectedHash) {
 		return nil
 	}
-	digest, err := hashPinnedFile("qpdf sidecar component", path, info, func(file *os.File) error {
+	digest, stable, err := hashPinnedFile("qpdf sidecar component", path, info, func(file *os.File) error {
 		imports, err := platform.verifyObject(file, path)
 		if err != nil {
 			return fmt.Errorf("qpdf sidecar: %w", err)
@@ -168,7 +168,7 @@ func verifyQPDFComponent(platform sidecarPlatform, path, expectedHash string, ex
 	if digest != expectedHash {
 		return fmt.Errorf("qpdf sidecar component SHA-256 is %s, expected %s: %s", digest, expectedHash, path)
 	}
-	rememberPinnedContent(path, info, digest)
+	rememberPinnedContent(path, stable, digest)
 	return nil
 }
 

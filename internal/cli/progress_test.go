@@ -483,7 +483,7 @@ func TestManifestAnimationStopsBeforePersistentOutput(t *testing.T) {
 			progress.Warning("persistent warning")
 		}},
 		{name: "guide result", run: func(progress *progressReporter) {
-			progress.GuideResult(1, 1, "Guide", "complete", 2, 1, 0)
+			progress.GuideResult(1, 1, "Guide", "complete", 2, 1, 0, 0)
 		}},
 	} {
 		t.Run(writePersistent.name, func(t *testing.T) {

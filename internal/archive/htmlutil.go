@@ -88,6 +88,9 @@ type pageInput struct {
 	// in the guide need, inserted when the page is emitted.
 	bookmarkAliases map[string]string
 	anchors         map[string]string
+	// unpublished is set for a topic the publisher answers with HTTP 404 or
+	// 410; the archive keeps no page for it.
+	unpublished bool
 }
 
 type sourceBudget struct {

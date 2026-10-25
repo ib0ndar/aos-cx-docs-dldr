@@ -169,7 +169,7 @@ func verifyPinnedFile(label, path string, pin sidecarFile) error {
 	if pinnedContentCurrent(path, info, pin.sha256) {
 		return nil
 	}
-	digest, err := hashPinnedFile(label, path, info, nil)
+	digest, stable, err := hashPinnedFile(label, path, info, nil)
 	if err != nil {
 		if pin.kind == pinnedOwnerOnlyMetadata && errors.Is(err, fs.ErrPermission) &&
 			info.Mode().Perm()&0o077 == 0 {
@@ -180,42 +180,81 @@ func verifyPinnedFile(label, path string, pin sidecarFile) error {
 	if digest != pin.sha256 {
 		return fmt.Errorf("%s pinned file SHA-256 is %s, expected %s: %s", label, digest, pin.sha256, path)
 	}
-	rememberPinnedContent(path, info, digest)
+	rememberPinnedContent(path, stable, digest)
 	return nil
 }
 
+// maxPinnedFileReads bounds how often a file whose metadata keeps changing
+// is read again.
+const maxPinnedFileReads = 3
+
 // hashPinnedFile hashes the regular file at path, which must still be the file
 // described by info. inspect, when set, examines the opened file first. The
-// file must be unchanged after hashing. An open failure is returned unwrapped
-// so callers can recognise fs.ErrPermission and fs.ErrNotExist.
-func hashPinnedFile(label, path string, info fs.FileInfo, inspect func(*os.File) error) (string, error) {
+// digest is accepted only from a read that the file was unchanged across.
+// Sync clients such as OneDrive and iCloud Drive write extended attributes of
+// the files they upload, which moves only ctime; a file whose only change is
+// its ctime is read again, up to maxPinnedFileReads times. The returned
+// observation is the one the accepted read was stable against. An open
+// failure is returned unwrapped so callers can recognise fs.ErrPermission and
+// fs.ErrNotExist.
+func hashPinnedFile(label, path string, info fs.FileInfo, inspect func(*os.File) error) (string, fs.FileInfo, error) {
 	forgetPinnedContent(path)
+	for reads := 1; ; reads++ {
+		digest, current, err := readPinnedFile(label, path, info, inspect)
+		if err != nil {
+			return "", nil, err
+		}
+		if sameFileIdentity(info, current) {
+			return digest, info, nil
+		}
+		if reads == maxPinnedFileReads || !onlyChangeTimeDiffers(info, current) {
+			return "", nil, fmt.Errorf("%s identity changed during verification: %s", label, path)
+		}
+		info = current
+	}
+}
+
+// readPinnedFile reads and hashes the file once and returns the digest with
+// the file's observation after the read.
+func readPinnedFile(label, path string, info fs.FileInfo, inspect func(*os.File) error) (string, fs.FileInfo, error) {
 	file, err := os.Open(path)
 	if err != nil {
-		return "", err
+		return "", nil, err
 	}
 	defer file.Close()
 	opened, err := file.Stat()
 	if err != nil || !os.SameFile(info, opened) {
-		return "", fmt.Errorf("%s identity changed while opening: %s", label, path)
+		return "", nil, fmt.Errorf("%s identity changed while opening: %s", label, path)
 	}
 	if inspect != nil {
 		if err := inspect(file); err != nil {
-			return "", err
+			return "", nil, err
 		}
 		if _, err := file.Seek(0, io.SeekStart); err != nil {
-			return "", err
+			return "", nil, err
 		}
 	}
 	hash := sha256.New()
 	if _, err := io.Copy(hash, file); err != nil {
-		return "", err
+		return "", nil, err
 	}
 	current, err := os.Lstat(path)
-	if err != nil || !sameFileIdentity(info, current) {
-		return "", fmt.Errorf("%s identity changed during verification: %s", label, path)
+	if err != nil {
+		return "", nil, fmt.Errorf("%s identity changed during verification: %s", label, path)
 	}
-	return hex.EncodeToString(hash.Sum(nil)), nil
+	return hex.EncodeToString(hash.Sum(nil)), current, nil
+}
+
+// onlyChangeTimeDiffers reports whether two observations of the same file
+// differ in nothing but ctime.
+func onlyChangeTimeDiffers(a, b fs.FileInfo) bool {
+	first, firstOK := fileSnapshotOf(a)
+	second, secondOK := fileSnapshotOf(b)
+	if !firstOK || !secondOK || !os.SameFile(a, b) {
+		return false
+	}
+	second.changed = first.changed
+	return first == second
 }
 
 // fileSnapshot is the cheap identity of a regular file. Writing a file changes

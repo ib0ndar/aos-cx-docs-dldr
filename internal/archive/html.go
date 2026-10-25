@@ -60,6 +60,9 @@ type htmlArchiver struct {
 	ordinaryStyleProbes      map[string]ordinaryStyleProbe
 	stylesheetRecoveries     []model.StylesheetRecovery
 	missingResources         []model.MissingResource
+	unavailableStyles        map[string]int
+	unservedLinks            map[string]int
+	unpublished              []model.UnpublishedTopic
 }
 
 type searchRecord struct {
@@ -195,6 +198,8 @@ func HTMLInRoot(ctx context.Context, plan model.DocumentPlan, fetcher model.Fetc
 		tableStyleResolutions:    map[string]tableStyleResolution{},
 		ordinaryStyleResolutions: map[string]ordinaryStyleResolution{},
 		ordinaryStyleProbes:      map[string]ordinaryStyleProbe{},
+		unavailableStyles:        map[string]int{},
+		unservedLinks:            map[string]int{},
 		notices:                  append([]model.Notice{}, plan.Notices...),
 		warnings:                 append([]string{}, plan.Warnings...),
 		progress:                 Progress{SchemaVersion: ProgressSchemaVersion, Stage: ProgressTopics}}
@@ -244,8 +249,9 @@ func HTMLInRoot(ctx context.Context, plan model.DocumentPlan, fetcher model.Fetc
 		Topics: make([]model.FileRecord, 0, len(a.pages)), Assets: assetRecords,
 		Notices: uniqueNotices(a.notices), Warnings: uniqueStrings(a.warnings),
 		Errors: uniqueStrings(a.errors), StylesheetRecoveries: cloneStylesheetRecoveries(a.stylesheetRecoveries),
-		MissingResources: cloneMissingResources(a.missingResources),
-		GeneratedAt:      time.Now().UTC().Format(time.RFC3339Nano)}
+		MissingResources:  cloneMissingResources(a.missingResources),
+		UnpublishedTopics: slices.Clone(a.unpublished),
+		GeneratedAt:       time.Now().UTC().Format(time.RFC3339Nano)}
 	for _, page := range a.pages {
 		if err := ctx.Err(); err != nil {
 			return result, err
@@ -277,7 +283,7 @@ func HTMLInRoot(ctx context.Context, plan model.DocumentPlan, fetcher model.Fetc
 	archive.Warnings, archive.Errors = uniqueStrings(a.warnings), uniqueStrings(a.errors)
 	if len(archive.Errors) > 0 || slices.ContainsFunc(archive.Assets, func(record model.FileRecord) bool { return record.Status != "complete" }) {
 		archive.Status = "incomplete"
-	} else if len(archive.MissingResources) > 0 {
+	} else if len(archive.MissingResources) > 0 || len(archive.UnpublishedTopics) > 0 {
 		archive.Status = "degraded"
 	}
 	hashGenerated := func(name string) (string, error) {
@@ -358,6 +364,7 @@ func HTMLInRoot(ctx context.Context, plan model.DocumentPlan, fetcher model.Fetc
 	result.Warnings = append([]string{}, archive.Warnings...)
 	result.StylesheetRecoveries = cloneStylesheetRecoveries(archive.StylesheetRecoveries)
 	result.MissingResources = cloneMissingResources(archive.MissingResources)
+	result.UnpublishedTopics = slices.Clone(archive.UnpublishedTopics)
 	a.progress.Stage = ProgressFinal
 	a.progress.Final = true
 	a.reportProgress()
@@ -442,7 +449,7 @@ func (a *htmlArchiver) startPrefetch(pages []*pageInput) *topicPrefetch {
 					}
 					err := fetcher.Prefetch(requestCtx, page.requestURL, a.refresh)
 					prefetch.results <- prefetchResult{page: page, err: err}
-					if err != nil {
+					if _, unpublished := permanentMissingHTTPStatus(err); err != nil && !unpublished {
 						return
 					}
 				}
@@ -455,6 +462,9 @@ func (a *htmlArchiver) startPrefetch(pages []*pageInput) *topicPrefetch {
 	return prefetch
 }
 
+// wait returns the prefetch result of page. Results arrive in any order: a
+// result of another page is kept for that page's own wait, except a failure
+// other than an unpublished topic, which stops the archive at once.
 func (p *topicPrefetch) wait(page *pageInput) error {
 	if err, ok := p.pending[page]; ok {
 		delete(p.pending, page)
@@ -463,13 +473,17 @@ func (p *topicPrefetch) wait(page *pageInput) error {
 	for {
 		select {
 		case result := <-p.results:
+			var err error
 			if result.err != nil {
-				return fmt.Errorf("prefetch topic %s: %w", result.page.topic.URL, result.err)
+				err = fmt.Errorf("prefetch topic %s: %w", result.page.topic.URL, result.err)
 			}
 			if result.page == page {
-				return nil
+				return err
 			}
-			p.pending[result.page] = nil
+			if _, unpublished := permanentMissingHTTPStatus(result.err); err != nil && !unpublished {
+				return err
+			}
+			p.pending[result.page] = err
 		case <-p.ctx.Done():
 			return p.ctx.Err()
 		}
@@ -606,13 +620,23 @@ func (a *htmlArchiver) inventory() error {
 		page := a.pages[index]
 		refresh := a.refresh
 		if prefetch != nil && index < planned {
-			if err := prefetch.wait(page); err != nil {
+			err := prefetch.wait(page)
+			if status, unpublished := permanentMissingHTTPStatus(err); unpublished {
+				prefetch.advance()
+				a.unpublish(page, status, index < planned)
+				continue
+			}
+			if err != nil {
 				return err
 			}
 			prefetch.advance()
 			refresh = false
 		}
 		resource, body, err := a.readPage(page, refresh)
+		if status, unpublished := permanentMissingHTTPStatus(err); unpublished {
+			a.unpublish(page, status, index < planned)
+			continue
+		}
 		if err != nil {
 			return fmt.Errorf("retrieve topic %s: %w", page.topic.URL, err)
 		}
@@ -723,6 +747,9 @@ func (a *htmlArchiver) inventory() error {
 				return err
 			}
 		}
+	}
+	if err := a.dropUnpublished(); err != nil {
+		return err
 	}
 	var aliased []*pageInput
 	for key, fragments := range a.required {
@@ -873,7 +900,7 @@ func (a *htmlArchiver) emit() error {
 				a.errors = append(a.errors, page.topic.URL+": stylesheet "+style+": "+err.Error())
 				continue
 			}
-			if !slices.Contains(styleLinks, local) {
+			if local != "" && !slices.Contains(styleLinks, local) {
 				styleLinks = append(styleLinks, local)
 			}
 		}

@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
 	"slices"
 	"strings"
 	"testing"
@@ -346,5 +348,51 @@ func TestOxygenPlanReadsEachLevelTogether(t *testing.T) {
 	if !slices.Equal(inputs(plan), inputs(serial)) || !slices.Equal(plan.Inventory.ChunkURLs, serial.Inventory.ChunkURLs) ||
 		len(plan.Topics) != len(serial.Topics) {
 		t.Fatalf("concurrent inputs %v\nserial inputs %v", inputs(plan), inputs(serial))
+	}
+}
+
+func TestOxygenPlanKeepsTopicsWhosePageIsUnpublished(t *testing.T) {
+	missing := func(f *planFixture, raw string, status int) {
+		f.responses[raw] = model.Resource{URL: raw, Status: status, Headers: http.Header{}, Body: io.NopCloser(strings.NewReader(""))}
+	}
+
+	// A branch whose own page the publisher does not serve keeps the data's
+	// links and children; the archive records the page as unpublished.
+	f := oxygenFixture()
+	missing(f, oxygenRoot+"chapter/child.html", http.StatusNotFound)
+	plan, err := LoadPlan(context.Background(), f, oxygenDocument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outline := strings.Join(tocOutline(plan.TOC, 0), "\n")
+	if !strings.Contains(outline, "  Child chapter/child.html\n    Grandchild chapter/grand.html") ||
+		!slices.ContainsFunc(plan.Topics, func(topic model.Topic) bool { return topic.URL == oxygenRoot+"chapter/child.html" }) ||
+		slices.ContainsFunc(plan.Inputs, func(input model.SourceInput) bool { return input.RequestedURL == oxygenRoot+"chapter/child.html" }) {
+		t.Fatalf("unpublished branch page changed the plan:\n%s\n%+v", outline, plan.Inputs)
+	}
+
+	// The last TOC page links the back matter; without it there is none to
+	// follow.
+	f = oxygenFixture()
+	missing(f, oxygenRoot+"leaf/leaf.html", http.StatusGone)
+	plan, err = LoadPlan(context.Background(), f, oxygenDocument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outline = strings.Join(tocOutline(plan.TOC, 0), "\n")
+	if !strings.Contains(outline, "Leaf leaf/leaf.html") || strings.Contains(outline, "Notes") ||
+		!slices.ContainsFunc(plan.Warnings, func(warning string) bool {
+			return strings.Contains(warning, oxygenRoot+"leaf/leaf.html returned HTTP 410")
+		}) {
+		t.Fatalf("unpublished last TOC page: %s %q", outline, plan.Warnings)
+	}
+
+	// Any other failure still stops planning.
+	for _, raw := range []string{oxygenRoot + "chapter/child.html", oxygenRoot + "leaf/leaf.html"} {
+		f = oxygenFixture()
+		missing(f, raw, http.StatusServiceUnavailable)
+		if _, err := LoadPlan(context.Background(), f, oxygenDocument()); err == nil || !strings.Contains(err.Error(), "503") {
+			t.Fatalf("%s failing with 503 was planned: %v", raw, err)
+		}
 	}
 }

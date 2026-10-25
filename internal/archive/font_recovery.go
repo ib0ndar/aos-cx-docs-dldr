@@ -29,26 +29,17 @@ func (e *unavailableFontError) Unwrap() error { return e.cause }
 
 // unavailableFontStatus reports the HTTP 403, 404 or 410 with which a host
 // refused a font after the transport's redirects and retries, and the URL
-// that answered: the font itself, or the host's robots.txt when the host
-// refuses that with 403 or 410, so that permission to request the font is
-// never established. Robots rules that disallow the font, scope, destination,
-// timeout, transient, size and body failures are not refusals and stay
-// failures.
+// that answered. A robots.txt answered with 4xx places no restrictions (RFC
+// 9309), so the font itself is requested; a robots.txt that cannot be read,
+// robots rules that disallow the font, scope, destination, timeout,
+// transient, size and body failures are not refusals and stay failures.
 func unavailableFontStatus(err error) (int, string, bool) {
 	var retrieval *fetch.RetrievalError
 	var resource *resourceStatusError
 	switch {
 	case errors.As(err, &retrieval):
-		var statusError *fetch.StatusError
-		switch retrieval.Stage {
-		case fetch.StageHeaders:
-			statusError, _ = retrieval.Cause.(*fetch.StatusError)
-		case fetch.StageRobots:
-			if !errors.As(retrieval.Cause, &statusError) || statusError.Status == http.StatusNotFound {
-				return 0, "", false
-			}
-		}
-		if statusError == nil {
+		statusError, _ := retrieval.Cause.(*fetch.StatusError)
+		if retrieval.Stage != fetch.StageHeaders || statusError == nil {
 			return 0, "", false
 		}
 		return statusError.Status, statusError.URL, refusedFontStatus(statusError.Status)
@@ -107,11 +98,7 @@ func (m *assetManager) recordFontFaceRecoveries(stylesheet string, recoveries []
 			families = append(families, recovery.Family)
 		}
 		for _, source := range recovery.Dropped {
-			answered := "HTTP"
-			if source.FinalURL != "" && mustURL(source.FinalURL).Path == "/robots.txt" {
-				answered = "robots.txt HTTP"
-			}
-			statuses[fmt.Sprintf("%s %d", answered, source.HTTPStatus)]++
+			statuses[fmt.Sprintf("HTTP %d", source.HTTPStatus)]++
 		}
 	}
 	slices.Sort(families)

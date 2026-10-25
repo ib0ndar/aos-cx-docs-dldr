@@ -230,7 +230,7 @@ func (p *progressReporter) Guide(number, total int, title, phase string) {
 	))
 }
 
-func (p *progressReporter) GuideResult(number, total int, title, status string, topics, assets, placeholders int) {
+func (p *progressReporter) GuideResult(number, total int, title, status string, topics, assets, placeholders, unpublished int) {
 	p.stopAnimation()
 	if status == "" {
 		status = "failed"
@@ -242,6 +242,13 @@ func (p *progressReporter) GuideResult(number, total int, title, status string, 
 			label = "image placeholder"
 		}
 		message += fmt.Sprintf(", %d %s", placeholders, label)
+	}
+	if unpublished > 0 {
+		label := "topics the publisher does not serve"
+		if unpublished == 1 {
+			label = "topic the publisher does not serve"
+		}
+		message += fmt.Sprintf(", %d %s", unpublished, label)
 	}
 	message += ")"
 	switch status {

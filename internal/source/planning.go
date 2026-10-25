@@ -123,7 +123,13 @@ func (p *planner) fetchInput(ctx context.Context, raw, role string, scope func(s
 	return input{r.URL, body, r.Headers}, record, ctx.Err()
 }
 
-type readJob struct{ url, role string }
+// readJob is one input for readAll. An optional input is evidence the plan
+// can do without: when the publisher answers it with HTTP 404 or 410, its
+// input is empty and nothing is recorded.
+type readJob struct {
+	url, role string
+	optional  bool
+}
 
 // readAll reads independent source inputs with up to p.workers requests in
 // flight and records them in the order given. The first failure cancels the
@@ -142,6 +148,9 @@ func (p *planner) readAll(jobs []readJob, scope func(string) error) ([]input, er
 			defer group.Done()
 			for index := range next {
 				inputs[index], records[index], errs[index] = p.fetchInput(ctx, jobs[index].url, jobs[index].role, scope)
+				if _, missing := permanentPublisherStatus(errs[index]); missing && jobs[index].optional {
+					inputs[index], errs[index] = input{}, nil
+				}
 				if errs[index] != nil {
 					cancel()
 				}
@@ -174,7 +183,11 @@ feed:
 	if cancelled != nil {
 		return nil, cancelled
 	}
-	p.plan.Inputs = append(p.plan.Inputs, records...)
+	for index, record := range records {
+		if inputs[index].url != "" {
+			p.plan.Inputs = append(p.plan.Inputs, record)
+		}
+	}
 	return inputs, nil
 }
 

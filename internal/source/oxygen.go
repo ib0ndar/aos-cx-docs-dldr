@@ -124,19 +124,11 @@ func (p *planner) oxygen(index input, tree *html.Node, first string) (model.Docu
 	if len(pages) == 0 {
 		return model.DocumentPlan{}, errors.New("Oxygen TOC contains no document topics")
 	}
-	firstPage, err := o.page(pages[0], "topic")
+	front, err := o.matterAround(pages[0], "prev", pages)
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}
-	front, err := o.matter(firstPage, "prev", pages)
-	if err != nil {
-		return model.DocumentPlan{}, err
-	}
-	lastPage, err := o.page(pages[len(pages)-1], "topic")
-	if err != nil {
-		return model.DocumentPlan{}, err
-	}
-	back, err := o.matter(lastPage, "next", pages)
+	back, err := o.matterAround(pages[len(pages)-1], "next", pages)
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}
@@ -330,12 +322,15 @@ func (o *oxygenPlanner) expand(level []oxygenBranch) error {
 					return err
 				}
 				files[index] = file
-				jobs = append(jobs, readJob{file, "chunk"})
+				jobs = append(jobs, readJob{url: file, role: "chunk"})
 			}
+			// A branch page is evidence for verify. A page the publisher does
+			// not serve leaves the branch with its data links, and the archive
+			// records the topic as unpublished.
 			if page, ok := o.branchPage(branch.entry.URL); ok && !queued[page] {
 				if _, done := o.pages[page]; !done {
 					queued[page] = true
-					jobs = append(jobs, readJob{page, "topic"})
+					jobs = append(jobs, readJob{url: page, role: "topic", optional: true})
 				}
 			}
 		}
@@ -346,6 +341,9 @@ func (o *oxygenPlanner) expand(level []oxygenBranch) error {
 		read := map[string]input{}
 		for index, job := range jobs {
 			if job.role == "topic" {
+				if inputs[index].url == "" {
+					continue
+				}
 				if _, err := o.parse(job.url, inputs[index]); err != nil {
 					return err
 				}
@@ -518,6 +516,22 @@ func (o *oxygenPlanner) register(entries []model.TocEntry) error {
 
 // matter follows rel="prev" or rel="next" topic links from a TOC end page and
 // returns the publication topics that the TOC does not list, nearest first.
+// matterAround returns the topics outside the TOC that the TOC page raw
+// links with rel. A TOC page the publisher does not serve links none; the
+// archive records the page itself as unpublished.
+func (o *oxygenPlanner) matterAround(raw, rel string, toc []string) ([]model.TocEntry, error) {
+	page, err := o.page(raw, "topic")
+	if status, missing := permanentPublisherStatus(err); missing {
+		o.warning(fmt.Sprintf("Oxygen TOC page %s returned HTTP %d; topics outside the TOC that it would link with rel=%q were not looked for",
+			raw, status, rel))
+		return nil, nil
+	}
+	if err != nil {
+		return nil, err
+	}
+	return o.matter(page, rel, toc)
+}
+
 func (o *oxygenPlanner) matter(from oxygenPage, rel string, toc []string) ([]model.TocEntry, error) {
 	tree, base := from.tree, from.base
 	listed := map[string]bool{}

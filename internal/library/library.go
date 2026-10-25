@@ -8,12 +8,14 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net/http"
 	"os"
 	"path"
 	"path/filepath"
 	"reflect"
 	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"time"
 
@@ -271,7 +273,8 @@ func (r *Run) Accept(result model.ArchiveResult) error {
 		case generatedFailed && previousGenerated:
 			accept, retained = false, true
 		case previous.Status == "degraded" && result.Status == "degraded" &&
-			!missingResourceSubset(result.MissingResources, previous.MissingResources):
+			(!missingResourceSubset(result.MissingResources, previous.MissingResources) ||
+				!unpublishedTopicSubset(result.UnpublishedTopics, previous.UnpublishedTopics)):
 			accept, retained = false, true
 		}
 	}
@@ -312,7 +315,8 @@ func (r *Run) Accept(result model.ArchiveResult) error {
 	r.attempts = append(r.attempts, Attempt{ID: result.Document.ID, Title: result.Document.Title, Status: attemptStatus, Format: result.Format,
 		Errors: result.Errors, Notices: result.Notices, Warnings: result.Warnings,
 		StylesheetRecoveries: cloneStylesheetRecoveries(result.StylesheetRecoveries),
-		MissingResources:     cloneMissingResources(result.MissingResources), RetainedPrevious: retained})
+		MissingResources:     cloneMissingResources(result.MissingResources),
+		UnpublishedTopics:    slices.Clone(result.UnpublishedTopics), RetainedPrevious: retained})
 	for _, message := range result.Errors {
 		r.errors = append(r.errors, result.Document.Title+": "+message)
 	}
@@ -403,7 +407,8 @@ func (r *Run) verifyHTMLGuide(directory string, result model.ArchiveResult) erro
 		(result.Document.Kind != "flare" && result.Document.Kind != "hpe" && result.Document.Kind != "static") ||
 		manifest == nil || manifest.SchemaVersion != 1 || manifest.Status != result.Status ||
 		manifest.SourceURL != result.Document.URL || len(manifest.Topics) == 0 || len(manifest.Errors) != 0 ||
-		!reflect.DeepEqual(result.MissingResources, manifest.MissingResources) {
+		!reflect.DeepEqual(result.MissingResources, manifest.MissingResources) ||
+		!reflect.DeepEqual(result.UnpublishedTopics, manifest.UnpublishedTopics) {
 		return fmt.Errorf("invalid publishable HTML archive metadata: %s", directory)
 	}
 	if err := storage.Check(r.root, directory); err != nil {
@@ -560,12 +565,27 @@ func (r *Run) verifyMissingResources(directory string, manifest *model.HTMLArchi
 	if manifest.Status == "complete" && len(manifest.MissingResources) != 0 {
 		return fmt.Errorf("complete HTML guide has image placeholders: %s", directory)
 	}
-	if manifest.Status == "degraded" && len(manifest.MissingResources) == 0 {
-		return fmt.Errorf("degraded HTML guide has no image placeholders: %s", directory)
+	if manifest.Status == "complete" && len(manifest.UnpublishedTopics) != 0 {
+		return fmt.Errorf("complete HTML guide has unpublished topics: %s", directory)
+	}
+	if manifest.Status == "degraded" && len(manifest.MissingResources) == 0 && len(manifest.UnpublishedTopics) == 0 {
+		return fmt.Errorf("degraded HTML guide has no image placeholders or unpublished topics: %s", directory)
 	}
 	topics := make(map[string]model.FileRecord, len(manifest.Topics))
+	archived := make(map[string]bool, len(manifest.Topics))
 	for _, topic := range manifest.Topics {
 		topics[topic.Path] = topic
+		if key, err := fetch.CanonicalURL(topic.URL); err == nil {
+			archived[key] = true
+		}
+	}
+	for _, unpublished := range manifest.UnpublishedTopics {
+		key, err := fetch.CanonicalURL(unpublished.URL)
+		_, observedErr := time.Parse(time.RFC3339Nano, unpublished.ObservedAt)
+		if err != nil || archived[key] || observedErr != nil ||
+			(unpublished.HTTPStatus != http.StatusNotFound && unpublished.HTTPStatus != http.StatusGone) {
+			return fmt.Errorf("invalid unpublished-topic record at %s", directory)
+		}
 	}
 	for _, missing := range manifest.MissingResources {
 		if _, err := fetch.NormalizeURL(missing.RequestedURL); err != nil {
@@ -642,6 +662,19 @@ func missingResourceSubset(candidate, previous []model.MissingResource) bool {
 	}
 	for _, missing := range candidate {
 		if !prior[missing.RequestedURL] {
+			return false
+		}
+	}
+	return true
+}
+
+func unpublishedTopicSubset(candidate, previous []model.UnpublishedTopic) bool {
+	prior := make(map[string]bool, len(previous))
+	for _, topic := range previous {
+		prior[topic.URL] = true
+	}
+	for _, topic := range candidate {
+		if !prior[topic.URL] {
 			return false
 		}
 	}
@@ -754,6 +787,9 @@ func sourceDigests(result model.ArchiveResult) map[string]string {
 		}
 		for _, missing := range result.HTML.MissingResources {
 			digests["missing:"+missing.RequestedURL] = missing.FailureClass + ":" + missing.FinalURL
+		}
+		for _, unpublished := range result.HTML.UnpublishedTopics {
+			digests["unpublished:"+unpublished.URL] = strconv.Itoa(unpublished.HTTPStatus)
 		}
 	}
 	return digests
@@ -1160,7 +1196,8 @@ func (r *Run) Publish(cancelled bool) (Manifest, error) {
 		manifest.Guides = append(manifest.Guides, Guide{ID: result.Document.ID, Title: result.Document.Title, Path: key, Format: result.Format,
 			Status: result.Status, SourceURL: result.Document.URL, RouteOrigin: result.Document.RouteOrigin,
 			TopicCount: topicCount, AssetCount: assetCount,
-			PlaceholderCount: model.ImagePlaceholderCount(result.MissingResources)})
+			PlaceholderCount: model.ImagePlaceholderCount(result.MissingResources),
+			UnpublishedCount: len(result.UnpublishedTopics)})
 	}
 	manifest.Status = versionStatus(manifest.Errors, manifest.Attempts, manifest.Guides)
 	if err := r.localizeCrossGuideLinks(&manifest); err != nil {

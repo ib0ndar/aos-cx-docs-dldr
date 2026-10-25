@@ -4,6 +4,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"errors"
+	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
@@ -437,5 +438,62 @@ func TestQPDFSearchDirectoriesHoldOnlyPinnedComponents(t *testing.T) {
 	}
 	if _, err := verifyQPDFSidecar(platform, qpdf); err == nil || !strings.Contains(err.Error(), "unpinned entry") {
 		t.Fatalf("unexpected directory on the qpdf search path was accepted: %v", err)
+	}
+}
+
+func TestPinnedFileIsReadAgainAfterAMetadataOnlyChange(t *testing.T) {
+	target := filepath.Join(t.TempDir(), "icudtl.dat")
+	if err := os.WriteFile(target, []byte("pinned bytes"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sum := sha256.Sum256([]byte("pinned bytes"))
+	want := hex.EncodeToString(sum[:])
+	observe := func() fs.FileInfo {
+		t.Helper()
+		info, err := os.Lstat(target)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return info
+	}
+	// A sync client writing an extended attribute moves only ctime; a chmod
+	// to the same mode does the same on every platform.
+	touchMetadata := func() error {
+		time.Sleep(5 * time.Millisecond)
+		return os.Chmod(target, 0o644)
+	}
+
+	reads := 0
+	digest, stable, err := hashPinnedFile("Chrome sidecar", target, observe(), func(*os.File) error {
+		reads++
+		if reads == 1 {
+			return touchMetadata()
+		}
+		return nil
+	})
+	if err != nil || digest != want || reads != 2 {
+		t.Fatalf("metadata-only change: digest=%s reads=%d err=%v", digest, reads, err)
+	}
+	if !sameFileIdentity(stable, observe()) {
+		t.Fatal("the returned observation is not the one the accepted read was stable against")
+	}
+
+	reads = 0
+	_, _, err = hashPinnedFile("Chrome sidecar", target, observe(), func(*os.File) error {
+		reads++
+		return touchMetadata()
+	})
+	if err == nil || !strings.Contains(err.Error(), "identity changed during verification") || reads != maxPinnedFileReads {
+		t.Fatalf("metadata that never settles: reads=%d err=%v", reads, err)
+	}
+
+	reads = 0
+	_, _, err = hashPinnedFile("Chrome sidecar", target, observe(), func(*os.File) error {
+		reads++
+		time.Sleep(5 * time.Millisecond)
+		return os.WriteFile(target, []byte("other bytes!"), 0o644)
+	})
+	if err == nil || !strings.Contains(err.Error(), "identity changed during verification") || reads != 1 {
+		t.Fatalf("a write during the read was not refused at once: reads=%d err=%v", reads, err)
 	}
 }

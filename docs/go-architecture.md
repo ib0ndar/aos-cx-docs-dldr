@@ -81,6 +81,12 @@ profile falls back to the other or to browser automation.
 - canonical request/final URL, elapsed, attempt, retry, timeout-scope, stage,
   status, cancellation, and deadline evidence.
 
+Each origin's robots.txt is read once, as RFC 9309 specifies: rules from a
+200 answer apply; any other 4xx than 429, such as Amazon S3's 403 for a file
+that does not exist, places no restrictions; 429, 5xx, other statuses and a
+200 body that is not robots rules (HTML, JSON, XML, unknown directives) stop
+retrieval from that origin.
+
 Every hop, including redirects and robots.txt fetches, must pass the
 destination policy in `internal/fetch/destination.go`: HTTP or HTTPS to a DNS
 name or a public IP literal. `localhost`, non-public IP literals (loopback,
@@ -170,8 +176,7 @@ Content Security Policy with `base-uri`, `form-action` and `object-src` set to
 
 Inside the `src` descriptor of an `@font-face` rule only (stylesheets,
 `<style>` blocks, SVG `<style>`), a source whose host answers HTTP 403, 404 or
-410 after redirects and retries, or refuses its robots.txt with 403 or 410 so
-the font is never requested, is dropped. A rule left with no source is removed;
+410 after redirects and retries is dropped. A rule left with no source is removed;
 text falls back to the next family in each `font-family` stack, as it does
 online. Each rule is recorded in `stylesheet_recoveries`
 (`unavailable-font-face-sources`) with a warning, and the guide stays complete.
@@ -179,6 +184,27 @@ Timeouts, 5xx, connection errors, robots disallow rules, the destination
 policy, size limits, invalid bodies, non-font resources and fonts used outside
 `@font-face src` still make the guide incomplete. Font recoveries are not
 missing resources.
+
+The same reasoning covers two other references the publisher's own pages
+cannot load. A page stylesheet (`<link rel="stylesheet">`) answered with HTTP
+404 or 410 is left out of the archived page, unless a Flare same-page or table
+stylesheet recovery proves a replacement; it is recorded in
+`stylesheet_recoveries` (`unavailable-stylesheet`) with the affected topics
+and one warning, and the guide stays complete. A link to a full-size image
+answered with HTTP 404 or 410 loses its `href`, keeping what it encloses, with
+a warning. Other failures of either, `@import`ed stylesheets and displayed
+images keep their existing rules.
+
+A topic that the plan or a link names but the publisher answers with HTTP 404
+or 410 gets no page. Its TOC entry, the links to it and its PDF outline entry
+lead to the publisher's URL, it is listed in `unpublished_topics` with a
+warning, and the guide is `degraded`, like a guide with image placeholders: a
+degraded copy never replaces a complete one and replaces a degraded one only
+when its missing topics and resources are a subset. A guide whose topics are
+all unpublished fails. When planning Oxygen, a branch's own page is optional
+evidence: if it is missing, the branch keeps its data's links, and if the
+first or last TOC page is missing, no front or back matter is looked for
+beyond it.
 
 Publishing tools can rename section and topic identifiers while TOC data and
 links keep the originals. When a fragment that the TOC or a link in the guide
@@ -242,6 +268,10 @@ port exists. Both sidecars get an allowlisted environment, Chrome's whole
 directory and qpdf's whole closure are pinned file by file, and both are
 re-verified immediately before every process start. SIGINT, SIGTERM and SIGHUP
 all cancel a run and exit with 130.
+
+Each file is accepted only from a read it was unchanged across. A read across
+which only ctime moved, as when OneDrive or iCloud Drive writes extended
+attributes of a file it uploads, is repeated, up to three reads.
 
 The package uses only executable-relative verified sidecars. Runtime never
 downloads, searches `PATH`, uses Homebrew, attaches to a personal browser, or

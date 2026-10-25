@@ -111,7 +111,7 @@ func verifySidecar(platform sidecarPlatform, raw string) (Sidecar, error) {
 		return Sidecar{}, fmt.Errorf("Chrome sidecar is not executable: %s", absolute)
 	}
 	if !pinnedContentCurrent(absolute, info, platform.chromeExecutableSHA256) {
-		digest, err := hashPinnedFile("Chrome sidecar", absolute, info, func(file *os.File) error {
+		digest, stable, err := hashPinnedFile("Chrome sidecar", absolute, info, func(file *os.File) error {
 			if _, err := platform.verifyObject(file, absolute); err != nil {
 				return fmt.Errorf("Chrome sidecar: %w", err)
 			}
@@ -126,7 +126,7 @@ func verifySidecar(platform sidecarPlatform, raw string) (Sidecar, error) {
 				digest, platform.chromeExecutableSHA256, ChromeVersion, platform.chromePlatform,
 			)
 		}
-		rememberPinnedContent(absolute, info, digest)
+		rememberPinnedContent(absolute, stable, digest)
 	}
 	// Chrome loads data files and libraries from its own directory, so the
 	// executable is accepted only inside its complete pinned directory.

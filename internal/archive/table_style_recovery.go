@@ -329,9 +329,12 @@ func (a *htmlArchiver) localPageStyle(raw string, page *pageInput) (string, erro
 	if recovery, ok := page.ordinaryStyleRecoveries[key]; ok {
 		return a.localOrdinaryPageStyle(raw, page, recovery)
 	}
+	if status, unavailable := a.unavailableStyles[key]; unavailable {
+		return a.omitStyle(key, status, page)
+	}
 	reference, tableStyle := page.tableStyles[key]
 	if !tableStyle || !a.recoverableTableStyleReference(raw) {
-		return a.assets.local(raw, page.baseURL, page.path, dependencyCSS)
+		return a.servedPageStyle(raw, page)
 	}
 	resolution, seen := a.tableStyleResolutions[key]
 	if !seen {
@@ -346,14 +349,11 @@ func (a *htmlArchiver) localPageStyle(raw string, page *pageInput) (string, erro
 			return "", recordedErr
 		}
 		candidate := uniqueTableStyleCandidate(a.tableStyleCandidates[strings.ToLower(reference.Basename)], reference)
-		if candidate != nil {
-			resolution = tableStyleResolution{candidate: candidate, status: status}
-			a.tableStyleResolutions[key] = resolution
-		} else {
-			_, recordedErr := a.assets.recordFailure(raw, err)
-			a.tableStyleResolutions[key] = tableStyleResolution{status: status, err: recordedErr}
-			return "", recordedErr
+		if candidate == nil {
+			return a.omitStyle(key, status, page)
 		}
+		resolution = tableStyleResolution{candidate: candidate, status: status}
+		a.tableStyleResolutions[key] = resolution
 	}
 	if resolution.err != nil {
 		return "", resolution.err

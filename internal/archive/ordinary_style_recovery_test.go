@@ -267,8 +267,11 @@ func TestFlareOrdinaryStylesheetRecoveryRequiresSamePageEvidence(t *testing.T) {
 	}, calls: map[string]int{}}
 	result, err := HTML(context.Background(), ordinaryStylePlan("flare", ordinaryTopic, ordinarySecond),
 		fetcher, t.TempDir(), false, 1<<20, 8<<20)
-	if err != nil || result.Status != "incomplete" || len(result.Errors) == 0 ||
-		len(result.StylesheetRecoveries) != 0 {
+	// The candidate linked by another page is not substituted; the stylesheet
+	// the publisher does not serve is omitted.
+	if err != nil || result.Status != "complete" || len(result.StylesheetRecoveries) != 1 ||
+		result.StylesheetRecoveries[0].Kind != unavailableStylesheetKind ||
+		result.StylesheetRecoveries[0].BrokenURL != ordinaryVXLANNested {
 		t.Fatalf("cross-page-only stylesheet evidence was accepted: result=%+v err=%v", result, err)
 	}
 }
@@ -406,7 +409,9 @@ func TestFlareOrdinaryStylesheetRecoveryFailsClosed(t *testing.T) {
 			if err != nil {
 				t.Fatalf("archive returned fatal error instead of durable incomplete result: %v", err)
 			}
-			if len(result.StylesheetRecoveries) != 0 {
+			if slices.ContainsFunc(result.StylesheetRecoveries, func(recovery model.StylesheetRecovery) bool {
+				return recovery.Kind == ordinaryStylesheetRecoveryKind
+			}) {
 				t.Fatalf("ineligible ordinary stylesheet recovery was accepted: %+v", result.StylesheetRecoveries)
 			}
 			if test.name == "both valid remain distinct" {
@@ -415,7 +420,15 @@ func TestFlareOrdinaryStylesheetRecoveryFailsClosed(t *testing.T) {
 				}
 				return
 			}
-			if result.Status == "complete" || len(result.Errors) == 0 {
+			// Without a recovery, a stylesheet the publisher does not serve is
+			// omitted; every other failure keeps the guide incomplete.
+			if test.broken.Status == http.StatusNotFound || test.broken.Status == http.StatusGone {
+				if !slices.ContainsFunc(result.StylesheetRecoveries, func(recovery model.StylesheetRecovery) bool {
+					return recovery.Kind == unavailableStylesheetKind
+				}) {
+					t.Fatalf("unserved stylesheet was not omitted: %+v", result)
+				}
+			} else if result.Status == "complete" || len(result.Errors) == 0 {
 				t.Fatalf("ineligible ordinary stylesheet did not fail closed: %+v", result)
 			}
 			for raw, calls := range fetcher.calls {

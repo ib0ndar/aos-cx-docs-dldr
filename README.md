@@ -396,7 +396,9 @@ disposable; deleting it only costs you download time.
 
 Guide updates are transactional within library publication. If a guide update
 fails, it never replaces that guide's prior complete copy; other accepted
-guides in the batch can still be published.
+guides in the batch can still be published. A degraded copy (see
+[A guide is degraded](#a-guide-is-degraded)) never replaces a complete one
+either.
 
 ### Libraries from other versions
 
@@ -481,6 +483,15 @@ then stops sending it requests, waits (30 seconds, then 60 seconds by default)
 and tries again, so a large guide can take a few minutes longer. If a guide
 still fails, run the same command again; everything already downloaded is
 reused from the cache.
+
+### A guide is degraded
+
+The guide was published, but the publisher does not serve everything it links:
+an image is shown as a placeholder, or a topic listed in the contents returns
+"not found" on the publisher's site. Such a topic's contents entry and links
+lead to the publisher's page (marked ↗); the guide's `manifest.json` lists it
+under `unpublished_topics`. A degraded copy never replaces a complete one, so
+run the download again later; it is replaced once the publisher serves more.
 
 ### PDF creation is not available
 
@@ -667,6 +678,12 @@ For release assembly, sidecar acquisition, container packaging, and complete
 validation commands, use the authoritative documents below rather than this
 README. Ordinary tests make no publisher requests; live publisher traffic
 requires explicit authorization.
+
+Watch long runs, such as live downloads, with `scripts/watch-run.sh`. It
+starts the command detached and returns when the command ends, at regular
+checkpoints, or when the command stalls with no output and no CPU use; it can
+then make the program write its goroutine stacks. `scripts/watch-run.sh --help`
+describes it.
 
 Keep this README focused on installation, everyday use, and current behavior.
 Record version-specific changes and one-time upgrade notices in the changelog

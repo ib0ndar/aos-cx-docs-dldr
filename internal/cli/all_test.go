@@ -193,8 +193,10 @@ func TestAllMappedGuidesMixedFormatsThroughActualCLI(t *testing.T) {
 			retained = attempt.RetainedPrevious
 		}
 	}
-	if result.Manifest.Status != "incomplete" || staticResult.Status != "complete" || !retained {
-		t.Fatalf("failed all-guides refresh did not retain prior complete guide: %+v", result.Manifest)
+	// The topic the publisher no longer serves degrades the refreshed guide,
+	// which never replaces the prior complete copy.
+	if result.Manifest.Status != "degraded" || staticResult.Status != "complete" || !retained {
+		t.Fatalf("degraded all-guides refresh did not retain prior complete guide: %+v", result.Manifest)
 	}
 }
 

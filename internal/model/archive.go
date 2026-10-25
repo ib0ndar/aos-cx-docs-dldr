@@ -145,6 +145,16 @@ type MissingResource struct {
 	ObservedAt          string `json:"observed_at"`
 }
 
+// UnpublishedTopic is a topic that the guide's TOC or its pages link but
+// that the publisher answers with HTTP 404 or 410. The archive has no page for
+// it; its TOC entry and the links to it lead to the publisher's URL.
+type UnpublishedTopic struct {
+	URL        string `json:"url"`
+	Title      string `json:"title,omitempty"`
+	HTTPStatus int    `json:"http_status"`
+	ObservedAt string `json:"observed_at"`
+}
+
 func ImagePlaceholderCount(resources []MissingResource) int {
 	ids := make(map[string]struct{}, len(resources))
 	for _, resource := range resources {
@@ -292,6 +302,7 @@ type ArchiveResult struct {
 	Warnings             []string             `json:"warnings"`
 	StylesheetRecoveries []StylesheetRecovery `json:"stylesheet_recoveries"`
 	MissingResources     []MissingResource    `json:"missing_resources,omitempty"`
+	UnpublishedTopics    []UnpublishedTopic   `json:"unpublished_topics,omitempty"`
 }
 
 type FileRecord struct {
@@ -335,6 +346,7 @@ type HTMLArchive struct {
 	Errors               []string             `json:"errors"`
 	StylesheetRecoveries []StylesheetRecovery `json:"stylesheet_recoveries"`
 	MissingResources     []MissingResource    `json:"missing_resources,omitempty"`
+	UnpublishedTopics    []UnpublishedTopic   `json:"unpublished_topics,omitempty"`
 	Integrity            HTMLIntegrity        `json:"integrity"`
 	GeneratedPDF         *GeneratedPDFRecord  `json:"generated_pdf,omitempty"`
 	GeneratedAt          string               `json:"generated_at"`

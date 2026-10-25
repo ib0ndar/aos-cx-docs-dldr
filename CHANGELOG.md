@@ -38,8 +38,6 @@ select#platform"); this change restores catalogue, listing and downloads.
 - Archive guides whose stylesheets declare fonts the publisher no longer
   serves (HPE Metric on every Oxygen guide) as complete: unavailable
   `@font-face` sources are dropped and recorded in `stylesheet_recoveries`.
-  A font host that refuses even its robots.txt counts as unavailable; the font
-  is never requested.
 - Keep TOC entries whose anchor the publisher's page lacks as warnings on both
   generated navigation pages instead of failing the guide.
 - Size library limits for the largest guides: manifests and indexes are read
@@ -55,6 +53,37 @@ select#platform"); this change restores catalogue, listing and downloads.
   the default `--timeout` is 300 seconds instead of 150.
 - Report a response body that ends early as one transient read error; the
   cause was repeated.
+- Archive pages without a stylesheet the publisher answers with HTTP 404 or
+  410, as the publisher's own pages render, instead of failing the guide:
+  the 10.18 ACLs and VSX guides link a `fonts_wh.css` that was never
+  deployed. Each is recorded in `stylesheet_recoveries`
+  (`unavailable-stylesheet`) with its affected topics and one warning. Any
+  other stylesheet failure still makes the guide incomplete, and a
+  replacement is still used only where the existing Flare recoveries prove
+  one.
+- Drop a link to a full-size image that the publisher answers with HTTP 404 or
+  410, keeping what the link encloses (the displayed image), with a warning
+  instead of an error. The 10.18 Monitoring and REST API guides failed on one
+  such link each.
+- Publish a guide whose TOC or links name topics the publisher does not serve
+  (HTTP 404 or 410) as degraded instead of failing it: those topics get no
+  page, their TOC entries, links and PDF outline entries lead to the
+  publisher's URL, and they are listed in `unpublished_topics` with a warning.
+  A degraded copy never replaces a complete one, and replaces a degraded one
+  only when it misses no more topics. A branch whose own page is missing keeps
+  its TOC data's links. The 10.18 Multicast and Network Analytics Engine
+  guides failed this way.
+- Read robots.txt as RFC 9309 specifies: any 4xx answer other than 429 means
+  the file is unavailable and places no restrictions. Before, only 404 did,
+  and every other answer stopped retrieval from that host. Amazon S3 answers
+  403 for a robots.txt that does not exist, so the HPE Metric web fonts that
+  every Oxygen guide loads from S3 were never archived and text fell back to
+  another font; they are archived now. 429, 5xx and unreadable answers still
+  stop retrieval from the host.
+- Accept a PDF component whose metadata alone changes while it is checked.
+  OneDrive and iCloud Drive update the files they upload, which made every
+  conversion fail for a bundle kept in a synced folder; the file is read
+  again, and its bytes must still match the pin.
 
 ## Unreleased - security hardening
 

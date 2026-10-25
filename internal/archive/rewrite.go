@@ -365,6 +365,10 @@ func (a *htmlArchiver) rewriteAnchor(node *html.Node, page *pageInput) {
 			a.errors = append(a.errors, page.topic.URL+": linked asset: "+err.Error())
 			return
 		}
+		if local == "" {
+			removeAttr(node, "href")
+			return
+		}
 		setAttr(node, "href", local)
 		return
 	}
@@ -385,8 +389,30 @@ func (a *htmlArchiver) rewriteAnchor(node *html.Node, page *pageInput) {
 
 // linkedImage archives the target of a link to a full-size image. The target
 // must verify as an image, so that a link never opens other publisher bytes.
+// A target the publisher answers with HTTP 404 or 410 is a dead link on the
+// publisher's own page too: linkedImage returns "" and the link is dropped,
+// while whatever the link encloses, usually the displayed image, stays.
 func (a *htmlArchiver) linkedImage(resolved string, page *pageInput) (string, error) {
-	state, err := a.assets.load(canonicalNoFragment(resolved), dependencyAsset, 0)
+	key := canonicalNoFragment(resolved)
+	status, unserved := a.unservedLinks[key]
+	var state *assetState
+	var err error
+	if !unserved && a.assets.states[key] == nil {
+		state, err = a.assets.probe(key, dependencyAsset, 0)
+		if status, unserved = permanentMissingHTTPStatus(err); unserved {
+			a.unservedLinks[key] = status
+		} else if err != nil {
+			_, err = a.assets.recordFailure(key, err)
+		}
+	} else if !unserved {
+		state, err = a.assets.load(key, dependencyAsset, 0)
+	}
+	if unserved {
+		a.warnings = append(a.warnings, fmt.Sprintf(
+			"%s: link to full-size image %s removed: the publisher returned HTTP %d; the linked content stays",
+			page.topic.URL, key, status))
+		return "", nil
+	}
 	if err != nil {
 		return "", err
 	}

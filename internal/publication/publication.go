@@ -123,9 +123,10 @@ func Assemble(ctx context.Context, root *os.Root, guide string, plan model.Docum
 	if root == nil || (result.Status != "complete" && result.Status != "degraded") ||
 		result.Format != "html" || result.HTML == nil || result.HTML.Status != result.Status ||
 		len(result.HTML.Errors) != 0 || len(result.HTML.Topics) == 0 ||
-		(result.Status == "complete" && len(result.MissingResources) != 0) ||
-		(result.Status == "degraded" && (len(result.MissingResources) == 0 ||
-			!equalJSON(result.MissingResources, result.HTML.MissingResources))) {
+		(result.Status == "complete" && (len(result.MissingResources) != 0 || len(result.UnpublishedTopics) != 0)) ||
+		(result.Status == "degraded" && len(result.MissingResources) == 0 && len(result.UnpublishedTopics) == 0) ||
+		!equalJSON(result.MissingResources, result.HTML.MissingResources) ||
+		!equalJSON(result.UnpublishedTopics, result.HTML.UnpublishedTopics) {
 		return record, errors.New("print assembly requires a publishable verified HTML guide")
 	}
 	if plan.Document != result.Document || plan.Inventory == nil || !plan.Inventory.Complete || len(plan.Topics) == 0 {
@@ -319,6 +320,18 @@ func (a *assembler) verifyAndIndex() error {
 		if err := a.collectHead(info, doc); err != nil {
 			return err
 		}
+	}
+	// A planned topic the publisher does not serve has no page; its outline
+	// entry links the publisher's URL.
+	for _, unpublished := range a.archive.UnpublishedTopics {
+		key, err := fetch.CanonicalURL(unpublished.URL)
+		if err != nil {
+			return err
+		}
+		if foundPlanned[key] {
+			return fmt.Errorf("unpublished topic has an archived page: %s", key)
+		}
+		foundPlanned[key] = true
 	}
 	for key := range planned {
 		if !foundPlanned[key] {
