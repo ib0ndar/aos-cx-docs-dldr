@@ -20,6 +20,7 @@ func client(t *testing.T, change func(*Config)) *Client {
 	t.Helper()
 	cfg := DefaultConfig()
 	cfg.Delay, cfg.Retries = 0, 0
+	cfg.AllowLoopbackFixtures = true
 	if change != nil {
 		change(&cfg)
 	}

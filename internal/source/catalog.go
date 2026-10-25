@@ -101,6 +101,7 @@ func options(root *html.Node, id string) ([]string, error) {
 		return nil, fmt.Errorf("portal must contain one select#%s", id)
 	}
 	var values []string
+	seen := map[string]bool{}
 	for _, n := range nodes(selects[0], func(n *html.Node) bool { return n.Data == "option" }) {
 		if _, disabled := attr(n, "disabled"); disabled {
 			continue
@@ -118,11 +119,15 @@ func options(root *html.Node, id string) ([]string, error) {
 		if !label(value) || strings.TrimSpace(value) != value {
 			return nil, fmt.Errorf("invalid portal %s value %q", id, value)
 		}
-		if !slices.Contains(values, value) {
+		if !seen[value] {
+			if len(values) >= 1000 {
+				return nil, fmt.Errorf("portal select#%s has no usable options or too many options", id)
+			}
+			seen[value] = true
 			values = append(values, value)
 		}
 	}
-	if len(values) == 0 || len(values) > 1000 {
+	if len(values) == 0 {
 		return nil, fmt.Errorf("portal select#%s has no usable options or too many options", id)
 	}
 	return values, nil
@@ -461,6 +466,12 @@ func resolve(guide model.Guide, platform, version, target string) (model.Documen
 		normalized, err := fetch.NormalizeURL(target)
 		if err != nil {
 			return d, err
+		}
+		// Refuse non-public targets here with a clear reason.
+		// Loopback targets pass only so fixture catalogues resolve; the
+		// transport still refuses them outside fixture mode.
+		if err := fetch.CheckDestination(normalized, true); err != nil {
+			return d, fmt.Errorf("unsupported absolute publisher target: %w", err)
 		}
 		u, _ := url.Parse(normalized)
 		d.URL = normalized

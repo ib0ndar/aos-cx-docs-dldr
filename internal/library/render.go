@@ -4,10 +4,13 @@ import (
 	"bytes"
 	_ "embed"
 	"encoding/json"
+	"fmt"
 	"html/template"
 	"net/url"
 	"path"
+	"strings"
 
+	"aos-cx-docs-dldr/internal/model"
 	"aos-cx-docs-dldr/internal/storage"
 )
 
@@ -93,6 +96,36 @@ func jsonBytes(value any) ([]byte, error) {
 	return append(data, '\n'), err
 }
 
+// guideSearchEntries lifts a guide's topic search records into the release
+// search. Integrity checks prove search.json unchanged since archiving, not
+// that its links are safe, so each record must name one of the guide's
+// archived topic pages by a clean relative path before it becomes a link.
+func (r *Run) guideSearchEntries(directory string, guide Guide, result model.ArchiveResult) ([]searchEntry, error) {
+	var records []struct {
+		Title string `json:"title"`
+		URL   string `json:"url"`
+		Text  string `json:"text"`
+	}
+	if err := storage.ReadJSON(r.root, path.Join(directory, guide.Path, "search.json"), &records); err != nil {
+		return nil, err
+	}
+	topics := map[string]bool{}
+	if result.HTML != nil {
+		for _, topic := range result.HTML.Topics {
+			topics[topic.Path] = true
+		}
+	}
+	entries := make([]searchEntry, 0, len(records))
+	for _, record := range records {
+		if !topics[record.URL] || storage.SafePath(record.URL) != nil || !strings.HasPrefix(record.URL, "pages/") {
+			return nil, fmt.Errorf("search record in guide %s does not link to an archived topic page: %q", guide.Path, record.URL)
+		}
+		entries = append(entries, searchEntry{Guide: guide.Title, Title: record.Title,
+			URL: (&url.URL{Path: path.Join(guide.Path, record.URL)}).EscapedPath(), Text: record.Text})
+	}
+	return entries, nil
+}
+
 func (r *Run) writeIndex(manifest Manifest, history []History) error {
 	return r.writeIndexAt(r.stage, manifest, history)
 }
@@ -112,35 +145,21 @@ func (r *Run) writeIndexAt(directory string, manifest Manifest, history []Histor
 			pdfURL := (&url.URL{Path: path.Join(guide.Path, generated.Path)}).EscapedPath()
 			entries = append(entries, indexEntry{Title: guide.Title, Status: guide.Status, URL: link, PDFURL: pdfURL})
 			search = append(search, searchEntry{Guide: guide.Title, Title: guide.Title, URL: link, Text: text})
-			var records []struct {
-				Title string `json:"title"`
-				URL   string `json:"url"`
-				Text  string `json:"text"`
-			}
-			if err := storage.ReadJSON(r.root, path.Join(directory, guide.Path, "search.json"), &records); err != nil {
+			records, err := r.guideSearchEntries(directory, guide, manifest.HTMLGuides[guide.Path])
+			if err != nil {
 				return err
 			}
-			for _, record := range records {
-				search = append(search, searchEntry{Guide: guide.Title, Title: record.Title,
-					URL: (&url.URL{Path: path.Join(guide.Path, record.URL)}).EscapedPath(), Text: record.Text})
-			}
+			search = append(search, records...)
 			continue
 		}
 		entries = append(entries, indexEntry{Title: guide.Title, Status: guide.Status, URL: link})
 		search = append(search, searchEntry{Guide: guide.Title, Title: guide.Title, URL: link, Text: text})
 		if guide.Format == "html" {
-			var records []struct {
-				Title string `json:"title"`
-				URL   string `json:"url"`
-				Text  string `json:"text"`
-			}
-			if err := storage.ReadJSON(r.root, path.Join(directory, guide.Path, "search.json"), &records); err != nil {
+			records, err := r.guideSearchEntries(directory, guide, manifest.HTMLGuides[guide.Path])
+			if err != nil {
 				return err
 			}
-			for _, record := range records {
-				search = append(search, searchEntry{Guide: guide.Title, Title: record.Title,
-					URL: (&url.URL{Path: path.Join(guide.Path, record.URL)}).EscapedPath(), Text: record.Text})
-			}
+			search = append(search, records...)
 		}
 	}
 	tmpl, err := template.New("index").Parse(indexHTML)

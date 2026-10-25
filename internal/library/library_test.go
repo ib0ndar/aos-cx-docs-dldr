@@ -23,6 +23,17 @@ import (
 
 type pdfFetcher []byte
 
+// guideOutput opens a guide's work directory and closes it when the test ends.
+func guideOutput(t *testing.T, r *Run, id string) (*os.Root, string) {
+	t.Helper()
+	guide, output, err := r.GuideOutput(id)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { guide.Close() })
+	return guide, output
+}
+
 func (p pdfFetcher) Get(ctx context.Context, url string, refresh bool) (model.Resource, error) {
 	return model.Resource{URL: url, Status: 200, Headers: http.Header{"Content-Type": {"application/pdf"}}, Body: io.NopCloser(bytes.NewReader(p))}, nil
 }
@@ -58,11 +69,8 @@ func acceptPDF(t *testing.T, r *Run, id, label string) model.ArchiveResult {
 		ID: id, Title: id + " Guide", Platform: "6300", Version: "10.10", Kind: "pdf",
 		URL: "https://example.test/" + id + ".pdf", RouteOrigin: "publisher-url",
 	}
-	output, err := r.GuideOutput(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := archive.PublisherPDF(context.Background(), model.DocumentPlan{Document: doc, PDFURL: doc.URL}, pdfFetcher(testutil.PDF(label)), output, false, 1<<20)
+	guide, output := guideOutput(t, r, id)
+	result, err := archive.PublisherPDFInRoot(context.Background(), model.DocumentPlan{Document: doc, PDFURL: doc.URL}, pdfFetcher(testutil.PDF(label)), guide, output, false, 1<<20)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -108,13 +116,10 @@ func acceptHTMLWithDiagnostics(t *testing.T, r *Run, id string, notices []model.
 		TOC:       []model.TocEntry{{Title: "Home", URL: url}},
 		Notices:   append([]model.Notice{}, notices...),
 		Inventory: &model.InventoryEvidence{Complete: true, Kind: "flare", RootURL: "https://example.test/guide/", Entries: 1, UniqueTopics: 1}}
-	output, err := r.GuideOutput(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := archive.HTML(context.Background(), plan,
+	guide, output := guideOutput(t, r, id)
+	result, err := archive.HTMLInRoot(context.Background(), plan,
 		htmlFetcher(`<main id="mc-main-content"><h1 id="home">Home</h1><p>Offline text</p></main>`),
-		output, false, 1<<20, 2<<20)
+		guide, output, false, 1<<20, 2<<20, 1, nil)
 	if err != nil || result.Status != "complete" {
 		t.Fatalf("HTML archive failed: %+v %v", result, err)
 	}
@@ -158,11 +163,8 @@ func acceptDegradedHTML(t *testing.T, r *Run, id string, missingNames ...string)
 			Entries: 1, UniqueTopics: 1,
 		},
 	}
-	output, err := r.GuideOutput(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := archive.HTML(context.Background(), plan, resources, output, false, 1<<20, 2<<20)
+	guide, output := guideOutput(t, r, id)
+	result, err := archive.HTMLInRoot(context.Background(), plan, resources, guide, output, false, 1<<20, 2<<20, 1, nil)
 	if err != nil || result.Status != "degraded" || len(result.MissingResources) != len(missingNames) {
 		t.Fatalf("degraded archive failed: %+v %v", result, err)
 	}
@@ -686,11 +688,8 @@ func acceptSourceHTML(t *testing.T, run *Run, kind string) model.ArchiveResult {
 	default:
 		t.Fatal("unsupported fixture kind", kind)
 	}
-	output, err := run.GuideOutput(plan.Document.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := archive.HTML(context.Background(), plan, fetcher, output, false, 1<<20, 2<<20)
+	guide, output := guideOutput(t, run, plan.Document.ID)
+	result, err := archive.HTMLInRoot(context.Background(), plan, fetcher, guide, output, false, 1<<20, 2<<20, 1, nil)
 	if err != nil || result.Status != "complete" {
 		t.Fatalf("%s archive failed: %+v %v", kind, result, err)
 	}
@@ -783,10 +782,7 @@ func TestFailedHTMLUpdateRetainsPreviousCompleteGuide(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	output, err := second.GuideOutput("html")
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, output := guideOutput(t, second, "html")
 	failed := model.ArchiveResult{Document: original.Document, OutputDir: output, Status: "incomplete", Format: "html",
 		Errors: []string{"required image unavailable"}}
 	if err := second.Accept(failed); err != nil {
@@ -837,10 +833,7 @@ func TestNativePDFLibraryLayoutHistoryAndPreviousRetention(t *testing.T) {
 		t.Fatal("previous snapshot changed")
 	}
 	doc := second.PDFGuides["job"].Document
-	output, err := r.GuideOutput("job")
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, output := guideOutput(t, r, "job")
 	result := model.ArchiveResult{Document: doc, OutputDir: output, Status: "failed", Format: "pdf", Errors: []string{"publisher unavailable"}}
 	if err := r.Accept(result); err != nil {
 		t.Fatal(err)
@@ -1016,11 +1009,8 @@ func TestCancellationPublishesOnlyAcceptedPDFs(t *testing.T) {
 		t.Fatal(err)
 	}
 	acceptPDF(t, r, "first", "done")
-	work, err := r.GuideOutput("unfinished")
-	if err != nil {
-		t.Fatal(err)
-	}
-	os.WriteFile(filepath.Join(work, ".download.part"), []byte("partial"), 0o600)
+	unfinished, _ := guideOutput(t, r, "unfinished")
+	unfinished.WriteFile(".download.part", []byte("partial"), 0o600)
 	m, err := r.Publish(true)
 	if err != nil {
 		t.Fatal(err)

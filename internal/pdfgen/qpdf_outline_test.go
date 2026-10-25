@@ -199,7 +199,31 @@ func mutateQPDFObject(
 	}
 }
 
+// allowStandInQPDF lets a test drive runQPDF with a stand-in executable by
+// disabling only the pre-exec pin confirmation for the test's duration.
+func allowStandInQPDF(t *testing.T) {
+	t.Helper()
+	previous := confirmQPDFBeforeExec
+	confirmQPDFBeforeExec = func(QPDFSidecar) error { return nil }
+	t.Cleanup(func() { confirmQPDFBeforeExec = previous })
+}
+
+func TestRunQPDFConfirmsPinnedClosureBeforeEveryExec(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "started")
+	_, err := runQPDF(
+		context.Background(), QPDFSidecar{Path: "/bin/sh"}, nil, 1<<30,
+		"-c", `touch "$1"`, "qpdf-test", marker,
+	)
+	if err == nil || !strings.Contains(err.Error(), "immediately before launch") {
+		t.Fatalf("unpinned qpdf stand-in was executed: %v", err)
+	}
+	if _, statErr := os.Lstat(marker); !errors.Is(statErr, os.ErrNotExist) {
+		t.Fatalf("unpinned qpdf stand-in started before verification: %v", statErr)
+	}
+}
+
 func TestRunQPDFBoundsOutputDiagnosticsAndProcessGroup(t *testing.T) {
+	allowStandInQPDF(t)
 	t.Run("output", func(t *testing.T) {
 		var output bytes.Buffer
 		file, err := os.CreateTemp(t.TempDir(), "qpdf-output-*.bin")
@@ -252,6 +276,7 @@ func TestRunQPDFBoundsOutputDiagnosticsAndProcessGroup(t *testing.T) {
 }
 
 func TestInspectWithQPDFRejectsInvalidJSON(t *testing.T) {
+	allowStandInQPDF(t)
 	root := t.TempDir()
 	script := filepath.Join(root, "fake-qpdf")
 	if err := os.WriteFile(script, []byte("#!/bin/sh\nprintf '{\"qpdf\":['\n"), 0o700); err != nil {

@@ -3,6 +3,7 @@ package storage
 import (
 	"strings"
 	"testing"
+	"unicode"
 	"unicode/utf8"
 )
 
@@ -28,5 +29,31 @@ func TestPortableNamesAndPDFLabels(t *testing.T) {
 		if SafePath(path) == nil {
 			t.Errorf("unsafe managed path accepted: %s", path)
 		}
+	}
+}
+
+func TestPDFFilenameRemovesFormatCharacters(t *testing.T) {
+	title := "Job\u200bScheduler\u00ad Guide \u202efdp.exe\u202c \u2066x\u2069\u200e\ufeff"
+	filename, err := PDFFilename("6300", "10.10", title)
+	if err != nil || filename != "6300 - 10.10 - JobScheduler Guide fdp.exe x.pdf" {
+		t.Fatalf("format characters kept in PDF filename: %q %v", filename, err)
+	}
+	for _, r := range filename {
+		if unicode.In(r, unicode.Cf) || unicode.IsControl(r) {
+			t.Fatalf("PDF filename contains %U", r)
+		}
+	}
+	if _, err := PDFFilename("6300", "10.10", "\u202e\u200b"); err == nil {
+		t.Fatal("title made only of format characters produced a filename")
+	}
+	legacy := "6300 - 10.10 - Job\u200bScheduler\u00ad Guide \u202efdp.exe\u202c \u2066x\u2069\u200e\ufeff.pdf"
+	for name, accepted := range map[string]bool{filename: true, legacy: true, "6300 - 10.10 - Other.pdf": false} {
+		if PDFFilenameAccepted("6300", "10.10", title, name) != accepted {
+			t.Errorf("PDFFilenameAccepted(%q) = %v", name, !accepted)
+		}
+	}
+	plain, err := PDFFilename("6300", "10.10", "API / CLI: Guide?")
+	if err != nil || !PDFFilenameAccepted("6300", "10.10", "API / CLI: Guide?", plain) {
+		t.Fatalf("plain title name not accepted: %q %v", plain, err)
 	}
 }

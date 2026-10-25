@@ -350,8 +350,9 @@ the canonical offline copy.
 ### Stop and resume
 
 Press Ctrl-C. Accepted guides and prior complete guides are published, verified
-raw cache entries are retained, and the batch is marked incomplete. Run the
-same download again to reuse valid cached data.
+raw cache entries are retained, and the batch is marked incomplete. Closing the
+terminal, a dropped SSH session, or `kill` stop the run the same way, with exit
+code 130. Run the same download again to reuse valid cached data.
 
 ---
 
@@ -458,6 +459,11 @@ so the tool does not guess another source or produce a partial copy.
 The tool writes only to current, recognized state that it created. Point
 `--destination` at a new, empty folder; unsupported state is left untouched.
 
+If the message names a platform, release or housekeeping folder that belongs to
+another account or that other users can write to, another user could tamper
+with the library through it. Fix the folder's owner or permissions (for
+example `chmod go-w FOLDER`) or choose a new `--destination`.
+
 ### The cache folder was rejected
 
 Use an empty folder, or the one the tool created previously. It will not write
@@ -471,8 +477,20 @@ folders in place; the tool checks and resumes from them safely.
 ### PDF creation is not available
 
 On macOS, the package folder must be intact: the Chrome and qpdf components sit
-beside the executable and are found nowhere else. In the container they are
-built in. There is no automatic download of components.
+beside the executable and are found nowhere else. Every file in their folders is
+checked, so an added, removed or changed file disables conversion; only a
+Finder `.DS_Store` is tolerated. Keep the bundle on an APFS or Mac OS Extended
+volume, because exFAT marks every file executable and adds `._` files. In the
+container the components are built in. There is no automatic download of
+components.
+
+### A source address was refused
+
+The tool contacts only public HTTP and HTTPS addresses. A catalogue entry, link
+or redirect that points to `localhost` or to a private, link-local or other
+non-public address is refused and named in the message rather than fetched.
+For plain HTTP without a proxy, the address the name resolves to is checked
+too. A redirect from HTTPS to plain HTTP is also refused.
 
 ### macOS refuses to open the application
 
@@ -505,7 +523,7 @@ of the image you loaded, without the leading `v`:
 
 ```powershell
 $image = 'aos-cx-docs-dldr:VERSION'
-docker run --rm -i `
+docker run --rm -i --cap-drop ALL --security-opt no-new-privileges `
   -v aos-cx-docs-dldr-cache:/cache `
   -v "C:\certs\corporate-ca.pem:/certs/ca.pem:ro" `
   -e SSL_CERT_FILE=/certs/ca.pem `
@@ -565,7 +583,9 @@ Output sent to a file or another program is always plain, whatever these say.
 
 `--raw-cache` overrides the cache location and wins over the variables above.
 The packaged Chrome and qpdf components are selected automatically; their path
-overrides are intended for development and diagnostics, not normal use.
+overrides are intended for development and diagnostics, not normal use. Chrome
+and qpdf receive only a minimal environment (locale and time zone); `DYLD_*`,
+`LD_*` and other inherited variables are not passed to them.
 
 The container already sets `XDG_CACHE_HOME=/cache`,
 `HOME=/home/nonroot`, and `SSL_CERT_FILE` to the public certificate bundle.

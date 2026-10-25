@@ -41,7 +41,7 @@ func TestFlarePlanningUsesRealTransportCacheAndCompleteInputs(t *testing.T) {
 		}
 	}))
 	defer server.Close()
-	client, err := fetch.New(fetch.Config{Timeout: time.Second, MaxBytes: 1 << 20}, func(string) {})
+	client, err := fetch.New(fetch.Config{Timeout: time.Second, MaxBytes: 1 << 20, AllowLoopbackFixtures: true}, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +93,7 @@ func TestPlanningRedirectScopeStopsBeforeUnsafeTarget(t *testing.T) {
 		http.Redirect(w, r, outside.URL+"/private", http.StatusFound)
 	}))
 	defer inside.Close()
-	client, err := fetch.New(fetch.Config{Timeout: time.Second, MaxBytes: 1 << 20}, func(string) {})
+	client, err := fetch.New(fetch.Config{Timeout: time.Second, MaxBytes: 1 << 20, AllowLoopbackFixtures: true}, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -134,7 +134,7 @@ func TestFlareRedirectWithinSelectedReleasePreservesMappedPublicIdentity(t *test
 		}
 	}))
 	defer server.Close()
-	client, err := fetch.New(fetch.Config{Timeout: time.Second, MaxBytes: 1 << 20}, func(string) {})
+	client, err := fetch.New(fetch.Config{Timeout: time.Second, MaxBytes: 1 << 20, AllowLoopbackFixtures: true}, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}

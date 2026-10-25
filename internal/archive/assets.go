@@ -5,7 +5,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"mime"
 	"net/url"
 	"os"
 	"path"
@@ -200,7 +199,7 @@ func (m *assetManager) processLoaded(state *assetState, resource model.Resource,
 		return m.fail(state, errors.New("archive aggregate source-byte limit exceeded"))
 	}
 	assetType := classifyAsset(state.record.URL, state.record.ContentType, body, kind)
-	ext := assetExtension(state.record.URL, assetType, state.record.ContentType)
+	ext := assetExtension(assetType)
 	name := fileName(state.record.URL, "", ext)
 	if current := path.Ext(name); current != ext {
 		name = strings.TrimSuffix(name, current) + ext
@@ -328,7 +327,7 @@ func classifyAsset(raw, contentType string, body []byte, hint dependencyKind) st
 		return "svg"
 	case kind == "text/html" || kind == "application/xhtml+xml" || bytes.HasPrefix(bytes.ToLower(bytes.TrimSpace(body)), []byte("<!doctype html")):
 		return "invalid"
-	case kind == "font/ttf" || kind == "application/x-font-ttf":
+	case kind == "font/ttf" || kind == "application/x-font-ttf" || ext == ".ttf":
 		return "ttf"
 	case kind == "image/png" || ext == ".png":
 		return "png"
@@ -349,7 +348,11 @@ func classifyAsset(raw, contentType string, body []byte, hint dependencyKind) st
 	}
 }
 
-func assetExtension(raw, kind, contentType string) string {
+// assetExtension names a stored asset. Only kinds whose bytes the archive has
+// verified, or rewritten itself, get their own extension. Everything else is
+// stored as .bin, which browsers do not render or run, whatever the publisher
+// URL or content type claimed.
+func assetExtension(kind string) string {
 	switch kind {
 	case "css":
 		return ".css"
@@ -371,15 +374,6 @@ func assetExtension(raw, kind, contentType string) string {
 		return ".woff2"
 	case "ttf":
 		return ".ttf"
-	}
-	ext := strings.ToLower(path.Ext(mustURL(raw).Path))
-	if len(ext) > 1 && len(ext) <= 10 {
-		return ext
-	}
-	if value, _, err := mime.ParseMediaType(contentType); err == nil {
-		if extensions, _ := mime.ExtensionsByType(value); len(extensions) > 0 && len(extensions[0]) <= 10 {
-			return extensions[0]
-		}
 	}
 	return ".bin"
 }
@@ -403,7 +397,8 @@ func validateBinaryAsset(kind string, body []byte) error {
 	case "woff2":
 		valid = bytes.HasPrefix(body, []byte("wOF2"))
 	case "ttf":
-		valid = bytes.HasPrefix(body, []byte{0x00, 0x01, 0x00, 0x00}) || bytes.HasPrefix(body, []byte("true"))
+		valid = bytes.HasPrefix(body, []byte{0x00, 0x01, 0x00, 0x00}) || bytes.HasPrefix(body, []byte("true")) ||
+			bytes.HasPrefix(body, []byte("OTTO")) || bytes.HasPrefix(body, []byte("ttcf"))
 	}
 	if !valid {
 		return fmt.Errorf("invalid %s bytes", kind)

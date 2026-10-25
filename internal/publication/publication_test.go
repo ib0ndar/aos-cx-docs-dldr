@@ -595,6 +595,32 @@ func manualGuide(t testingTB, count int, kind string) (string, model.DocumentPla
 	return output, plan, model.ArchiveResult{Document: document, Status: "complete", Format: "html", HTML: archiveManifest}
 }
 
+func TestAssembleStripsActiveMarkupFromAlteredTopic(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[0]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`<h1 id="same">`), []byte(`<meta http-equiv="refresh" content="0;url=https://evil.example/">`+
+		`<base href="https://evil.example/"><link rel="stylesheet" href="https://evil.example/x.css">`+
+		`<script>alert(1)</script><iframe srcdoc="&lt;script&gt;alert(2)&lt;/script&gt;"></iframe>`+
+		`<p onclick="alert(3)">Altered text</p><h1 id="same">`), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	for _, active := range []string{"evil.example", "<script", "<iframe", "srcdoc", "onclick", "refresh", "<base"} {
+		if bytes.Contains(bytes.ToLower(combined), []byte(active)) {
+			t.Fatalf("print source kept active markup %q", active)
+		}
+	}
+	if !bytes.Contains(combined, []byte("Altered text")) ||
+		!bytes.Contains(combined, []byte("base-uri 'none'; form-action 'none'")) {
+		t.Fatalf("print source lost text or its restrictive policy: %s", combined)
+	}
+}
+
 func writeManifest(t testingTB, output string, manifest *model.HTMLArchive) {
 	t.Helper()
 	data, err := json.MarshalIndent(manifest, "", "  ")

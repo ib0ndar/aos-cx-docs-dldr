@@ -78,7 +78,7 @@ func processGroupRSS(ctx context.Context, processGroup int) (int64, error) {
 // cancellation reliably reaps the whole renderer tree rather than only the
 // process this package launched directly.
 func configureProcessGroup(cmd *exec.Cmd) {
-	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.SysProcAttr = sidecarProcessAttributes()
 	cmd.Cancel = func() error {
 		if cmd.Process == nil {
 			return os.ErrProcessDone

@@ -24,7 +24,7 @@ func TestVerifiedCacheHitConsumesNoAttemptBudget(t *testing.T) {
 	}))
 	defer server.Close()
 	budget, _ := fetch.NewAttemptBudget(2, 1)
-	client, err := fetch.New(fetch.Config{Timeout: time.Second, MaxBytes: 1024, Attempts: budget}, func(string) {})
+	client, err := fetch.New(fetch.Config{Timeout: time.Second, MaxBytes: 1024, Attempts: budget, AllowLoopbackFixtures: true}, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}

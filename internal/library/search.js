@@ -1,6 +1,17 @@
 const search = document.querySelector("#search");
 const results = document.querySelector("#results");
 const status = document.querySelector("#search-status");
+const libraryBase = new URL(".", location.href).href;
+// Search links come from archived data, so only a relative link that stays
+// inside this release directory is used; a scheme such as javascript: is not.
+const localLink = value => {
+    if (typeof value !== "string" || /^[a-z][a-z\d+.-]*:/i.test(value) || /^[\/\\]/.test(value)) return null;
+    try {
+        return new URL(value, location.href).href.startsWith(libraryBase) ? value : null;
+    } catch {
+        return null;
+    }
+};
 search.addEventListener("input", () => {
     results.replaceChildren();
     status.textContent = "";
@@ -11,12 +22,14 @@ search.addEventListener("input", () => {
     for (const entry of window.AOSCX_SEARCH) {
         const haystack = normalize([entry.guide, entry.title, entry.text].join(" "));
         if (!terms.every(term => haystack.includes(term))) continue;
+        const href = localLink(entry.url);
+        if (!href) continue;
         count++;
         if (count > 50) continue;
         const article = document.createElement("article");
         article.setAttribute("role", "listitem");
         const link = document.createElement("a");
-        link.href = entry.url;
+        link.href = href;
         link.textContent = entry.guide + " / " + entry.title;
         article.append(link);
         if (entry.text) {

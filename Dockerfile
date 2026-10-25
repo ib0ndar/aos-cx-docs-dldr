@@ -21,7 +21,7 @@
 # ---------------------------------------------------------------------------
 # Build stage: compile the application and stage verified sidecars.
 # ---------------------------------------------------------------------------
-FROM --platform=$BUILDPLATFORM golang:1.27.1-trixie@sha256:9baa6b4187bbb98d240372a8a235ac0bb6b5ddd52bba1431dc2f7c0705862728 AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.3-trixie@sha256:fbb7ae40b62ff8afe31662df570d39b4f5052ac32b90dae8e60d7657a20a74f4 AS build
 
 ENV GOTOOLCHAIN=local CGO_ENABLED=0 GOOS=linux GOARCH=amd64
 
@@ -76,8 +76,8 @@ RUN mkdir -p /skel/library /skel/cache /skel/home/nonroot
 # ---------------------------------------------------------------------------
 # Runtime stage.
 # ---------------------------------------------------------------------------
-# debian:trixie-slim, resolved 2026-09-19.
-FROM debian:trixie-slim@sha256:a99cfc517144bc59b1978475ec53b46ecabec7e43635402ee5b77cc54cd1b20a
+# debian:trixie-slim, resolved 2026-10-25.
+FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
 
 ARG VERSION=0.8
 LABEL org.opencontainers.image.title="aos-cx-docs-dldr" \
@@ -108,6 +108,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # keep working.
 RUN groupadd --gid 65532 nonroot && \
     useradd --uid 65532 --gid 65532 --home-dir /home/nonroot --shell /usr/sbin/nologin nonroot
+
+# Chrome renders untrusted publisher content with --no-sandbox in here, so a
+# compromised renderer must not find a way back to root: nothing in the image
+# keeps a setuid or setgid bit.
+RUN find / -xdev -type f -perm /6000 -exec chmod ug-s {} + && \
+    test -z "$(find / -xdev -type f -perm /6000 -print -quit)"
 
 ENV XDG_CACHE_HOME=/cache \
     HOME=/home/nonroot \

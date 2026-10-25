@@ -25,15 +25,18 @@ at `e1764e3` predate this change and need fresh assembly to include it.
 | Component | Version | Verified by |
 | --- | --- | --- |
 | `aos-cx-docs-dldr` | 0.8 | built from source in the image |
-| Chrome for Testing headless shell | 153.0.8010.36, r1681091, linux64 | archive SHA-256 at build; executable SHA-256, ELF x86-64, before every launch |
-| qpdf | 12.4.1, linux-x86_64 | archive SHA-256 at build; every component's SHA-256, ELF x86-64 and exact shared-library closure, before every launch |
+| Chrome for Testing headless shell | 153.0.8010.36, r1681091, linux64 | archive SHA-256 at build; every file of the directory (287 files, directory manifest SHA-256 `012424f4ef7b1ceec026646acc4381d0d5cd4144a53371e6fc154b1adad97e63`) and executable ELF x86-64, before every launch |
+| qpdf | 12.4.1, linux-x86_64 | archive SHA-256 at build; every component's SHA-256, ELF x86-64, exact shared-library closure, and only pinned files in `bin/` and `lib/` (`RUNPATH $ORIGIN`), before every launch |
 | Base | `debian:trixie-slim`, pinned by digest | Chrome's runtime libraries, `libgmp10`/`zlib1g` for qpdf, `procps`, fonts |
 
 Every external input is pinned. Base images are pinned by digest; when
 updating one, change the tag and the digest together. The Chrome and qpdf pins
 live in `internal/pdfgen/sidecar_platform.go` and the `Dockerfile` must agree
 with them, which the build proves by running the application's own verifier
-against the staged sidecars.
+against the staged sidecars. Upstream ships Chrome's `deb.deps` and `rpm.deps`
+mode 0600 and the image keeps them root-owned, so UID 65532 cannot read them;
+they are hashed when readable and otherwise accepted only at their pinned size
+with an owner-only mode, since Chrome cannot read them either.
 
 Chrome runs with `--no-sandbox` inside the container, because container
 runtimes deny the user namespaces its sandbox needs and the headless shell
@@ -42,6 +45,11 @@ unprivileged user (UID 65532), and the renderer controls the application
 already enforces: scripts disabled, all network routed to a dead proxy,
 foreign file access refused at the CDP layer, private throwaway profile. macOS
 keeps Chrome's own sandbox.
+
+The image keeps no setuid or setgid file, and the wrapper starts the container
+with `--cap-drop ALL --security-opt no-new-privileges`, so a compromised
+renderer has no route back to root. Keep both options when calling the engine
+directly, as the examples below do.
 
 ## Get the image
 
@@ -168,7 +176,7 @@ If a proxy intercepts TLS, mount its CA and point `SSL_CERT_FILE` at it. The
 image is Linux and does not consult the Windows certificate store:
 
 ```powershell
-docker run --rm -i `
+docker run --rm -i --cap-drop ALL --security-opt no-new-privileges `
   -v "$env:USERPROFILE\Documents\AOS-CX:/library" `
   -v aos-cx-docs-dldr-cache:/cache `
   -v "C:\certs\corporate-ca.pem:/certs/ca.pem:ro" `
@@ -194,7 +202,7 @@ For non-interactive use, add `--json` and either keep the wrapper (it omits the
 TTY automatically when output is redirected) or call the engine directly:
 
 ```powershell
-docker run --rm -i `
+docker run --rm -i --cap-drop ALL --security-opt no-new-privileges `
   -v "$env:USERPROFILE\Documents\AOS-CX:/library" `
   -v aos-cx-docs-dldr-cache:/cache `
   aos-cx-docs-dldr:0.8 --destination /library `

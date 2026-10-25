@@ -14,6 +14,7 @@ import (
 	"aos-cx-docs-dldr/internal/fetch"
 	"aos-cx-docs-dldr/internal/model"
 	"aos-cx-docs-dldr/internal/pdfcheck"
+	"aos-cx-docs-dldr/internal/source"
 	"aos-cx-docs-dldr/internal/storage"
 )
 
@@ -119,7 +120,14 @@ func (r contextReader) Read(p []byte) (int, error) {
 	return r.source.Read(p)
 }
 
-func PublisherPDF(ctx context.Context, plan model.DocumentPlan, fetcher model.Fetcher, output string, refresh bool, maxBytes int64) (result model.ArchiveResult, err error) {
+func PublisherPDF(ctx context.Context, plan model.DocumentPlan, fetcher model.Fetcher, output string, refresh bool, maxBytes int64) (model.ArchiveResult, error) {
+	return PublisherPDFInRoot(ctx, plan, fetcher, nil, output, refresh, maxBytes)
+}
+
+// PublisherPDFInRoot is PublisherPDF writing through outputRoot, an output
+// directory the caller already holds open; output then only names it in the
+// result. A nil outputRoot opens output by path instead.
+func PublisherPDFInRoot(ctx context.Context, plan model.DocumentPlan, fetcher model.Fetcher, outputRoot *os.Root, output string, refresh bool, maxBytes int64) (result model.ArchiveResult, err error) {
 	result = model.ArchiveResult{Document: plan.Document, OutputDir: output, Status: "failed", Format: "pdf",
 		Errors: []string{}, Notices: append([]model.Notice{}, plan.Notices...),
 		Warnings: append([]string{}, plan.Warnings...)}
@@ -139,14 +147,16 @@ func PublisherPDF(ctx context.Context, plan model.DocumentPlan, fetcher model.Fe
 	if maxBytes <= 0 {
 		return result, errors.New("invalid PDF byte limit")
 	}
-	if info, err := os.Lstat(output); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return result, errors.New("PDF output must be an owned real staging directory")
+	root := outputRoot
+	if root == nil {
+		if info, err := os.Lstat(output); err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return result, errors.New("PDF output must be an owned real staging directory")
+		}
+		if root, err = os.OpenRoot(output); err != nil {
+			return result, err
+		}
+		defer func() { err = errors.Join(err, root.Close()) }()
 	}
-	root, err := os.OpenRoot(output)
-	if err != nil {
-		return result, err
-	}
-	defer func() { err = errors.Join(err, root.Close()) }()
 	defer func() {
 		if err != nil {
 			removeErr := root.Remove(".download.part")
@@ -159,13 +169,26 @@ func PublisherPDF(ctx context.Context, plan model.DocumentPlan, fetcher model.Fe
 	if err != nil {
 		return result, err
 	}
-	resource, err := fetcher.Get(ctx, plan.PDFURL, refresh)
+	// A direct mapped PDF has no source-verified final URL, so its download
+	// keeps the availability probe's scope on every hop and on a cached entry.
+	var scope func(string) error
+	getCtx := ctx
+	if !plan.PDFVerified {
+		scope = source.DocumentScope(plan.Document)
+		getCtx = fetch.WithRequestScope(ctx, scope)
+	}
+	resource, err := fetcher.Get(getCtx, plan.PDFURL, refresh)
 	if err != nil {
 		return result, err
 	}
 	defer func() { err = errors.Join(err, resource.Body.Close()) }()
 	if resource.Status != 200 {
 		return result, fmt.Errorf("publisher PDF returned HTTP %d", resource.Status)
+	}
+	if scope != nil {
+		if err := scope(resource.URL); err != nil {
+			return result, err
+		}
 	}
 	file, err := root.OpenFile(".download.part", os.O_CREATE|os.O_EXCL|os.O_RDWR, 0o600)
 	if err != nil {

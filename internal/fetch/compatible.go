@@ -3,9 +3,11 @@ package fetch
 import (
 	"crypto/tls"
 	"io"
+	"net"
 	"net/http"
 	"sync"
 	"sync/atomic"
+	"time"
 
 	"github.com/imroc/req/v3"
 	"github.com/imroc/req/v3/http2"
@@ -69,6 +71,7 @@ func newCompatibilityBackend(headerPreset, h2Preset bool) *compatibilityBackend 
 	t.MaxIdleConnsPerHost = 4
 	t.MaxIdleConns = 4
 	t.TLSClientConfig.MinVersion = tls.VersionTLS12
+	t.SetDial(publicDialContext(&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second}))
 	return &compatibilityBackend{transport: t, headers: headers, slots: make(chan struct{}, 4)}
 }
 

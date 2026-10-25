@@ -35,27 +35,30 @@ func TestInertPublisherSpanHrefIsNotAMissingLink(t *testing.T) {
 	span := findNode(doc, func(n *html.Node) bool { return n.Data == "span" && hasClass(n, "CLI") })
 	if span == nil || span.FirstChild == nil || span.FirstChild.Type != html.TextNode ||
 		span.FirstChild.Data != "vsx-sync loop-protect-global" ||
-		attr(span, "href") != "../VSX_cmds/not-a-link.htm" ||
+		hasAttr(span, "href") ||
 		fetcher.calls[testRoot+"VSX_cmds/not-a-link.htm"] != 0 {
-		t.Fatal("inert markup was changed into an active link or fetched")
+		t.Fatal("inert markup lost its text, kept a URL attribute, or was fetched")
 	}
 }
 
 func TestOutputIntegrityChecksOnlyActiveHTMLReferenceAttributes(t *testing.T) {
 	for _, test := range []struct {
 		name, markup string
-		wantProblem  bool
+		wantProblem  string
 	}{
-		{"span-href", `<span href="missing.htm">Text</span>`, false},
-		{"div-src", `<div src="missing.png">Text</div>`, false},
-		{"anchor-href", `<a href="missing.htm">Text</a>`, true},
-		{"area-href", `<map name="m"><area href="missing.htm"></map>`, true},
-		{"link-href", `<link rel="stylesheet" href="missing.css">`, true},
-		{"image-src", `<img src="missing.png">`, true},
-		{"source-src", `<video><source src="missing.mp4"></video>`, true},
-		{"iframe-src", `<iframe src="missing.htm"></iframe>`, true},
-		{"svg-use-href", `<svg><use href="missing.svg#symbol"></use></svg>`, true},
-		{"svg-image-href", `<svg><image href="missing.png"></image></svg>`, true},
+		// Sanitizing removes URL attributes from inert elements, so one that
+		// remains is a policy violation, never a missing link.
+		{"span-href", `<span href="missing.htm">Text</span>`, "unsanitized href attribute on <span>"},
+		{"div-src", `<div src="missing.png">Text</div>`, "unsanitized src attribute on <div>"},
+		{"anchor-href", `<a href="missing.htm">Text</a>`, "missing generated target"},
+		{"area-href", `<map name="m"><area href="missing.htm"></map>`, "missing generated target"},
+		{"link-href", `<link rel="stylesheet" href="missing.css">`, "missing generated target"},
+		{"image-src", `<img src="missing.png">`, "missing generated target"},
+		{"source-src", `<video><source src="missing.mp4"></video>`, "missing generated target"},
+		{"iframe-src", `<iframe src="missing.htm"></iframe>`, "missing generated target"},
+		{"svg-use-href", `<svg><use href="missing.svg#symbol"></use></svg>`, "missing generated target"},
+		{"svg-image-href", `<svg><image href="missing.png"></image></svg>`, "missing generated target"},
+		{"local-anchor", `<a href="toc.html">Contents</a>`, ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			dir := t.TempDir()
@@ -72,8 +75,10 @@ func TestOutputIntegrityChecksOnlyActiveHTMLReferenceAttributes(t *testing.T) {
 			}
 			defer root.Close()
 			_, problems := validateOutput(root, &model.HTMLArchive{}, nil)
-			if (len(problems) > 0) != test.wantProblem {
-				t.Fatalf("reference validation: got %v, want problem=%v", problems, test.wantProblem)
+			joined := strings.Join(problems, "\n")
+			if test.wantProblem == "" && len(problems) > 0 ||
+				test.wantProblem != "" && !strings.Contains(joined, test.wantProblem) {
+				t.Fatalf("reference validation: got %v, want problem %q", problems, test.wantProblem)
 			}
 		})
 	}

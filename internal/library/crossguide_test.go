@@ -77,11 +77,8 @@ func acceptFixtureHTML(
 			Complete: true, Kind: document.Kind, RootURL: root, Entries: 1, UniqueTopics: 1,
 		},
 	}
-	output, err := run.GuideOutput(document.ID)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := archive.HTML(context.Background(), plan, resources, output, false, 1<<20, 4<<20)
+	guide, output := guideOutput(t, run, document.ID)
+	result, err := archive.HTMLInRoot(context.Background(), plan, resources, guide, output, false, 1<<20, 4<<20, 1, nil)
 	if err != nil || result.Status != "complete" {
 		t.Fatalf("%s fixture archive failed: %+v %v", document.ID, result, err)
 	}
@@ -184,10 +181,7 @@ func TestCrossGuideLocalizationMixedLibraryAliasesAndZIP(t *testing.T) {
 
 	pdf := acceptPDF(t, run, "pdf", "original")
 	failedURL := "https://static.example.test/failed/topic.html"
-	failedOutput, err := run.GuideOutput("failed")
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, failedOutput := guideOutput(t, run, "failed")
 	if err := run.Accept(model.ArchiveResult{
 		Document:  model.Document{ID: "failed", Title: "Failed Guide", Platform: "6300", Version: "10.10", Kind: "static", URL: failedURL},
 		OutputDir: failedOutput, Status: "failed", Format: "html", Errors: []string{"fixture failure"},
@@ -195,10 +189,7 @@ func TestCrossGuideLocalizationMixedLibraryAliasesAndZIP(t *testing.T) {
 		t.Fatal(err)
 	}
 	incompleteURL := "https://static.example.test/incomplete/topic.html"
-	incompleteOutput, err := run.GuideOutput("incomplete")
-	if err != nil {
-		t.Fatal(err)
-	}
+	_, incompleteOutput := guideOutput(t, run, "incomplete")
 	if err := run.Accept(model.ArchiveResult{
 		Document:  model.Document{ID: "incomplete", Title: "Incomplete Guide", Platform: "6300", Version: "10.10", Kind: "static", URL: incompleteURL},
 		OutputDir: incompleteOutput, Status: "incomplete", Format: "html", Errors: []string{"fixture incomplete"},

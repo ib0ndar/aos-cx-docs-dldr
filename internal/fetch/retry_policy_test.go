@@ -41,7 +41,7 @@ func TestPerAttemptTimeoutRetriesHeadersAndBody(t *testing.T) {
 			var notices []string
 			c, err := New(Config{
 				Timeout: 500 * time.Millisecond, AttemptTimeout: 30 * time.Millisecond,
-				Retries: 1, MaxBytes: 1024, Attempts: budget,
+				Retries: 1, MaxBytes: 1024, Attempts: budget, AllowLoopbackFixtures: true,
 			}, func(message string) { notices = append(notices, message) })
 			if err != nil {
 				t.Fatal(err)
@@ -111,7 +111,7 @@ func TestPerAttemptTimeoutRetriesLeaseAndPacing(t *testing.T) {
 		var notices []string
 		c, err := New(Config{
 			Delay: 60 * time.Millisecond, Timeout: 500 * time.Millisecond,
-			AttemptTimeout: 30 * time.Millisecond, Retries: 1, MaxBytes: 1024,
+			AttemptTimeout: 30 * time.Millisecond, Retries: 1, MaxBytes: 1024, AllowLoopbackFixtures: true,
 		}, func(message string) { notices = append(notices, message) })
 		if err != nil {
 			t.Fatal(err)
@@ -161,7 +161,7 @@ func TestThreeAttemptsReplacePartialSinkAndFinalFailureIsTyped(t *testing.T) {
 			budget, _ := NewAttemptBudget(12, 1)
 			c, err := New(Config{
 				Timeout: 500 * time.Millisecond, AttemptTimeout: 25 * time.Millisecond,
-				Retries: 2, MaxBytes: 1024, Attempts: budget,
+				Retries: 2, MaxBytes: 1024, Attempts: budget, AllowLoopbackFixtures: true,
 			}, func(string) {})
 			if err != nil {
 				t.Fatal(err)
@@ -211,7 +211,7 @@ func TestFinalAttemptUsesRemainingOverallWindow(t *testing.T) {
 	defer server.Close()
 	c, err := New(Config{
 		Timeout: 75 * time.Millisecond, AttemptTimeout: 50 * time.Millisecond,
-		Retries: 1, MaxBytes: 1024,
+		Retries: 1, MaxBytes: 1024, AllowLoopbackFixtures: true,
 	}, func(string) {})
 	if err != nil {
 		t.Fatal(err)

@@ -419,7 +419,7 @@ func (a *assembler) render(out io.Writer) error {
 	if err := a.ctx.Err(); err != nil {
 		return err
 	}
-	fmt.Fprintf(out, `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'none'; connect-src 'none'"><title>%s</title>`, stdhtml.EscapeString(a.result.Document.Title))
+	fmt.Fprintf(out, `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'none'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"><title>%s</title>`, stdhtml.EscapeString(a.result.Document.Title))
 	for _, stylesheet := range a.stylesheets {
 		fmt.Fprintf(out, `<link rel="stylesheet" href="%s">`, stdhtml.EscapeString(stylesheet))
 	}
@@ -491,6 +491,7 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 		setAttribute(content, "class", "print-content print-flare-home-hero-removed")
 		class += " print-flare-homepage"
 	}
+	stripActiveMarkup(content)
 	seen := map[string]int{}
 	var first error
 	walk(content, func(node *xhtml.Node) {
@@ -525,6 +526,35 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 	}
 	_, err = io.WriteString(out, "</section>")
 	return err
+}
+
+// stripActiveMarkup removes elements and attributes from archived content
+// that could run script, redirect, rebase URLs or load other documents. A
+// verified archive never contains them; this guards the renderer even if the
+// archived input was altered after validation. Objects keep their fallback
+// content, and the print policy blocks what they would load.
+func stripActiveMarkup(content *xhtml.Node) {
+	var remove []*xhtml.Node
+	walk(content, func(node *xhtml.Node) {
+		if node.Type != xhtml.ElementNode {
+			return
+		}
+		switch node.Data {
+		case "base", "embed", "frame", "frameset", "iframe", "link", "meta", "noscript", "portal", "script", "template":
+			remove = append(remove, node)
+			return
+		}
+		node.Attr = slices.DeleteFunc(node.Attr, func(attribute xhtml.Attribute) bool {
+			key := strings.ToLower(attribute.Key)
+			return strings.HasPrefix(key, "on") || key == "srcdoc" || key == "http-equiv" ||
+				key == "action" || key == "formaction" || key == "ping"
+		})
+	})
+	for _, node := range remove {
+		if node.Parent != nil {
+			node.Parent.RemoveChild(node)
+		}
+	}
 }
 
 func removeFlareHomepageHero(kind string, content *xhtml.Node) (bool, error) {
@@ -670,11 +700,7 @@ func (a *assembler) rewriteNode(info *topicInfo, node *xhtml.Node) error {
 		node.AppendChild(&xhtml.Node{Type: xhtml.TextNode, Data: string(rewritten)})
 	}
 	for index := range node.Attr {
-		value := node.Attr[index].Val
-		for original, replacement := range info.ids {
-			value = strings.ReplaceAll(value, "url(#"+original+")", "url(#"+replacement+")")
-		}
-		node.Attr[index].Val = value
+		node.Attr[index].Val = replaceFragmentURLs(node.Attr[index].Val, info.ids)
 	}
 	if href := attribute(node, "href"); href != "" {
 		switch {
@@ -1119,6 +1145,36 @@ func nodeText(node *xhtml.Node) string {
 			out.WriteString(child.Data)
 		}
 	})
+	return out.String()
+}
+
+// replaceFragmentURLs rewrites each url(#id) in value whose id is in ids, in
+// a single pass over the value.
+func replaceFragmentURLs(value string, ids map[string]string) string {
+	if !strings.Contains(value, "url(#") {
+		return value
+	}
+	var out strings.Builder
+	for {
+		start := strings.Index(value, "url(#")
+		if start < 0 {
+			break
+		}
+		rest := value[start+len("url(#"):]
+		end := strings.IndexByte(rest, ')')
+		if end < 0 {
+			break
+		}
+		id := rest[:end]
+		if replacement, ok := ids[id]; ok {
+			id = replacement
+		}
+		out.WriteString(value[:start+len("url(#")])
+		out.WriteString(id)
+		out.WriteByte(')')
+		value = rest[end+1:]
+	}
+	out.WriteString(value)
 	return out.String()
 }
 

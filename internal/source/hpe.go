@@ -195,7 +195,7 @@ func (p *planner) hpe(preferPDF bool) (model.DocumentPlan, error) {
 	if err := p.front(public, p.plan.Document.Title, front.url); err != nil {
 		return model.DocumentPlan{}, err
 	}
-	stylesheet, err := styles(tree, front.url)
+	stylesheet, err := styles(p.ctx, tree, front.url)
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}

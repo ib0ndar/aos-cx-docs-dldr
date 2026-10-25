@@ -17,14 +17,22 @@ to a personal browser, or falls back to another renderer.
 | Official archive | `https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.36/mac-arm64/chrome-headless-shell-mac-arm64.zip` |
 | Project-recorded archive SHA-256 | `3b133378fe44a5f9c849df9049763577fbed296ee4d02d1ffb31b9fcabf79850` |
 | Project-recorded executable SHA-256 | `ad3cf5ce958e43a6e3457d6f4d9df0a0c1483fc24ffb36a30530e88d726a82f8` |
+| Pinned directory | 18 files, 204,596,857 bytes (`internal/pdfgen/chrome_manifest.go`) |
+| Directory manifest SHA-256 | `0c2d2989ad8ad2fd451e0b92cd807f0018da069d7d02e85ecd1d8b8425e9b1b9` |
 
 Google's official Chrome for Testing metadata supplies the HTTPS download
 provenance but does not publish a vendor checksum for this archive. The hashes
 above are project-recorded integrity pins, not vendor checksum attestations.
-The executable must be a real, executable arm64 Mach-O file with the exact
-recorded hash. Symlinks and arbitrary Chrome installations are rejected.
-The application verifies this identity before transient assembly and again
-immediately before process launch.
+The executable must be the pinned arm64 Mach-O inside its complete pinned
+directory. Chrome loads ICU data, the V8 snapshot, resource packs,
+SwiftShader/ANGLE libraries and the Vulkan ICD manifest from that directory, so
+every regular file is pinned by path, size, SHA-256 and execute bit. Symlinks,
+special files, and unexpected or missing files are rejected; the only tolerated
+extra is a regular `.DS_Store` of at most 1 MiB. Arbitrary Chrome installations
+are rejected. The directory is hashed once per process, and every file's
+identity snapshot is re-checked before transient assembly and again immediately
+before each launch, with any changed file re-hashed. The manifest digest is
+SHA-256 over one `<sha256> <size> <x|-|o> <path>` line per file, sorted by path.
 
 ## Acquisition, packaging, and installation
 
@@ -37,7 +45,7 @@ For an ordinary command-line bundle, place the complete extracted directory at:
       chrome-headless-shell
       ABOUT
       LICENSE.headless_shell
-      ...all other files from the official archive...
+      ...exactly the other files of the official archive; nothing may be added...
 ```
 
 For an application bundle, the alternative discovery location is:
@@ -101,6 +109,16 @@ inside the guide root plus inline `data:` resources. Network, foreign paths,
 symlinks, special files, and unresolved local dependencies fail closed. The
 default limits are one renderer at a time, 15 minutes, 14 GiB process-group RSS,
 2 GiB output, 20,000 pages, and 1 MiB of captured Chrome diagnostics.
+
+DevTools runs only over `--remote-debugging-pipe`, Chrome's file descriptors 3
+and 4. There is no loopback TCP port, so no other local process or user can
+attach to the renderer. If the application dies, even by `SIGKILL`, Chrome
+shuts down because its pipe closes; on Linux the kernel also sends it `SIGKILL`.
+Chrome receives an allowlisted environment: a fixed `PATH`, private `HOME` and
+`TMPDIR` inside the render root, and locale and time-zone settings only, so
+`DYLD_*`, `LD_*` and other inherited variables never reach it. macOS always
+passes an explicit sandbox-on decision, so running as root cannot disable
+Chrome's sandbox there.
 
 The transient combined print HTML and raw Chrome partial are removed after the
 attempt. Chrome's inferred outline is disabled. The separately shipped pinned
@@ -169,6 +187,9 @@ Chromium project and other open-source software; the archive's license file
 contains the applicable notices.
 
 The Go control layer uses `github.com/chromedp/chromedp` and
-`github.com/chromedp/cdproto`, both under BSD-3-Clause licenses. Their source
-and license texts are available through the pinned Go module versions recorded
-in `go.mod` and `go.sum`; release dependency inventory must include them.
+`github.com/chromedp/cdproto`, both under the MIT license. `cdproto` is a
+pinned Go module recorded in `go.mod` and `go.sum`. `chromedp` v0.16.0 is a
+modified local replacement under `third_party/chromedp`, which adds the
+DevTools pipe transport and exact-environment launch; its `UPSTREAM.md` records
+the upstream commit and every local patch. Release dependency inventory must
+include both.

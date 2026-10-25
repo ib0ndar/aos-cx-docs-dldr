@@ -43,7 +43,7 @@ func TestReqTLSVerificationFailsClosed(t *testing.T) {
 		hits.Add(1)
 	}))
 	defer server.Close()
-	c, err := NewReqExperiment(Config{Timeout: time.Second, MaxBytes: 1024}, func(string) {})
+	c, err := NewReqExperiment(Config{Timeout: time.Second, MaxBytes: 1024, AllowLoopbackFixtures: true}, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -87,7 +87,7 @@ func TestReqHTTP2HeadersRawBytesAndCookieIsolation(t *testing.T) {
 	pool := x509.NewCertPool()
 	pool.AddCert(server.Certificate())
 	transport.TLSClientConfig.RootCAs = pool
-	c, err := NewWithRoundTripper(Config{Timeout: time.Second, MaxBytes: 1024}, func(string) {}, transport)
+	c, err := NewWithRoundTripper(Config{Timeout: time.Second, MaxBytes: 1024, AllowLoopbackFixtures: true}, func(string) {}, transport)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -140,7 +140,7 @@ func TestReqHTTP2BodyRetryAndCancellation(t *testing.T) {
 	pool := x509.NewCertPool()
 	pool.AddCert(server.Certificate())
 	transport.TLSClientConfig.RootCAs = pool
-	c, err := NewWithRoundTripper(Config{Retries: 1, Timeout: 3 * time.Second, MaxBytes: 1024}, func(message string) { t.Log(message) }, transport)
+	c, err := NewWithRoundTripper(Config{Retries: 1, Timeout: 3 * time.Second, MaxBytes: 1024, AllowLoopbackFixtures: true}, func(message string) { t.Log(message) }, transport)
 	if err != nil {
 		t.Fatal(err)
 	}

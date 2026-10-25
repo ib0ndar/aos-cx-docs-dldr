@@ -59,7 +59,12 @@ function aos-cx-docs-dldr {
     $listing = $userArgs -contains '--list'
     $fixed = if ($listing) { @() } else { @('--destination', '/library') }
 
-    $runArgs = @('run', '--rm') + $ttyFlags +
+    # Chrome renders untrusted publisher content with --no-sandbox inside the
+    # container, so give the container no capabilities and no way to gain
+    # privileges. Docker and Podman both accept these options.
+    $hardening = @('--cap-drop', 'ALL', '--security-opt', 'no-new-privileges')
+
+    $runArgs = @('run', '--rm') + $ttyFlags + $hardening +
         @('-v', "${library}:/library", '-v', 'aos-cx-docs-dldr-cache:/cache', $image) +
         $fixed + $userArgs
 

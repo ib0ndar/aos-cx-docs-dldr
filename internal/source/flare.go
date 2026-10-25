@@ -99,7 +99,7 @@ func (p *planner) flare(in input) (model.DocumentPlan, error) {
 	if err := p.front(p.plan.Document.URL, p.plan.Document.Title, in.url); err != nil {
 		return model.DocumentPlan{}, err
 	}
-	p.plan.Styles, err = styles(tree, in.url)
+	p.plan.Styles, err = styles(p.ctx, tree, in.url)
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}
@@ -130,7 +130,7 @@ func (p *planner) flare(in input) (model.DocumentPlan, error) {
 		if err := p.front(link, "Table of Contents", detailed.url); err != nil {
 			return model.DocumentPlan{}, err
 		}
-		more, err := styles(page, detailed.url)
+		more, err := styles(p.ctx, page, detailed.url)
 		if err != nil {
 			return model.DocumentPlan{}, err
 		}
@@ -355,7 +355,7 @@ func (p *planner) flare(in input) (model.DocumentPlan, error) {
 					"missing detailed TOC shortcut is an authoritative local topic: %s", missing.URL)
 			}
 		}
-		p.plan.Warnings = append(p.plan.Warnings, fmt.Sprintf(
+		p.warning(fmt.Sprintf(
 			"Publisher detailed TOC shortcut %s returned HTTP %d; used source-verified HelpSystem %s and module %s because the missing shortcut is absent from the complete authoritative TOC.",
 			missing.URL, missing.Status, helpSystemURL, moduleURL))
 		p.plan.UnavailableNavigation = append(p.plan.UnavailableNavigation, model.UnavailableNavigation{

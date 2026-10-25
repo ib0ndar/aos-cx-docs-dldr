@@ -7,6 +7,7 @@ import (
 	"io"
 	"os"
 	"path"
+	"path/filepath"
 
 	"aos-cx-docs-dldr/internal/storage"
 )
@@ -43,6 +44,67 @@ func (r *Run) checkOwnership() error {
 		return fmt.Errorf("library lock ownership lost (changed/unreadable owner token): %s", r.lock)
 	}
 	return r.checkLockFile()
+}
+
+// checkManagedDirectories refuses existing managed directories that another
+// account could change. Mutation below them is rooted and does not follow
+// symlinks, but an account that can write one of them could still swap its
+// entries between this run's checks and their use.
+//
+// A directory must be owned by this user, by root, or by the owner of the
+// destination base, who can already rename or replace any entry of the base;
+// bind mounts and other filesystems that present a fixed owner therefore
+// pass. Group or other write permission is refused only where the filesystem
+// kept the private mode of the lock file this run just created. Filesystems
+// that synthesise modes, as some Docker Desktop bind mounts do, carry no
+// meaningful permission bits and are not judged by them.
+func (r *Run) checkManagedDirectories() error {
+	if r.lockInfo == nil {
+		return errors.New("library lock ownership is not established")
+	}
+	base, err := r.root.Stat(".")
+	if err != nil {
+		return err
+	}
+	baseOwner, ok := storage.Owner(base)
+	if !ok {
+		return nil
+	}
+	user := os.Geteuid()
+	modesKept := r.lockInfo.Mode().Perm()&0o077 == 0
+	for _, name := range []string{
+		r.parent, r.target,
+		path.Join(r.parent, ".staging"), path.Join(r.parent, ".incomplete"),
+		path.Join(r.parent, ".snapshots"), path.Join(r.parent, ".snapshots", path.Base(r.target)),
+	} {
+		info, err := r.root.Lstat(name)
+		if errors.Is(err, os.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return err
+		}
+		if err := managedDirectoryPolicy(filepath.Join(r.Destination, filepath.FromSlash(name)), info, user, baseOwner, modesKept); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func managedDirectoryPolicy(display string, info os.FileInfo, user, baseOwner int, modesKept bool) error {
+	owner, ok := storage.Owner(info)
+	if !ok {
+		return nil
+	}
+	if owner != user && owner != 0 && owner != baseOwner {
+		return fmt.Errorf("managed library directory %s is owned by UID %d, not by this user (UID %d), root, or the destination's owner; refusing state another account controls; choose a new base with --destination",
+			display, owner, user)
+	}
+	if modesKept && info.Mode().Perm()&0o022 != 0 {
+		return fmt.Errorf("managed library directory %s is writable by other accounts (mode %#o); refusing to use it; remove group and other write permission or choose a new base with --destination",
+			display, info.Mode().Perm())
+	}
+	return nil
 }
 
 func (r *Run) expectNoJournal() error {
@@ -140,7 +202,7 @@ func (r *Run) createJournal(tx journal) (journalState, error) {
 			if statErr != nil || !info.Mode().IsRegular() || !os.SameFile(info, state.info) {
 				cleanupErr = errors.New("partial publication journal was replaced; not removed")
 			} else {
-				cleanupErr = errors.Join(r.root.Remove(r.journal), storage.SyncDir(r.root, r.parent))
+				cleanupErr = errors.Join(storage.Remove(r.root, r.journal), storage.SyncDir(r.root, r.parent))
 			}
 		}
 		return state, errors.Join(err, cleanupErr)
@@ -193,7 +255,7 @@ func (r *Run) removeJournal(state journalState) error {
 	if err := r.checkTransaction(state); err != nil {
 		return err
 	}
-	if err := r.root.Remove(r.journal); err != nil {
+	if err := storage.Remove(r.root, r.journal); err != nil {
 		return err
 	}
 	return errors.Join(storage.SyncDir(r.root, r.parent), r.checkOwnership())

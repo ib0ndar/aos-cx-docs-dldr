@@ -108,6 +108,14 @@ has a 2 GiB RSS limit and 1 MiB diagnostic cap. Cancellation kills its dedicated
 process group. Both PDF partials and JSON/temp data are removed after success or
 failure.
 
+`bin/` and `lib/` may contain only the pinned components, plus a bounded
+`.DS_Store` on macOS: the Linux libraries search their own directory first
+(`RUNPATH $ORIGIN`), so an extra library there would be loaded. The complete
+closure is re-verified immediately before every qpdf process. qpdf runs with an
+allowlisted environment (fixed `PATH`, locale and time zone only); `DYLD_*`,
+`LD_*`, `OPENSSL_*` and every other inherited variable are dropped. On Linux it
+also receives `SIGKILL` if the application dies.
+
 The update changes the catalog outline reference and adds the required outline
 objects. The application then reads qpdf JSON and traverses the actual
 renumbered object graph. It verifies `/Parent`, `/First`, `/Last`, `/Prev`,

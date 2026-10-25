@@ -123,7 +123,7 @@ func (p *planner) static(in input, flare func(input) (model.DocumentPlan, error)
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}
-	p.plan.Styles, err = styles(tree, referenceBase)
+	p.plan.Styles, err = styles(p.ctx, tree, referenceBase)
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}
@@ -151,7 +151,7 @@ func (p *planner) static(in input, flare func(input) (model.DocumentPlan, error)
 		if err != nil {
 			return model.DocumentPlan{}, err
 		}
-		more, err := styles(tree, referenceBase)
+		more, err := styles(p.ctx, tree, referenceBase)
 		if err != nil {
 			return model.DocumentPlan{}, err
 		}

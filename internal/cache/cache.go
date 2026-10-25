@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"os"
 	"regexp"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"time"
@@ -34,6 +35,28 @@ type metadata struct {
 	SHA256    string      `json:"sha256"`
 	Size      int64       `json:"size"`
 	CheckedAt time.Time   `json:"checked_at"`
+}
+
+// credentialHeaders are never persisted or returned from metadata. Other
+// headers are kept: callers read validators, Content-Type and publisher
+// identity headers (Doc-Id, Doc-Page-Name) from cached resources. Metadata is
+// neither hashed nor strictly decoded, so older entries that still hold these
+// headers remain valid and are cleaned when their metadata is next written.
+var credentialHeaders = []string{
+	"Set-Cookie", "Set-Cookie2", "Cookie", "Authorization", "Proxy-Authorization",
+	"Authentication-Info", "Proxy-Authentication-Info",
+}
+
+func withoutCredentials(headers http.Header) http.Header {
+	headers = headers.Clone()
+	for name := range headers {
+		for _, credential := range credentialHeaders {
+			if strings.EqualFold(name, credential) {
+				delete(headers, name)
+			}
+		}
+	}
+	return headers
 }
 
 // Store coordinates transactions per canonical URL. Immutable content-named
@@ -279,6 +302,7 @@ func (s *Store) read(ctx context.Context, key, source string) (metadata, *os.Fil
 		m.Size < 0 || m.Size > s.maxBytes || m.CheckedAt.IsZero() || m.Headers == nil {
 		return m, nil, errors.New("invalid cache metadata identity, status, size, hash or timestamp")
 	}
+	m.Headers = withoutCredentials(m.Headers)
 	if err := s.regular(m.SHA256 + ".bin"); err != nil {
 		return m, nil, err
 	}
@@ -513,6 +537,7 @@ func (s *Store) writeMetadata(key string, m metadata) error {
 	if err := s.regular(key + ".json"); err != nil {
 		return err
 	}
+	m.Headers = withoutCredentials(m.Headers)
 	data, err := json.MarshalIndent(m, "", "  ")
 	if err != nil {
 		return err

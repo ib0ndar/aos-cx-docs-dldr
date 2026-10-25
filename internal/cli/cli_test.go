@@ -625,6 +625,10 @@ func TestPublisherControlsAreEscapedOnlyInHumanListing(t *testing.T) {
 	if got := listing.Catalog.Guides[0].Title; got != title {
 		t.Fatalf("JSON metadata was sanitized or changed: got %q want %q", got, title)
 	}
+	if strings.ContainsAny(jsonOut.String(), "\x1b\a\u009b") ||
+		!strings.Contains(jsonOut.String(), `\u009b31m`) || !strings.Contains(jsonOut.String(), "文档") {
+		t.Fatalf("JSON listing bytes carry raw terminal controls: %q", jsonOut.String())
+	}
 }
 
 func TestBuiltExecutableFixtureAndSIGINT(t *testing.T) {

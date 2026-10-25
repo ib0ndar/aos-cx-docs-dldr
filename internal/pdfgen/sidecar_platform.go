@@ -42,12 +42,20 @@ type sidecarPlatform struct {
 	chromeArchiveSHA256    string
 	chromeExecutableSHA256 string
 	chromeOfficialURL      string
+	// chromeFiles is the complete pinned content of chromeDirectory, and
+	// chromeManifestSHA256 its sidecarManifestSHA256.
+	chromeFiles          []sidecarFile
+	chromeManifestSHA256 string
 
 	qpdfDirectory     string
 	qpdfPlatform      string
 	qpdfBundleSHA256  string
 	qpdfComponents    []sidecarComponent
 	qpdfAcquireAdvice string
+
+	// finderMetadata permits a bounded regular .DS_Store in any pinned
+	// sidecar directory. Only macOS has Finder.
+	finderMetadata bool
 
 	// verifyObject confirms the file at path is an executable object of this
 	// platform's format and architecture and returns its declared imports.
@@ -63,6 +71,8 @@ var darwinARM64Sidecars = sidecarPlatform{
 	chromeArchiveSHA256:    ChromeArchiveSHA256,
 	chromeExecutableSHA256: ChromeExecutableSHA256,
 	chromeOfficialURL:      ChromeOfficialURL,
+	chromeFiles:            chromeMacARM64Files,
+	chromeManifestSHA256:   ChromeManifestSHA256,
 
 	qpdfDirectory:     "qpdf-mac-arm64",
 	qpdfPlatform:      QPDFPlatform,
@@ -80,7 +90,8 @@ var darwinARM64Sidecars = sidecarPlatform{
 		{"../lib/libcrypto.3.dylib", QPDFCryptoLibrarySHA256, false, []string{"/usr/lib/libSystem.B.dylib"}},
 	},
 
-	verifyObject: verifyMachOARM64,
+	finderMetadata: true,
+	verifyObject:   verifyMachOARM64,
 }
 
 // Linux pins were recorded on 2026-09-19 from the official archives:
@@ -100,6 +111,8 @@ var linuxAMD64Sidecars = sidecarPlatform{
 	chromeArchiveSHA256:    "a0079df5617da34bcd1debad18196568b072ec3d8ec57944008972a4fc970580",
 	chromeExecutableSHA256: "dabfdd70006e411b521882d3b11d667f2c1323ff4f4ec8da7d043dbc8672bf39",
 	chromeOfficialURL:      "https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.36/linux64/chrome-headless-shell-linux64.zip",
+	chromeFiles:            chromeLinux64Files,
+	chromeManifestSHA256:   "012424f4ef7b1ceec026646acc4381d0d5cd4144a53371e6fc154b1adad97e63",
 
 	qpdfDirectory:     "qpdf-linux-x86_64",
 	qpdfPlatform:      "linux-x86_64",
@@ -182,9 +195,11 @@ func verifyELFX8664(file *os.File, path string) ([]string, error) {
 	return imports, err
 }
 
-// reverifySidecar re-checks an already resolved Chrome sidecar immediately
-// before launch, so a file swapped between resolution and execution is
-// refused. It resolves the platform table itself for the running host.
+// reverifySidecar re-checks an already resolved Chrome sidecar, including its
+// complete pinned directory, so a file swapped between resolution and
+// execution is refused. It resolves the platform table itself for the running
+// host. Files unchanged since their last full hash in this process are
+// confirmed by identity snapshot; any change forces a re-hash.
 func reverifySidecar(path string) (Sidecar, error) {
 	platform, err := currentSidecarPlatform()
 	if err != nil {
@@ -200,6 +215,35 @@ func reverifyQPDFSidecar(path string) (QPDFSidecar, error) {
 		return QPDFSidecar{}, err
 	}
 	return verifyQPDFSidecar(platform, path)
+}
+
+// confirmChromeSidecar must be called immediately before a Chrome process is
+// started from sidecar. It re-verifies the executable and every pinned file of
+// its directory and refuses a sidecar whose identity differs from the one
+// resolved at preflight.
+func confirmChromeSidecar(sidecar Sidecar) error {
+	confirmed, err := reverifySidecar(sidecar.Path)
+	if err != nil {
+		return fmt.Errorf("revalidate Chrome sidecar immediately before launch: %w", err)
+	}
+	if confirmed != sidecar {
+		return errors.New("Chrome sidecar identity changed between preflight and launch")
+	}
+	return nil
+}
+
+// confirmQPDFSidecar must be called immediately before every qpdf process is
+// started from sidecar. It re-verifies the executable, its pinned library
+// closure and the directories on its library search path.
+func confirmQPDFSidecar(sidecar QPDFSidecar) error {
+	confirmed, err := reverifyQPDFSidecar(sidecar.Path)
+	if err != nil {
+		return fmt.Errorf("revalidate qpdf sidecar immediately before launch: %w", err)
+	}
+	if confirmed != sidecar {
+		return errors.New("qpdf sidecar identity changed between preflight and launch")
+	}
+	return nil
 }
 
 // PlatformPins are the sidecar identities a complete generated-PDF record must

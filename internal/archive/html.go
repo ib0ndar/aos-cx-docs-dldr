@@ -119,7 +119,14 @@ func HTMLWithWorkers(ctx context.Context, plan model.DocumentPlan, fetcher model
 }
 
 // HTMLWithWorkersObserved is HTMLWithWorkers with bounded progress snapshots.
-func HTMLWithWorkersObserved(ctx context.Context, plan model.DocumentPlan, fetcher model.Fetcher, output string, refresh bool, maxResource, maxTotal int64, workers int, observe ProgressObserver) (result model.ArchiveResult, err error) {
+func HTMLWithWorkersObserved(ctx context.Context, plan model.DocumentPlan, fetcher model.Fetcher, output string, refresh bool, maxResource, maxTotal int64, workers int, observe ProgressObserver) (model.ArchiveResult, error) {
+	return HTMLInRoot(ctx, plan, fetcher, nil, output, refresh, maxResource, maxTotal, workers, observe)
+}
+
+// HTMLInRoot is HTMLWithWorkersObserved writing through outputRoot, an output
+// directory the caller already holds open; output then only names it in the
+// result. A nil outputRoot opens output by path instead.
+func HTMLInRoot(ctx context.Context, plan model.DocumentPlan, fetcher model.Fetcher, outputRoot *os.Root, output string, refresh bool, maxResource, maxTotal int64, workers int, observe ProgressObserver) (result model.ArchiveResult, err error) {
 	result = model.ArchiveResult{Document: plan.Document, OutputDir: output, Status: "failed", Format: "html",
 		Errors: []string{}, Notices: append([]model.Notice{}, plan.Notices...),
 		Warnings: append([]string{}, plan.Warnings...)}
@@ -141,15 +148,17 @@ func HTMLWithWorkersObserved(ctx context.Context, plan model.DocumentPlan, fetch
 	if workers < 1 {
 		return result, errors.New("HTML archive workers must be at least 1")
 	}
-	info, statErr := os.Lstat(output)
-	if statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return result, errors.New("HTML output must be an owned real staging directory")
+	root := outputRoot
+	if root == nil {
+		info, statErr := os.Lstat(output)
+		if statErr != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return result, errors.New("HTML output must be an owned real staging directory")
+		}
+		if root, err = os.OpenRoot(output); err != nil {
+			return result, err
+		}
+		defer func() { err = errors.Join(err, root.Close()) }()
 	}
-	root, err := os.OpenRoot(output)
-	if err != nil {
-		return result, err
-	}
-	defer func() { err = errors.Join(err, root.Close()) }()
 	for _, managed := range []string{"pages", "assets", "index.html", "toc.html", "manifest.json", "search.json", "search-index.js", "search.js"} {
 		if err := storage.Check(root, managed); err != nil {
 			return result, err
@@ -812,7 +821,9 @@ func (a *htmlArchiver) emit() error {
 			inlineStyles = append(a.hpeFontStyles(page), inlineStyles...)
 		}
 		if err := a.rewriteContent(content, page); err != nil {
+			// Content that could not be sanitized is never written.
 			a.errors = append(a.errors, page.topic.URL+": "+err.Error())
+			continue
 		}
 		localIDs := sourceIDs(content)
 		a.localIDs[canonicalNoFragment(page.topic.URL)] = localIDs

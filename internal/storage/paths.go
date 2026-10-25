@@ -40,7 +40,28 @@ func SafeComponent(value string) (string, error) {
 	return clean, nil
 }
 
+// PDFFilename names a PDF readably from its labels. Control characters and
+// Unicode format characters (category Cf, which holds every bidirectional
+// control and the zero-width characters) are removed, so a publisher title
+// cannot reorder or hide part of the name a file manager shows.
 func PDFFilename(platform, version, title string) (string, error) {
+	return pdfFilename(platform, version, title, true)
+}
+
+// PDFFilenameAccepted reports whether name is the PDF filename for these
+// labels, or the name 0.8 produced before format characters were removed.
+// PDFs that 0.8 libraries already hold keep their names; nothing is renamed.
+func PDFFilenameAccepted(platform, version, title, name string) bool {
+	for _, stripFormat := range []bool{true, false} {
+		expected, err := pdfFilename(platform, version, title, stripFormat)
+		if err == nil && expected == name {
+			return true
+		}
+	}
+	return false
+}
+
+func pdfFilename(platform, version, title string, stripFormat bool) (string, error) {
 	var parts []string
 	for _, value := range []string{platform, version, title} {
 		if !utf8.ValidString(value) {
@@ -49,7 +70,7 @@ func PDFFilename(platform, version, title string) (string, error) {
 		value = norm.NFC.String(value)
 		value = pathSeparators.ReplaceAllString(value, " - ")
 		value = strings.Map(func(r rune) rune {
-			if unicode.IsControl(r) || strings.ContainsRune(`<>:"|?*`, r) {
+			if unicode.IsControl(r) || (stripFormat && unicode.In(r, unicode.Cf)) || strings.ContainsRune(`<>:"|?*`, r) {
 				return -1
 			}
 			return r

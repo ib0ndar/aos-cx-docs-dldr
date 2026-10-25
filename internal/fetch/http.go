@@ -30,6 +30,9 @@ type Config struct {
 	Retries        int
 	MaxBytes       int64
 	Attempts       *AttemptBudget
+	// AllowLoopbackFixtures admits http or https to loopback addresses and
+	// localhost for local test fixtures; see CheckDestination.
+	AllowLoopbackFixtures bool
 }
 
 func DefaultConfig() Config {
@@ -85,6 +88,7 @@ type Client struct {
 
 func New(c Config, notify func(string)) (*Client, error) {
 	t := http.DefaultTransport.(*http.Transport).Clone()
+	t.DialContext = publicDialContext(&net.Dialer{Timeout: 30 * time.Second, KeepAlive: 30 * time.Second})
 	t.MaxResponseHeaderBytes = 1 << 20
 	t.MaxIdleConnsPerHost = 4
 	t.DisableCompression = true
@@ -296,6 +300,10 @@ func normalizeAttemptFailure(caller, overall, attempt context.Context, err error
 }
 
 func retryableAttemptFailure(err error) bool {
+	var limit *byteLimitError
+	if errors.As(err, &limit) {
+		return false
+	}
 	var attemptTimeout *attemptTimeoutError
 	if errors.As(err, &attemptTimeout) {
 		return true
@@ -336,6 +344,16 @@ type transientBodyError struct{ err error }
 
 func (e *transientBodyError) Error() string { return "transient response read: " + e.err.Error() }
 func (e *transientBodyError) Unwrap() error { return e.err }
+
+// byteLimitError is final: a retry cannot make an oversized response fit.
+type byteLimitError struct{ url string }
+
+func (e *byteLimitError) Error() string {
+	if e.url == "" {
+		return "response exceeds configured byte limit"
+	}
+	return "response exceeds configured byte limit: " + e.url
+}
 
 type transientRequestError struct{ err error }
 
@@ -388,7 +406,10 @@ func (b *gzipBody) Read(p []byte) (int, error) {
 	n, err := b.Reader.Read(p)
 	if err != nil && err != io.EOF {
 		b.readErr = err
-		err = &transientBodyError{err: err}
+		var limit *byteLimitError
+		if !errors.As(err, &limit) {
+			err = &transientBodyError{err: err}
+		}
 	}
 	return n, err
 }
@@ -410,7 +431,7 @@ func (b *limitedBody) Read(p []byte) (int, error) {
 	if int64(n) > b.left {
 		allowed := int(b.left)
 		b.left = 0
-		return allowed, errors.New("response exceeds configured byte limit")
+		return allowed, &byteLimitError{}
 	}
 	b.left -= int64(n)
 	return n, err
@@ -526,6 +547,9 @@ func (c *Client) request(
 		} else {
 			traceFromContext(ctx).update(StageScope, req.URL)
 		}
+		if err := CheckDestination(req.URL, c.config.AllowLoopbackFixtures); err != nil {
+			return model.Resource{}, err
+		}
 		gap := c.config.Delay
 		if !robots {
 			if scope, ok := ctx.Value(requestScopeKey{}).(func(string) error); ok {
@@ -541,7 +565,12 @@ func (c *Client) request(
 		}
 		target := req.URL
 		traceFromContext(ctx).update(StageLease, target)
-		requestContext := context.WithValue(ctx, dispatchKey{}, func() error { return c.throttle(ctx, target, gap) })
+		// Both backends take their proxy from the environment.
+		hopContext, err := withPublicDial(ctx, target, c.config.AllowLoopbackFixtures, http.ProxyFromEnvironment)
+		if err != nil {
+			return model.Resource{}, err
+		}
+		requestContext := context.WithValue(hopContext, dispatchKey{}, func() error { return c.throttle(ctx, target, gap) })
 		r, err := http.NewRequestWithContext(requestContext, req.Method, req.URL, nil)
 		if err != nil {
 			return model.Resource{}, err
@@ -563,6 +592,10 @@ func (c *Client) request(
 		if err != nil {
 			if ctx.Err() != nil {
 				return model.Resource{}, ctx.Err()
+			}
+			var refused *DestinationError
+			if errors.As(err, &refused) {
+				return model.Resource{}, refused
 			}
 			if !transientNetworkError(err) {
 				return model.Resource{}, fmt.Errorf("HTTP request failed: %w", err)
@@ -611,7 +644,7 @@ func (c *Client) request(
 		hasContent := req.Method != http.MethodHead && status >= 200 && status < 300 && status != http.StatusNoContent
 		if hasContent && response.ContentLength > limit {
 			response.Body.Close()
-			return model.Resource{}, fmt.Errorf("response exceeds configured byte limit: %s", req.URL)
+			return model.Resource{}, &byteLimitError{url: req.URL}
 		}
 		if robots {
 			traceFromContext(ctx).update(StageRobots, req.URL)
@@ -625,6 +658,10 @@ func (c *Client) request(
 				reader, err := gzip.NewReader(body)
 				if err != nil {
 					body.Close()
+					var limit *byteLimitError
+					if errors.As(err, &limit) {
+						return model.Resource{}, &byteLimitError{url: req.URL}
+					}
 					return model.Resource{}, &transientBodyError{
 						err: fmt.Errorf("invalid gzip response at %s: %w", req.URL, err),
 					}

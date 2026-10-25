@@ -375,7 +375,7 @@ func TestCompatibleConcurrentTLSOrigins(t *testing.T) {
 	}
 	backend := newCompatibilityBackend(true, true)
 	backend.transport.TLSClientConfig.RootCAs = pool
-	client, err := NewWithRoundTripper(Config{Timeout: 3 * time.Second, MaxBytes: 1024}, func(string) {}, backend)
+	client, err := NewWithRoundTripper(Config{Timeout: 3 * time.Second, MaxBytes: 1024, AllowLoopbackFixtures: true}, func(string) {}, backend)
 	if err != nil {
 		t.Fatal(err)
 	}

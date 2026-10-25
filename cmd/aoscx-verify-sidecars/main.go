@@ -2,7 +2,10 @@
 // the application's own platform-aware verification and reports their pinned
 // identities. It performs exactly the checks aos-cx-docs-dldr performs before every
 // launch: regular nonsymlink file, expected object format and architecture,
-// SHA-256, and exact shared-library closure.
+// SHA-256, and exact shared-library closure; every file of the Chrome
+// directory against its pinned path, size, kind and SHA-256 with nothing
+// unexpected beside them; and only pinned components in the qpdf executable
+// and library directories.
 //
 // It is build tooling: the container image runs it once to prove the staged
 // sidecars match the pins, and it is useful for checking any bundle by hand.
@@ -31,6 +34,7 @@ func main() {
 		fmt.Fprintln(os.Stderr, "qpdf:", err)
 		os.Exit(1)
 	}
-	fmt.Printf("chrome-headless-shell %s r%s sha256=%s\n", chrome.Version, chrome.Revision, chrome.ExecutableSHA256)
+	fmt.Printf("chrome-headless-shell %s r%s sha256=%s directory-manifest=%s\n",
+		chrome.Version, chrome.Revision, chrome.ExecutableSHA256, chrome.ManifestSHA256)
 	fmt.Printf("qpdf %s sha256=%s bundle=%s\n", qpdf.Version, qpdf.ExecutableSHA256, qpdf.BundleSHA256)
 }

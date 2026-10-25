@@ -132,6 +132,9 @@ func openContextWithPolicy(
 	if err := r.acquire(); err != nil {
 		return nil, err
 	}
+	if err := r.checkManagedDirectories(); err != nil {
+		return nil, err
+	}
 	if err := r.recoverContext(ctx); err != nil {
 		return nil, err
 	}
@@ -216,7 +219,7 @@ func (r *Run) Close() error {
 			err = r.checkLockFile()
 		}
 		if err == nil {
-			err = errors.Join(r.root.Remove(r.lock), storage.SyncDir(r.root, r.parent))
+			err = errors.Join(storage.Remove(r.root, r.lock), storage.SyncDir(r.root, r.parent))
 		}
 	}
 	err = errors.Join(err, r.root.Close())
@@ -224,16 +227,22 @@ func (r *Run) Close() error {
 	return err
 }
 
-func (r *Run) GuideOutput(id string) (string, error) {
+// GuideOutput creates this transaction's private work directory for a guide
+// and returns it opened as a root, with its path for messages and
+// ArchiveResult.OutputDir. Write the guide through the root: reopening the
+// path would follow any symlink later swapped into one of its components.
+// The caller closes the root.
+func (r *Run) GuideOutput(id string) (*os.Root, string, error) {
 	name, err := storage.SafeComponent(id)
 	if err != nil {
-		return "", err
+		return nil, "", err
 	}
 	work := path.Join(r.stage, ".work", name)
-	if err := storage.EnsureDir(r.root, work); err != nil {
-		return "", err
+	guide, err := storage.EnsureDirRoot(r.root, work)
+	if err != nil {
+		return nil, "", err
 	}
-	return filepath.Join(r.Destination, filepath.FromSlash(work)), nil
+	return guide, filepath.Join(r.Destination, filepath.FromSlash(work)), nil
 }
 
 func (r *Run) Accept(result model.ArchiveResult) error {
@@ -354,8 +363,7 @@ func (r *Run) verifyPDFGuide(directory string, result model.ArchiveResult) error
 	default:
 		return fmt.Errorf("invalid publisher PDF origin %q: %s", pdf.Origin, directory)
 	}
-	name, err := storage.PDFFilename(result.Document.Platform, result.Document.Version, result.Document.Title)
-	if err != nil || pdf.Path != name {
+	if !storage.PDFFilenameAccepted(result.Document.Platform, result.Document.Version, result.Document.Title, pdf.Path) {
 		return fmt.Errorf("unexpected publisher PDF filename: %s", directory)
 	}
 	if err := storage.Check(r.root, directory); err != nil {
@@ -415,8 +423,7 @@ func (r *Run) verifyHTMLGuide(directory string, result model.ArchiveResult) erro
 		"index.html": true, "toc.html": true, "search.json": true, "search-index.js": true, "search.js": true, "manifest.json": true,
 	}
 	if generated := manifest.GeneratedPDF; generated != nil {
-		name, err := storage.PDFFilename(result.Document.Platform, result.Document.Version, result.Document.Title)
-		if err != nil || generated.Path != name {
+		if !storage.PDFFilenameAccepted(result.Document.Platform, result.Document.Version, result.Document.Title, generated.Path) {
 			return fmt.Errorf("unexpected generated PDF filename: %s", directory)
 		}
 		switch generated.Status {
@@ -1078,7 +1085,7 @@ func (r *Run) Publish(cancelled bool) (Manifest, error) {
 				return Manifest{}, err
 			}
 			r.errors = append(r.errors, "Unfinished work retained at "+filepath.Join(r.Destination, filepath.FromSlash(incomplete)))
-		} else if err := r.root.Remove(work); err != nil {
+		} else if err := storage.Remove(r.root, work); err != nil {
 			return Manifest{}, err
 		}
 	} else if !errors.Is(err, os.ErrNotExist) {

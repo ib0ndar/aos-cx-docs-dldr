@@ -57,10 +57,7 @@ func publishUpgradeFixture(t *testing.T, kind string) (string, string, Manifest)
 		acceptDegradedHTML(t, run, "html", "missing.png")
 	case "incomplete":
 		acceptHTML(t, run, "html")
-		output, err := run.GuideOutput("failed")
-		if err != nil {
-			t.Fatal(err)
-		}
+		_, output := guideOutput(t, run, "failed")
 		if err := run.Accept(model.ArchiveResult{
 			Document: model.Document{
 				ID: "failed", Title: "Failed", Platform: "6300", Version: "10.10",

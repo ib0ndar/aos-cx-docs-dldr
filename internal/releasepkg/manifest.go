@@ -65,13 +65,16 @@ func GenerateMetadata(options MetadataOptions) (Manifest, error) {
 	if err != nil {
 		return Manifest{}, err
 	}
-	moduleInputs := make([]FileIdentity, 0, 4)
+	moduleInputs := make([]FileIdentity, 0, 8)
 	for _, relative := range []string{
 		"go.mod",
 		"go.sum",
 		"third_party/json5/go.mod",
 		"third_party/json5/LICENSE",
 		"third_party/json5/UPSTREAM.md",
+		"third_party/chromedp/go.mod",
+		"third_party/chromedp/LICENSE",
+		"third_party/chromedp/UPSTREAM.md",
 	} {
 		path := filepath.Join(options.Repository, filepath.FromSlash(relative))
 		identity, err := fileIdentity(options.Repository, path)

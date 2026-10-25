@@ -68,7 +68,7 @@ func TestAttemptBudgetCoversRobotsRedirectRetryHeadAndExhaustion(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	client, err := New(Config{Timeout: 3 * time.Second, Retries: 1, MaxBytes: 1024, Attempts: budget}, func(string) {})
+	client, err := New(Config{Timeout: 3 * time.Second, Retries: 1, MaxBytes: 1024, Attempts: budget, AllowLoopbackFixtures: true}, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -120,7 +120,7 @@ func TestAttemptBudgetParallelCallersCannotExceedLimit(t *testing.T) {
 	}))
 	defer server.Close()
 	budget, _ := NewAttemptBudget(6, 2)
-	client, err := New(Config{Timeout: 2 * time.Second, MaxBytes: 1024, Attempts: budget}, func(string) {})
+	client, err := New(Config{Timeout: 2 * time.Second, MaxBytes: 1024, Attempts: budget, AllowLoopbackFixtures: true}, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -171,7 +171,7 @@ func TestOverallContextDeadlineIsNotResetPerResource(t *testing.T) {
 	}))
 	defer server.Close()
 	budget, _ := NewAttemptBudget(6, 2)
-	client, err := New(Config{Timeout: time.Second, MaxBytes: 1024, Attempts: budget}, func(string) {})
+	client, err := New(Config{Timeout: time.Second, MaxBytes: 1024, Attempts: budget, AllowLoopbackFixtures: true}, func(string) {})
 	if err != nil {
 		t.Fatal(err)
 	}

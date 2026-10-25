@@ -50,7 +50,8 @@ func ExportZIP(ctx context.Context, versionRoot string) (string, error) {
 }
 
 // ExportZIP exports this run's published version while its ownership lock is
-// still held.
+// still held. The source and the ZIP are reached through the library's root,
+// never by reopening the destination path.
 func (r *Run) ExportZIP(ctx context.Context) (string, error) {
 	if !r.published {
 		return "", errors.New("library must be published before ZIP export")
@@ -58,10 +59,19 @@ func (r *Run) ExportZIP(ctx context.Context) (string, error) {
 	if err := r.checkOwnership(); err != nil {
 		return "", err
 	}
-	return exportZIP(ctx, r.Target, zipExportOptions{
+	parent, err := storage.OpenDir(r.root, r.parent)
+	if err != nil {
+		return "", err
+	}
+	target, err := exportZIPInRoot(ctx, parent, filepath.Join(r.Destination, filepath.FromSlash(r.parent)), path.Base(r.target), zipExportOptions{
 		beforeReplace: r.checkOwnership,
 		versionPolicy: r.versionPolicy,
 	})
+	closeErr := parent.Close()
+	if err != nil {
+		return "", errors.Join(err, closeErr)
+	}
+	return target, nil
 }
 
 func exportZIP(ctx context.Context, versionRoot string, options zipExportOptions) (targetPath string, err error) {
@@ -100,6 +110,28 @@ func exportZIP(ctx context.Context, versionRoot string, options zipExportOptions
 	rootInfo, err := root.Lstat(base)
 	if err != nil || !os.SameFile(info, rootInfo) {
 		return "", fmt.Errorf("ZIP source identity changed before export: %s", absolute)
+	}
+	targetPath, err = exportZIPInRoot(ctx, root, parentPath, base, options)
+	committed = err == nil
+	return targetPath, err
+}
+
+// exportZIPInRoot exports the version directory base of root, which parentPath
+// names for messages, into an adjacent ZIP.
+func exportZIPInRoot(ctx context.Context, root *os.Root, parentPath, base string, options zipExportOptions) (targetPath string, err error) {
+	if err := ctx.Err(); err != nil {
+		return "", err
+	}
+	if base == "." || base == string(filepath.Separator) || !utf8.ValidString(base) {
+		return "", fmt.Errorf("invalid ZIP source directory name %q", base)
+	}
+	if err := storage.SafePath(base); err != nil {
+		return "", err
+	}
+	if info, err := root.Lstat(base); err != nil {
+		return "", err
+	} else if info.Mode()&os.ModeSymlink != 0 || !info.IsDir() {
+		return "", fmt.Errorf("ZIP source must be a real version directory: %s", filepath.Join(parentPath, base))
 	}
 	entries, physicalEntries, err := collectZIPEntries(ctx, root, base)
 	if err != nil {
@@ -213,7 +245,6 @@ func exportZIP(ctx context.Context, versionRoot string, options zipExportOptions
 		return "", err
 	}
 	tempOwned = false
-	committed = true
 	return targetPath, nil
 }
 

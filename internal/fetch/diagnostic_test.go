@@ -210,7 +210,7 @@ func TestCompatibleRetrievalDiagnosticCoversLeaseWait(t *testing.T) {
 	backend := newCompatibilityBackend(true, true)
 	defer backend.CloseIdleConnections()
 	c, err := NewWithRoundTripper(
-		Config{Timeout: time.Second, MaxBytes: 1024},
+		Config{Timeout: time.Second, MaxBytes: 1024, AllowLoopbackFixtures: true},
 		func(string) {},
 		backend,
 	)

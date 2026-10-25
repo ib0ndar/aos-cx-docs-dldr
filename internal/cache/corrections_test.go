@@ -20,6 +20,7 @@ import (
 
 func nativeStore(t *testing.T, dir string, cfg fetch.Config) *Store {
 	t.Helper()
+	cfg.AllowLoopbackFixtures = true
 	notify := func(message string) { t.Log(message) }
 	transport, err := newContractClient(cfg, notify)
 	if err != nil {

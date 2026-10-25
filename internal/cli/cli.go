@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -276,9 +275,7 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 				return err
 			}
 			if o.json {
-				encoder := json.NewEncoder(out)
-				encoder.SetIndent("", "  ")
-				return encoder.Encode(listing)
+				return writeJSON(out, listing)
 			}
 			return printListingStyled(out, listing, o, outPresentation)
 		},
@@ -404,7 +401,10 @@ func (o options) validateFor(interactive bool) (fetch.Config, error) {
 	config := fetch.Config{Delay: time.Duration(o.delay * float64(time.Second)),
 		Timeout:        time.Duration(o.timeout * float64(time.Second)),
 		AttemptTimeout: time.Duration(o.attemptTimeout * float64(time.Second)),
-		Retries:        o.retries, MaxBytes: int64(o.maxMB * (1 << 20))}
+		Retries:        o.retries, MaxBytes: int64(o.maxMB * (1 << 20)),
+		// Fixture mode only when the hidden portal override names a loopback
+		// fixture server; every other run keeps the public HTTPS policy.
+		AllowLoopbackFixtures: o.portal != model.PortalURL && fetch.LoopbackFixtureURL(o.portal)}
 	return config, config.Validate()
 }
 

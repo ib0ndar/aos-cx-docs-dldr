@@ -1,11 +1,8 @@
 package pdfgen
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"slices"
@@ -123,6 +120,9 @@ func verifyQPDFSidecar(platform sidecarPlatform, raw string) (QPDFSidecar, error
 	if executableSHA256 == "" {
 		return QPDFSidecar{}, errors.New("qpdf sidecar platform table does not pin the executable")
 	}
+	if err := verifyQPDFSearchDirectories(platform, absolute); err != nil {
+		return QPDFSidecar{}, err
+	}
 	return QPDFSidecar{
 		Path:             absolute,
 		Version:          QPDFVersion,
@@ -145,40 +145,76 @@ func verifyQPDFComponent(platform sidecarPlatform, path, expectedHash string, ex
 	if executable && info.Mode().Perm()&0o111 == 0 {
 		return fmt.Errorf("qpdf sidecar executable is not executable: %s", path)
 	}
-	file, err := os.Open(path)
+	if pinnedContentCurrent(path, info, expectedHash) {
+		return nil
+	}
+	digest, err := hashPinnedFile("qpdf sidecar component", path, info, func(file *os.File) error {
+		imports, err := platform.verifyObject(file, path)
+		if err != nil {
+			return fmt.Errorf("qpdf sidecar: %w", err)
+		}
+		imports = slices.Clone(imports)
+		expected := slices.Clone(expectedImports)
+		slices.Sort(imports)
+		slices.Sort(expected)
+		if !slices.Equal(imports, expected) {
+			return fmt.Errorf("qpdf sidecar component dependency closure differs at %s: %v", path, imports)
+		}
+		return nil
+	})
 	if err != nil {
 		return err
 	}
-	defer file.Close()
-	opened, err := file.Stat()
-	if err != nil || !os.SameFile(info, opened) {
-		return fmt.Errorf("qpdf sidecar component identity changed while opening: %s", path)
-	}
-	imports, err := platform.verifyObject(file, path)
-	if err != nil {
-		return fmt.Errorf("qpdf sidecar: %w", err)
-	}
-	imports = slices.Clone(imports)
-	expectedImports = slices.Clone(expectedImports)
-	slices.Sort(imports)
-	slices.Sort(expectedImports)
-	if !slices.Equal(imports, expectedImports) {
-		return fmt.Errorf("qpdf sidecar component dependency closure differs at %s: %v", path, imports)
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return err
-	}
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return err
-	}
-	digest := hex.EncodeToString(hash.Sum(nil))
 	if digest != expectedHash {
 		return fmt.Errorf("qpdf sidecar component SHA-256 is %s, expected %s: %s", digest, expectedHash, path)
 	}
-	current, err := os.Lstat(path)
-	if err != nil || !os.SameFile(info, current) {
-		return fmt.Errorf("qpdf sidecar component identity changed during verification: %s", path)
+	rememberPinnedContent(path, info, digest)
+	return nil
+}
+
+// verifyQPDFSearchDirectories refuses any entry beside the pinned components
+// in the directories that hold them. Those directories are the loader's search
+// path: the Linux libraries carry RUNPATH $ORIGIN, so a stray libz.so.1 or
+// libgmp.so.10 there would be loaded in place of the system copy. A bounded
+// Finder .DS_Store is tolerated where the platform has Finder.
+func verifyQPDFSearchDirectories(platform sidecarPlatform, executable string) error {
+	pinned := map[string]map[string]bool{}
+	for _, component := range platform.qpdfComponents {
+		path := executable
+		if component.relative != "." {
+			path = filepath.Clean(filepath.Join(filepath.Dir(executable), component.relative))
+		}
+		dir := filepath.Dir(path)
+		if pinned[dir] == nil {
+			pinned[dir] = map[string]bool{}
+		}
+		pinned[dir][filepath.Base(path)] = true
+	}
+	directories := make([]string, 0, len(pinned))
+	for dir := range pinned {
+		directories = append(directories, dir)
+	}
+	slices.Sort(directories)
+	for _, dir := range directories {
+		entries, err := os.ReadDir(dir)
+		if err != nil {
+			return fmt.Errorf("qpdf sidecar directory cannot be listed: %s: %v", dir, err)
+		}
+		for _, entry := range entries {
+			if pinned[dir][entry.Name()] {
+				continue
+			}
+			if platform.finderMetadata && entry.Name() == ".DS_Store" && entry.Type().IsRegular() {
+				if info, err := entry.Info(); err == nil && info.Mode().IsRegular() &&
+					info.Size() <= finderMetadataMaxBytes {
+					continue
+				}
+			}
+			return fmt.Errorf(
+				"qpdf sidecar directory contains an unpinned entry on the library search path: %s",
+				filepath.Join(dir, entry.Name()),
+			)
+		}
 	}
 	return nil
 }

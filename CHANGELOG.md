@@ -1,5 +1,73 @@
 # Release notes
 
+## Unreleased - security hardening
+
+Archived HTML:
+
+- Sanitize publisher content against an allowlist. `meta`, `base`, `link`,
+  `template`, frames and form controls are removed, and only URL attributes
+  that are rewritten to verified local or online targets survive; the final
+  output check enforces the same rule on every generated page, stylesheet and
+  SVG. Sanitizing continues after an error, and a page that cannot be
+  sanitized is not written.
+- Rebuild SVG from the XML token stream with real namespaces and an
+  element/attribute allowlist. Script, `foreignObject` (replaced by the
+  publisher's SVG fallback where one exists), event attributes and animations
+  of links, styles or handlers are removed from inline and standalone copies.
+- Store unrecognized assets as `.bin` instead of keeping a URL or MIME
+  extension such as `.xhtml`, and link thumbnails only to verified images.
+- Tighten every page's Content Security Policy: `base-uri`, `form-action` and
+  `object-src` are `'none'`, and only index pages may run their own search
+  scripts. The release index gains a policy too.
+- Unescape CSS function and at-rule names before matching, so escaped `url(`
+  or `@import` can no longer bypass rewriting.
+
+Retrieval:
+
+- Contact only public HTTP and HTTPS destinations. Every request, redirect and
+  robots.txt fetch is checked; `localhost`, non-public IP literals and
+  non-standard numeric hosts are refused with a final error naming the URL. A
+  direct plain-HTTP connection is also refused when the name resolves to a
+  non-public address. Catalogue mappings to such URLs are reported as
+  unsupported targets, and a directly mapped PDF must stay inside the directory
+  its availability check probed.
+- Do not retry responses over the size limit, including gzip bodies.
+- Stop storing `Set-Cookie` and other credential headers in the raw cache.
+  Existing caches remain valid.
+
+Generated PDFs and processes:
+
+- Drive Chrome over `--remote-debugging-pipe` instead of a loopback DevTools
+  TCP port, through a modified local replacement of chromedp v0.16.0 in
+  `third_party/chromedp`. Chrome exits when the application dies.
+- Pin every file of the Chrome directory, and allow only pinned files in
+  qpdf's `bin/` and `lib/`. Both sidecars are re-verified immediately before
+  every process start and run with an allowlisted environment, so `DYLD_*`,
+  `LD_*` and similar variables never reach them.
+- Never pass `--no-sandbox` to Chrome on macOS, even when run as root.
+- Cancel cleanly with exit 130 on SIGTERM and SIGHUP as well as Ctrl-C.
+- Accept destination paths containing `%` for PDF conversion.
+
+Library:
+
+- Write guide outputs and ZIP exports through directory handles opened inside
+  the destination, and walk deletions and copies without following symlinks.
+  Refuse pre-existing managed folders owned by another account or writable by
+  others.
+- Confine release search links to the guide's manifest topics.
+- Remove invisible and direction-changing characters from new PDF file names;
+  existing names still verify.
+- Escape C1 and bidi control characters in `--json` output.
+
+Packaging:
+
+- Build the container with Go 1.27.3 and a refreshed `debian:trixie-slim`, and
+  update `golang.org/x/net` to v0.60.0; the published v0.8 binaries were built
+  with Go 1.27.1, which carries standard-library advisories fixed since.
+- Remove every setuid/setgid bit from the image, and run it with
+  `--cap-drop ALL --security-opt no-new-privileges` from the Windows wrapper and
+  documented `docker run` examples.
+
 ## 0.8 CLI flag update - 2026-09-22
 
 - Use `--version` (or `-V`) to print the application version offline. Remove

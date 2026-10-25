@@ -6,9 +6,11 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"net/url"
 	"slices"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"aos-cx-docs-dldr/internal/model"
@@ -91,8 +93,32 @@ func rewriteCSSWithProperties(body []byte, inline bool, resolve cssResolver, rel
 	skippedRules := 0
 	obsolete := map[string]int{}
 	invalid := map[string]int{}
+	// The parser reports the contents of at-rules it does not know, including
+	// escaped spellings of known ones, as raw tokens. They are buffered so their
+	// URLs pass through the same rewriting as declaration values.
+	var block []css.Token
+	flushBlock := func() error {
+		if len(block) == 0 {
+			return nil
+		}
+		tokens, bad, err := rewriteCSSTokens(block, resolve, false)
+		if err != nil {
+			return err
+		}
+		if bad {
+			return errors.New("CSS at-rule block contains an invalid publisher URL")
+		}
+		writeTokens(&out, tokens)
+		block = nil
+		return nil
+	}
 	for {
-		grammar, _, data := p.Next()
+		grammar, tokenType, data := p.Next()
+		if grammar != css.TokenGrammar && grammar != css.QualifiedRuleGrammar {
+			if err := flushBlock(); err != nil {
+				return nil, diagnostics, err
+			}
+		}
 		if grammar == css.ErrorGrammar {
 			if p.HasParseError() {
 				return nil, diagnostics, fmt.Errorf("CSS parse error: %w", p.Err())
@@ -114,16 +140,22 @@ func rewriteCSSWithProperties(body []byte, inline bool, resolve cssResolver, rel
 				}
 				continue
 			}
-			name := strings.ToLower(string(data))
+			name, err := cssName(data)
+			if err != nil {
+				return nil, diagnostics, err
+			}
 			if name == "@charset" {
 				continue
 			}
 			values := append([]css.Token{}, p.Values()...)
-			var err error
 			if name == "@import" {
 				values, err = rewriteImport(values, resolve)
 			} else if name != "@namespace" {
-				values, _, err = rewriteCSSTokens(values, resolve, false)
+				var bad bool
+				values, bad, err = rewriteCSSTokens(values, resolve, false)
+				if err == nil && bad {
+					err = fmt.Errorf("CSS %s rule contains an invalid publisher URL", name)
+				}
 			}
 			if err != nil {
 				return nil, diagnostics, err
@@ -154,7 +186,10 @@ func rewriteCSSWithProperties(body []byte, inline bool, resolve cssResolver, rel
 			if skip {
 				continue
 			}
-			values, _, err := rewriteCSSTokens(filtered, resolve, false)
+			values, bad, err := rewriteCSSTokens(filtered, resolve, false)
+			if err == nil && bad {
+				err = errors.New("CSS selector contains an invalid publisher URL")
+			}
 			if err != nil {
 				return nil, diagnostics, err
 			}
@@ -170,7 +205,10 @@ func rewriteCSSWithProperties(body []byte, inline bool, resolve cssResolver, rel
 				}
 				continue
 			}
-			property := strings.ToLower(string(data))
+			property, err := cssName(data)
+			if err != nil {
+				return nil, diagnostics, err
+			}
 			if keepProperty != nil && !keepProperty(property) {
 				continue
 			}
@@ -229,7 +267,7 @@ func rewriteCSSWithProperties(body []byte, inline bool, resolve cssResolver, rel
 			out.WriteByte(';')
 		case css.QualifiedRuleGrammar, css.TokenGrammar:
 			if !insideSkipped(skipped) {
-				out.Write(data)
+				block = append(block, css.Token{TokenType: tokenType, Data: bytes.Clone(data)})
 			}
 		default:
 			return nil, diagnostics, fmt.Errorf("unsupported CSS grammar %s", grammar)
@@ -382,16 +420,29 @@ func rewriteCSSValue(value []byte, resolve cssResolver) ([]byte, bool, error) {
 }
 
 func rewriteCSSTokens(tokens []css.Token, resolve cssResolver, inImageSet bool) ([]css.Token, bool, error) {
-	imageDepth := 0
+	// blocks records, for each open function or parenthesis, whether it is an
+	// image-set(). Only strings directly inside image-set() are image URLs.
+	blocks := []bool{inImageSet}
 	for i := range tokens {
 		switch tokens[i].TokenType {
 		case css.FunctionToken:
-			if strings.EqualFold(string(tokens[i].Data), "image-set(") || strings.EqualFold(string(tokens[i].Data), "-webkit-image-set(") {
-				imageDepth++
+			name, err := cssName(tokens[i].Data)
+			if err != nil {
+				return nil, false, err
 			}
+			switch name {
+			case "url(", "src(":
+				// The lexer turns only a literal url( into a URL token. Browsers
+				// also load the argument of an escaped spelling such as \75 rl(,
+				// which therefore cannot be rewritten and is treated as invalid.
+				return tokens, true, nil
+			}
+			blocks = append(blocks, name == "image-set(" || name == "-webkit-image-set(")
+		case css.LeftParenthesisToken:
+			blocks = append(blocks, false)
 		case css.RightParenthesisToken:
-			if imageDepth > 0 {
-				imageDepth--
+			if len(blocks) > 1 {
+				blocks = blocks[:len(blocks)-1]
 			}
 		case css.BadURLToken:
 			return tokens, true, nil
@@ -413,7 +464,7 @@ func rewriteCSSTokens(tokens []css.Token, resolve cssResolver, inImageSet bool) 
 			}
 			tokens[i].Data = []byte("url(" + string(cssQuoted(local)) + ")")
 		case css.StringToken:
-			if imageDepth == 0 && !inImageSet {
+			if !blocks[len(blocks)-1] {
 				continue
 			}
 			ref, err := cssString(tokens[i].Data)
@@ -463,6 +514,100 @@ func cssString(value []byte) (string, error) {
 		return "", fmt.Errorf("invalid CSS string token %q", raw)
 	}
 	return cssUnescape(raw[1 : len(raw)-1])
+}
+
+// cssName decodes the escapes in an identifier, function or at-keyword token
+// and lowercases ASCII letters, so that escaped spellings such as \75 rl( and
+// @\69mport compare equal to the names browsers resolve them to.
+func cssName(data []byte) (string, error) {
+	name, err := cssUnescape(string(data))
+	if err != nil {
+		return "", err
+	}
+	return strings.Map(func(r rune) rune {
+		if r >= 'A' && r <= 'Z' {
+			return r + 'a' - 'A'
+		}
+		return r
+	}, name), nil
+}
+
+// cssReferenceProblem describes the first reference in archived CSS that a
+// browser would resolve outside the archive, or returns "". Fragment, data
+// and relative references are local. @namespace URIs are names, not loads.
+func cssReferenceProblem(body []byte) string {
+	lexer := css.NewLexer(parse.NewInput(bytes.NewReader(body)))
+	blocks := []bool{false}
+	namespace, importing := false, false
+	for {
+		kind, data := lexer.Next()
+		switch kind {
+		case css.ErrorToken:
+			if err := lexer.Err(); err != nil && !errors.Is(err, io.EOF) {
+				return "unreadable CSS: " + err.Error()
+			}
+			return ""
+		case css.AtKeywordToken:
+			name, err := cssName(data)
+			if err != nil {
+				return "invalid CSS at-rule name"
+			}
+			namespace, importing = name == "@namespace", name == "@import"
+		case css.SemicolonToken, css.LeftBraceToken, css.RightBraceToken:
+			namespace, importing = false, false
+		case css.FunctionToken:
+			name, err := cssName(data)
+			if err != nil {
+				return "invalid CSS function name"
+			}
+			if name == "url(" || name == "src(" {
+				return "unrewritten CSS function " + string(data)
+			}
+			blocks = append(blocks, name == "image-set(" || name == "-webkit-image-set(")
+		case css.LeftParenthesisToken:
+			blocks = append(blocks, false)
+		case css.RightParenthesisToken:
+			if len(blocks) > 1 {
+				blocks = blocks[:len(blocks)-1]
+			}
+		case css.BadURLToken:
+			return "malformed CSS URL " + string(data)
+		case css.URLToken:
+			if namespace {
+				continue
+			}
+			reference, err := cssURL(data)
+			if err != nil || !localArchiveReference(reference) {
+				return "CSS reference is not local " + string(data)
+			}
+			importing = false
+		case css.StringToken:
+			if !importing && !blocks[len(blocks)-1] {
+				continue
+			}
+			reference, err := cssString(data)
+			if err != nil || !localArchiveReference(reference) {
+				return "CSS reference is not local " + string(data)
+			}
+			importing = false
+		}
+	}
+}
+
+// localArchiveReference reports whether a reference stays inside the archive:
+// a fragment, a data URL or a relative path without scheme or authority.
+func localArchiveReference(reference string) bool {
+	reference = strings.TrimSpace(reference)
+	lower := strings.ToLower(reference)
+	if reference == "" || strings.HasPrefix(reference, "#") || strings.HasPrefix(lower, "data:") {
+		return true
+	}
+	if strings.HasPrefix(reference, "//") || strings.HasPrefix(reference, `\\`) ||
+		strings.IndexFunc(reference, unicode.IsControl) >= 0 {
+		return false
+	}
+	parsed, err := url.Parse(reference)
+	return err == nil && parsed.Scheme == "" && parsed.Host == ""
 }
 
 func cssUnescape(value string) (string, error) {

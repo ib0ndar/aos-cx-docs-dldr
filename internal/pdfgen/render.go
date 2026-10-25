@@ -113,6 +113,21 @@ func Generate(
 	plan model.DocumentPlan,
 	result *model.ArchiveResult,
 	config Config,
+) (model.GeneratedPDFRecord, error) {
+	return GenerateInRoot(ctx, nil, guideDir, plan, result, config)
+}
+
+// GenerateInRoot is Generate for a guide directory the caller already holds
+// open as guide. Its own reads and writes go through guide; Chrome and qpdf
+// still need guideDir as a path, which must name the same directory. A nil
+// guide opens guideDir by path instead.
+func GenerateInRoot(
+	ctx context.Context,
+	guide *os.Root,
+	guideDir string,
+	plan model.DocumentPlan,
+	result *model.ArchiveResult,
+	config Config,
 ) (record model.GeneratedPDFRecord, err error) {
 	started := time.Now()
 	record = FailedRecord(plan, nil)
@@ -168,19 +183,27 @@ func Generate(
 	case <-generationCtx.Done():
 		return record, generationCtx.Err()
 	}
-	info, err := os.Lstat(guideDir)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return record, errors.New("generated PDF guide root must be an owned real staging directory")
+	root := guide
+	if root == nil {
+		info, err := os.Lstat(guideDir)
+		if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
+			return record, errors.New("generated PDF guide root must be an owned real staging directory")
+		}
 	}
 	absoluteGuide, err := filepath.Abs(guideDir)
 	if err != nil {
 		return record, err
 	}
-	root, err := os.OpenRoot(absoluteGuide)
-	if err != nil {
-		return record, err
+	if root == nil {
+		if root, err = os.OpenRoot(absoluteGuide); err != nil {
+			return record, err
+		}
+		defer func() { err = errors.Join(err, root.Close()) }()
+	} else if opened, rootErr := root.Stat("."); rootErr != nil {
+		return record, rootErr
+	} else if named, pathErr := os.Stat(absoluteGuide); pathErr != nil || !os.SameFile(opened, named) {
+		return record, errors.Join(errors.New("generated PDF guide path no longer names the opened staging directory"), pathErr)
 	}
-	defer func() { err = errors.Join(err, root.Close()) }()
 	if _, existingErr := root.Lstat(record.Path); existingErr == nil {
 		return record, fmt.Errorf("generated PDF destination already exists: %s", record.Path)
 	} else if !errors.Is(existingErr, os.ErrNotExist) {
@@ -512,17 +535,27 @@ func rollbackGeneratedPDFPublication(
 }
 
 func RecordFailure(guideDir string, result *model.ArchiveResult, record model.GeneratedPDFRecord) error {
+	return RecordFailureInRoot(nil, guideDir, result, record)
+}
+
+// RecordFailureInRoot is RecordFailure writing through guide, a guide
+// directory the caller already holds open. A nil guide opens guideDir by path.
+func RecordFailureInRoot(guide *os.Root, guideDir string, result *model.ArchiveResult, record model.GeneratedPDFRecord) error {
 	if result == nil || (result.Status != "complete" && result.Status != "degraded") ||
 		result.Format != "html" || result.HTML == nil {
 		return errors.New("cannot record generated PDF failure without a publishable HTML archive")
 	}
 	record.InputStatus = result.Status
 	record.ImagePlaceholders = model.ImagePlaceholderCount(result.MissingResources)
-	root, err := os.OpenRoot(guideDir)
-	if err != nil {
-		return err
+	root := guide
+	if root == nil {
+		opened, err := os.OpenRoot(guideDir)
+		if err != nil {
+			return err
+		}
+		defer opened.Close()
+		root = opened
 	}
-	defer root.Close()
 	previous := result.HTML.GeneratedPDF
 	result.HTML.GeneratedPDF = &record
 	if err := storage.WriteJSON(root, "manifest.json", result.HTML); err != nil {
@@ -586,12 +619,8 @@ func renderChromeDocument(
 ) (metrics renderMetrics, err error) {
 	renderCtx, cancel := context.WithCancel(parent)
 	defer cancel()
-	confirmed, err := reverifySidecar(sidecar.Path)
-	if err != nil {
-		return metrics, fmt.Errorf("revalidate Chrome sidecar immediately before launch: %w", err)
-	}
-	if confirmed != sidecar {
-		return metrics, errors.New("Chrome sidecar identity changed between preflight and launch")
+	if err := confirmChromeSidecar(sidecar); err != nil {
+		return metrics, err
 	}
 	tempRoot, err := os.MkdirTemp(config.TempRoot, "aos-cx-docs-dldr-pdf-")
 	if err != nil {
@@ -602,39 +631,11 @@ func renderChromeDocument(
 		return metrics, err
 	}
 	defer os.RemoveAll(tempRoot)
-	profile := filepath.Join(tempRoot, "profile")
-	if err := os.Mkdir(profile, 0o700); err != nil {
+	if err := createChromeLaunchDirectories(tempRoot); err != nil {
 		return metrics, err
 	}
 	logs := &boundedLog{limit: maxChromeLogBytes}
-	options := append(chromedp.DefaultExecAllocatorOptions[:],
-		chromedp.ExecPath(sidecar.Path),
-		chromedp.UserDataDir(profile),
-		chromedp.Flag("headless", true),
-		chromedp.Flag("disable-extensions", true),
-		chromedp.Flag("disable-background-networking", true),
-		chromedp.Flag("disable-component-update", true),
-		chromedp.Flag("disable-default-apps", true),
-		chromedp.Flag("disable-domain-reliability", true),
-		chromedp.Flag("disable-sync", true),
-		chromedp.Flag("disable-breakpad", true),
-		chromedp.Flag("disable-crash-reporter", true),
-		chromedp.Flag("disable-client-side-phishing-detection", true),
-		chromedp.Flag("disable-features", "Translate,MediaRouter,OptimizationHints,AutofillServerCommunication"),
-		chromedp.Flag("disable-quic", true),
-		chromedp.Flag("metrics-recording-only", true),
-		chromedp.Flag("no-first-run", true),
-		chromedp.Flag("no-default-browser-check", true),
-		chromedp.Flag("proxy-server", "http://127.0.0.1:9"),
-		chromedp.Flag("proxy-bypass-list", "<-loopback>"),
-		chromedp.Flag("host-resolver-rules", "MAP * 0.0.0.0"),
-		chromedp.Flag("disk-cache-dir", filepath.Join(tempRoot, "cache")),
-		chromedp.Flag("crash-dumps-dir", filepath.Join(tempRoot, "crashes")),
-		chromedp.CombinedOutput(logs),
-		chromedp.ModifyCmdFunc(configureProcessGroup),
-	)
-	options = append(options, platformChromeOptions()...)
-	allocatorCtx, allocatorCancel := chromedp.NewExecAllocator(renderCtx, options...)
+	allocatorCtx, allocatorCancel := chromedp.NewExecAllocator(renderCtx, chromeAllocatorOptions(sidecar.Path, tempRoot, logs)...)
 	defer allocatorCancel()
 	browserCtx, browserCancel := chromedp.NewContext(allocatorCtx)
 	defer browserCancel()
@@ -986,14 +987,22 @@ func allowRenderRequest(raw, guideRoot, inputPath string) (bool, string, string)
 	if parsed.Scheme == "data" {
 		return true, "data", ""
 	}
-	if parsed.Scheme != "file" || parsed.Host != "" || parsed.RawQuery != "" {
+	if parsed.Scheme != "file" || parsed.Host != "" || parsed.RawQuery != "" ||
+		parsed.Opaque != "" || parsed.User != nil {
 		return false, "external", "network and non-file renderer requests are disabled: " + raw
 	}
-	requestPath, err := url.PathUnescape(parsed.Path)
-	if err != nil {
-		return false, "file", "invalid encoded local renderer path"
+	// url.Parse has already percent-decoded Path exactly once. Decoding it
+	// again would misread a literal "%" in the destination (for example
+	// "100%" or "Docs%20Lib") and refuse every resource. An encoded slash
+	// would let one decoded component span directories, and NUL cannot name
+	// a file, so both are refused outright.
+	if strings.Contains(strings.ToLower(parsed.RawPath), "%2f") || strings.ContainsRune(parsed.Path, 0) {
+		return false, "file", "renderer file request uses an encoded slash or NUL: " + raw
 	}
-	requestPath = filepath.Clean(requestPath)
+	if !filepath.IsAbs(parsed.Path) {
+		return false, "file", "renderer file request path is not absolute: " + raw
+	}
+	requestPath := filepath.Clean(parsed.Path)
 	relative, err := filepath.Rel(guideRoot, requestPath)
 	if err != nil || relative == ".." || strings.HasPrefix(relative, ".."+string(filepath.Separator)) || filepath.IsAbs(relative) {
 		return false, "file", "renderer file request escapes verified guide root: " + raw

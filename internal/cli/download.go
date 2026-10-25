@@ -2,7 +2,6 @@ package cli
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -226,7 +225,9 @@ func downloadGuidesObserved(
 			cancelled = true
 			break
 		}
-		output, err := run.GuideOutput(document.ID)
+		// The guide is written through guide, opened by the library without
+		// following symlinks; output names it in messages and the result.
+		guide, output, err := run.GuideOutput(document.ID)
 		if err != nil {
 			return 1, err
 		}
@@ -241,13 +242,13 @@ func downloadGuidesObserved(
 			var archived model.ArchiveResult
 			var err error
 			if progress == nil {
-				archived, err = archive.HTMLWithWorkers(ctx, plan, fetcher, output, o.refresh,
-					int64(o.maxMB*(1<<20)), int64(o.maxArchiveMB*(1<<20)), o.workerCount())
+				archived, err = archive.HTMLInRoot(ctx, plan, fetcher, guide, output, o.refresh,
+					int64(o.maxMB*(1<<20)), int64(o.maxArchiveMB*(1<<20)), o.workerCount(), nil)
 			} else {
 				progress.Guide(index+1, len(documents), document.Title,
 					fmt.Sprintf("plan complete; %d authoritative topics", len(plan.Topics)))
 				progress.Guide(index+1, len(documents), document.Title, "building offline guide")
-				archived, err = archive.HTMLWithWorkersObserved(ctx, plan, fetcher, output, o.refresh,
+				archived, err = archive.HTMLInRoot(ctx, plan, fetcher, guide, output, o.refresh,
 					int64(o.maxMB*(1<<20)), int64(o.maxArchiveMB*(1<<20)), o.workerCount(),
 					func(event archive.Progress) {
 						progress.HTML(index+1, len(documents), document.Title, event)
@@ -261,7 +262,7 @@ func downloadGuidesObserved(
 			}
 			pdfConfig := pdfgen.DefaultConfig(o.chromePath)
 			pdfConfig.QPDFPath = o.qpdfPath
-			record, renderErr := pdfgen.Generate(ctx, output, plan, &archived, pdfConfig)
+			record, renderErr := pdfgen.GenerateInRoot(ctx, guide, output, plan, &archived, pdfConfig)
 			if renderErr == nil {
 				if progress == nil {
 					fmt.Fprintf(stderr, "%s\n", errPresentation.success(fmt.Sprintf(
@@ -271,7 +272,7 @@ func downloadGuidesObserved(
 				}
 				return archived, nil
 			}
-			recordErr := pdfgen.RecordFailure(output, &archived, record)
+			recordErr := pdfgen.RecordFailureInRoot(guide, output, &archived, record)
 			message := record.Error
 			if recordErr != nil {
 				message += "; record failure: " + recordErr.Error()
@@ -289,7 +290,7 @@ func downloadGuidesObserved(
 				archiveErr = planErr
 				result = model.ArchiveResult{Document: document, OutputDir: output, Status: "failed", Format: "pdf", Errors: []string{planErr.Error()}}
 			} else {
-				result, archiveErr = archive.PublisherPDF(ctx, plan, fetcher, output, o.refresh, int64(o.maxMB*(1<<20)))
+				result, archiveErr = archive.PublisherPDFInRoot(ctx, plan, fetcher, guide, output, o.refresh, int64(o.maxMB*(1<<20)))
 			}
 		} else {
 			if progress != nil {
@@ -311,7 +312,7 @@ func downloadGuidesObserved(
 					if progress != nil {
 						progress.Guide(index+1, len(documents), document.Title, "downloading source-verified publisher PDF")
 					}
-					result, archiveErr = archive.PublisherPDF(ctx, plan, fetcher, output, o.refresh, int64(o.maxMB*(1<<20)))
+					result, archiveErr = archive.PublisherPDFInRoot(ctx, plan, fetcher, guide, output, o.refresh, int64(o.maxMB*(1<<20)))
 					if archiveErr != nil && plan.PDFPreferred &&
 						!errors.Is(archiveErr, context.Canceled) && !errors.Is(archiveErr, context.DeadlineExceeded) &&
 						ctx.Err() == nil {
@@ -341,6 +342,9 @@ func downloadGuidesObserved(
 						Format: "html", Errors: []string{archiveErr.Error()}}
 				}
 			}
+		}
+		if err := guide.Close(); err != nil {
+			return 1, err
 		}
 		if err := run.Accept(result); err != nil {
 			return 1, err
@@ -407,9 +411,7 @@ func downloadGuidesObserved(
 		reportIncompleteManifest(progress, stderr, errPresentation, run.Target, manifest)
 	}
 	if o.json {
-		encoder := json.NewEncoder(out)
-		encoder.SetIndent("", "  ")
-		err = encoder.Encode(DownloadOutput{Library: run.Target, ZIP: zipPath, Manifest: manifest})
+		err = writeJSON(out, DownloadOutput{Library: run.Target, ZIP: zipPath, Manifest: manifest})
 	} else {
 		status := outPresentation.success(manifest.Status)
 		if manifest.Status != "complete" {

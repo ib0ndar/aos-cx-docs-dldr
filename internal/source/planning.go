@@ -27,6 +27,9 @@ import (
 const maxDepth = 100
 const maxChunks = 1000
 
+// maxStyles bounds distinct stylesheets per plan; publisher guides use a few.
+const maxStyles = 1000
+
 type input struct {
 	url     string
 	body    []byte
@@ -38,19 +41,22 @@ func (in input) resource() model.Resource {
 }
 
 type planner struct {
-	ctx     context.Context
-	fetcher model.Fetcher
-	refresh bool
-	plan    model.DocumentPlan
-	seen    map[string]bool
-	count   int
+	ctx      context.Context
+	fetcher  model.Fetcher
+	refresh  bool
+	plan     model.DocumentPlan
+	seen     map[string]bool
+	notices  map[model.Notice]bool
+	warnings map[string]bool
+	count    int
 }
 
 func newPlanner(ctx context.Context, f model.Fetcher, doc model.Document, refresh bool) *planner {
-	return &planner{ctx: ctx, fetcher: f, refresh: refresh, seen: map[string]bool{}, plan: model.DocumentPlan{
-		Document: doc, Topics: []model.Topic{}, TOC: []model.TocEntry{}, Styles: []string{},
-		Notices: []model.Notice{}, Warnings: []string{}, Inputs: []model.SourceInput{},
-	}}
+	return &planner{ctx: ctx, fetcher: f, refresh: refresh, seen: map[string]bool{},
+		notices: map[model.Notice]bool{}, warnings: map[string]bool{}, plan: model.DocumentPlan{
+			Document: doc, Topics: []model.Topic{}, TOC: []model.TocEntry{}, Styles: []string{},
+			Notices: []model.Notice{}, Warnings: []string{}, Inputs: []model.SourceInput{},
+		}}
 }
 
 type contextReader struct {
@@ -182,11 +188,17 @@ func inside(raw, root string) bool {
 	if err != nil {
 		return false
 	}
-	if u.Scheme != base.Scheme || u.Host != base.Host || !strings.HasPrefix(u.Path, base.Path) ||
-		strings.Contains(u.Path, "\\") {
+	return u.Scheme == base.Scheme && u.Host == base.Host && strings.HasPrefix(u.Path, base.Path) &&
+		plainSegments(u.Path)
+}
+
+// plainSegments rejects backslashes and decoded dot segments, including
+// %2e%2e, which a server may collapse to escape a path prefix.
+func plainSegments(path string) bool {
+	if strings.Contains(path, "\\") {
 		return false
 	}
-	for _, part := range strings.Split(u.Path, "/") {
+	for _, part := range strings.Split(path, "/") {
 		if part == "." || part == ".." {
 			return false
 		}
@@ -225,11 +237,17 @@ func initialScope(document model.Document) func(string) error {
 		}
 		actual, _ := url.Parse(normalized)
 		if actual.Scheme != u.Scheme || actual.Host != u.Host || !strings.HasPrefix(actual.Path, prefix) ||
-			(document.Kind == "flare" && !strings.Contains(actual.Path, "/Content/")) {
+			!plainSegments(actual.Path) || (document.Kind == "flare" && !strings.Contains(actual.Path, "/Content/")) {
 			return fmt.Errorf("source redirected outside the selected document scope: %s", raw)
 		}
 		return nil
 	}
+}
+
+// DocumentScope is the request scope of a mapped document's first retrieval.
+// The direct mapped-PDF download keeps the scope of its availability probe.
+func DocumentScope(document model.Document) func(string) error {
+	return initialScope(document)
 }
 
 func documentRoot(raw string) (string, error) {
@@ -306,20 +324,26 @@ func (p *planner) navigation(raw, title, root string) error {
 
 func (p *planner) notice(kind model.NoticeKind, message string) {
 	notice := model.Notice{Kind: kind, Message: message}
-	if !slices.Contains(p.plan.Notices, notice) {
+	if !p.notices[notice] {
+		p.notices[notice] = true
 		p.plan.Notices = append(p.plan.Notices, notice)
 	}
 }
 
 func (p *planner) warning(message string) {
-	if !slices.Contains(p.plan.Warnings, message) {
+	if !p.warnings[message] {
+		p.warnings[message] = true
 		p.plan.Warnings = append(p.plan.Warnings, message)
 	}
 }
 
-func styles(tree *html.Node, base string) ([]string, error) {
+func styles(ctx context.Context, tree *html.Node, base string) ([]string, error) {
 	var result []string
+	seen := map[string]bool{}
 	for _, node := range nodes(tree, func(n *html.Node) bool { return n.Data == "link" }) {
+		if err := ctx.Err(); err != nil {
+			return nil, err
+		}
 		rel, _ := attr(node, "rel")
 		href, exists := attr(node, "href")
 		if !exists || !slices.Contains(strings.Fields(strings.ToLower(rel)), "stylesheet") {
@@ -329,7 +353,11 @@ func styles(tree *html.Node, base string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		if !slices.Contains(result, raw) {
+		if !seen[raw] {
+			if len(result) >= maxStyles {
+				return nil, errors.New("publisher stylesheet inventory exceeds entry limit")
+			}
+			seen[raw] = true
 			result = append(result, raw)
 		}
 	}
@@ -342,6 +370,11 @@ func tocLinks(tree *html.Node, actual, root string) ([]string, error) {
 
 func tocLinksAt(tree *html.Node, actual, base, root string) ([]string, error) {
 	var result []string
+	seen := map[string]bool{}
+	owner, err := fetch.CanonicalURL(actual)
+	if err != nil {
+		return nil, err
+	}
 	for _, node := range nodes(tree, func(n *html.Node) bool { return n.Data == "a" }) {
 		title := strings.ToLower(text(node))
 		if title != "contents" && title != "table of contents" && title != "detailed table of contents" {
@@ -359,11 +392,8 @@ func tocLinksAt(tree *html.Node, actual, base, root string) ([]string, error) {
 		if err != nil {
 			return nil, err
 		}
-		owner, err := fetch.CanonicalURL(actual)
-		if err != nil {
-			return nil, err
-		}
-		if inside(raw, root) && canonical != owner && !slices.Contains(result, canonical) {
+		if inside(raw, root) && canonical != owner && !seen[canonical] {
+			seen[canonical] = true
 			result = append(result, canonical)
 		}
 	}
@@ -376,12 +406,16 @@ func (p *planner) finish(root, toc string, chunks []string) (model.DocumentPlan,
 	if err := p.ctx.Err(); err != nil {
 		return model.DocumentPlan{}, err
 	}
-	p.plan.Styles = slices.Compact(p.plan.Styles)
 	unique := []string{}
+	seen := map[string]bool{}
 	for _, style := range p.plan.Styles {
-		if !slices.Contains(unique, style) {
+		if !seen[style] {
+			seen[style] = true
 			unique = append(unique, style)
 		}
+	}
+	if len(unique) > maxStyles {
+		return model.DocumentPlan{}, errors.New("publisher stylesheet inventory exceeds entry limit")
 	}
 	p.plan.Styles = unique
 	count := 0

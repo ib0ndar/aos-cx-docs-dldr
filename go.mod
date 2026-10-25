@@ -4,6 +4,8 @@ go 1.26.0
 
 replace github.com/titanous/json5 => ./third_party/json5
 
+replace github.com/chromedp/chromedp => ./third_party/chromedp
+
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
@@ -19,7 +21,7 @@ require (
 	github.com/tdewolff/parse/v2 v2.8.16
 	github.com/temoto/robotstxt v1.1.2
 	github.com/titanous/json5 v1.0.0
-	golang.org/x/net v0.59.0
+	golang.org/x/net v0.60.0
 	golang.org/x/sys v0.48.0
 	golang.org/x/term v0.46.0
 	golang.org/x/text v0.42.0

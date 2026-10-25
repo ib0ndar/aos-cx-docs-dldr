@@ -79,7 +79,7 @@ func archiveWithRetryClientForKind(t *testing.T, server string, retries int, tim
 	t.Helper()
 	client, err := fetch.New(fetch.Config{
 		Timeout: timeout, AttemptTimeout: time.Second,
-		Retries: retries, MaxBytes: 1 << 20,
+		Retries: retries, MaxBytes: 1 << 20, AllowLoopbackFixtures: true,
 	}, func(string) {})
 	if err != nil {
 		t.Fatal(err)

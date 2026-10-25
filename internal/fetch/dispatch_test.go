@@ -74,7 +74,7 @@ func TestCompatibleQueuedLeasesPreserveDispatchStartGap(t *testing.T) {
 		t.Fatal(err)
 	}
 	client, err := NewWithRoundTripper(
-		Config{Delay: gap, Timeout: 5 * time.Second, MaxBytes: 1024, Attempts: budget},
+		Config{Delay: gap, Timeout: 5 * time.Second, MaxBytes: 1024, Attempts: budget, AllowLoopbackFixtures: true},
 		func(string) {}, probe,
 	)
 	if err != nil {

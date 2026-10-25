@@ -2,6 +2,7 @@ package archive
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"html/template"
 	"io"
@@ -49,7 +50,16 @@ details:not([open])>:not(summary){display:none!important}
 body.archive-source-hpe .archive-nav{min-height:auto}body.archive-source-hpe .archive-toc{height:24rem}body.archive-source-hpe .archive-content{padding:1.5rem}}
 `
 
-const offlineCSP = `<meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'self'; frame-src 'self'; object-src 'self'; connect-src 'none'">`
+// Every generated page gets the narrowest policy it needs. No page needs a
+// base URL, forms or plugins. Only the guide index runs scripts, its own
+// search files, and only topic pages frame the generated contents page.
+const offlineCSPDirectives = `default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; connect-src 'none'; object-src 'none'; base-uri 'none'; form-action 'none'`
+
+const (
+	topicPageCSP  = `<meta http-equiv="Content-Security-Policy" content="` + offlineCSPDirectives + `; script-src 'none'; frame-src 'self'">`
+	tocPageCSP    = `<meta http-equiv="Content-Security-Policy" content="` + offlineCSPDirectives + `; script-src 'none'; frame-src 'none'">`
+	guideIndexCSP = `<meta http-equiv="Content-Security-Policy" content="` + offlineCSPDirectives + `; script-src 'self'; frame-src 'none'">`
+)
 
 const guideSearchJS = `"use strict";
 document.addEventListener("DOMContentLoaded", () => {
@@ -71,6 +81,9 @@ document.addEventListener("DOMContentLoaded", () => {
       matches.length ? "" : "No matching topics.";
     list.hidden = matches.length === 0;
     for (const row of matches.slice(0, 100)) {
+      let href = null;
+      try { if (typeof row.url === "string" && !/^[a-z][a-z\d+.-]*:/i.test(row.url)) href = new URL(row.url, location.href).href; } catch {}
+      if (!href || !href.startsWith(new URL(".", location.href).href)) continue;
       const li = document.createElement("li"), a = document.createElement("a");
       a.href = row.url; a.textContent = row.title; li.appendChild(a); list.appendChild(li);
     }
@@ -95,11 +108,21 @@ func (a *htmlArchiver) renderTOCLink(entry model.TocEntry) string {
 		return fmt.Sprintf(`<a id="topic-%s" href="%s">%s</a>`, template.HTMLEscapeString(id),
 			template.HTMLEscapeString(href), template.HTMLEscapeString(entry.Title))
 	}
-	if entry.URL != "" {
+	if entry.URL != "" && onlineURL(entry.URL) {
 		return `<a class="archive-online" href="` + template.HTMLEscapeString(entry.URL) + `">` +
 			template.HTMLEscapeString(entry.Title) + `</a>`
 	}
+	if entry.URL != "" {
+		a.warnings = append(a.warnings, "TOC entry with an unsupported link target kept as text: "+boundedText(entry.URL, 200))
+	}
 	return "<span>" + template.HTMLEscapeString(entry.Title) + "</span>"
+}
+
+// onlineURL reports whether raw is an absolute http(s) URL, the only kind of
+// online link that generated navigation may contain.
+func onlineURL(raw string) bool {
+	parsed, err := url.Parse(raw)
+	return err == nil && (parsed.Scheme == "http" || parsed.Scheme == "https") && parsed.Host != ""
 }
 
 func (a *htmlArchiver) renderTOC() renderedTOC {
@@ -153,19 +176,22 @@ func (a *htmlArchiver) renderTOC() renderedTOC {
 }
 
 func renderTOCPage(title string, toc renderedTOC) string {
-	return `<!doctype html><html lang="en"><head><meta charset="utf-8">` + offlineCSP + `<base target="_top"><title>` +
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8">` + tocPageCSP + `<base target="_top"><title>` +
 		template.HTMLEscapeString(title) + ` - contents</title><style>` + archiveStyles +
 		`body{padding:.5rem}</style></head><body><nav aria-label="Guide navigation">` +
 		string(toc.overview) + `<h2>Contents</h2>` + string(toc.contents) + `</nav></body></html>`
 }
 
 func renderGuideIndex(document model.Document, toc renderedTOC) string {
-	return `<!doctype html><html lang="en"><head><meta charset="utf-8">` + offlineCSP + `<title>` + template.HTMLEscapeString(document.Title) +
+	source := ""
+	if onlineURL(document.URL) {
+		source = `<p><a href="` + template.HTMLEscapeString(document.URL) + `">Publisher source</a></p>`
+	}
+	return `<!doctype html><html lang="en"><head><meta charset="utf-8">` + guideIndexCSP + `<title>` + template.HTMLEscapeString(document.Title) +
 		`</title><style>` + archiveStyles + `</style><script src="search-index.js"></script><script defer src="search.js"></script></head><body>` +
 		`<header class="archive-header"><h1>` + template.HTMLEscapeString(document.Title) + `</h1><p>` +
 		template.HTMLEscapeString(document.Platform+" / "+document.Version) + `</p></header><main class="archive-content">` +
-		`<p><a href="` + template.HTMLEscapeString(document.URL) + `">Publisher source</a></p>` +
-		string(toc.overview) + `<h2>Contents</h2>` + string(toc.contents) +
+		source + string(toc.overview) + `<h2>Contents</h2>` + string(toc.contents) +
 		`<h2>Search</h2><label>Search archived topics <input data-guide-search type="search" aria-describedby="guide-search-status"></label>` +
 		`<p id="guide-search-status" data-guide-search-status role="status">Enter a search term to find topics.</p>` +
 		`<ul data-guide-results hidden></ul></main></body></html>`
@@ -201,7 +227,7 @@ func renderTopicPage(document model.Document, current, previous, next *pageInput
 		footer = "Archived from the publisher source without altering substantive document content."
 	}
 	tocID := strings.TrimSuffix(fileName(current.topic.URL, "", ""), "-")
-	page := `<!doctype html><html lang="en"><head><meta charset="utf-8">` + offlineCSP + `<title>` + template.HTMLEscapeString(current.title) +
+	page := `<!doctype html><html lang="en"><head><meta charset="utf-8">` + topicPageCSP + `<title>` + template.HTMLEscapeString(current.title) +
 		` - ` + template.HTMLEscapeString(document.Title) + `</title>` + head.String() + `<style>` + archiveStyles +
 		`</style></head><body class="archive-source-` + template.HTMLEscapeString(document.Kind) + `"><header class="archive-header"><a href="../index.html">` +
 		template.HTMLEscapeString(document.Title) + `</a></header><div class="archive-layout"><aside class="archive-toc">` +
@@ -324,6 +350,7 @@ func validateOutputReferences(
 		}
 		ids := sourceIDs(doc)
 		idCache[name] = ids
+		problems = append(problems, outputPolicyProblems(name, doc)...)
 		walk(doc, func(node *html.Node) {
 			if node.Type != html.ElementNode {
 				return
@@ -393,5 +420,179 @@ func validateOutputReferences(
 			progress()
 		}
 	}
-	return checked, problems, nil
+	assetProblems, err := outputAssetProblems(ctx, root, archive)
+	problems = append(problems, assetProblems...)
+	return checked, problems, err
+}
+
+// outputPolicyProblems reports markup in a generated HTML file that could
+// run script, load or submit to a URL outside the archive, or redirect the
+// page. Content sanitizing removes all of it, so any finding is a gap that
+// must fail the guide rather than reach a library.
+func outputPolicyProblems(name string, doc *html.Node) []string {
+	var problems []string
+	var visit func(*html.Node, bool)
+	visit = func(node *html.Node, head bool) {
+		if node.Type == html.ElementNode {
+			if node.Namespace == "svg" {
+				for _, problem := range svgPolicyProblems(node) {
+					problems = append(problems, name+": "+problem)
+				}
+				return
+			}
+			head = head || node.Namespace == "" && node.Data == "head"
+			if !generatedElementAllowed(name, node, head) {
+				problems = append(problems, name+": active <"+node.Data+"> element remains in archived output")
+			}
+			for _, item := range node.Attr {
+				if problem := outputAttributeProblem(node, item, head); problem != "" {
+					problems = append(problems, name+": "+problem)
+				}
+			}
+			if node.Namespace == "" && node.Data == "style" {
+				if problem := cssReferenceProblem([]byte(nodeText(node))); problem != "" {
+					problems = append(problems, name+": stylesheet: "+problem)
+				}
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			visit(child, head)
+		}
+	}
+	visit(doc, false)
+	return problems
+}
+
+// generatedElementAllowed reports whether node may appear where it is. Only
+// the generated page head loads styles and the guide index search scripts,
+// and only the topic page navigation frames the contents page.
+func generatedElementAllowed(name string, node *html.Node, head bool) bool {
+	if node.Namespace != "" {
+		return true
+	}
+	switch node.Data {
+	case "script":
+		return head && name == "index.html" && attr(node, "src") != "" && node.FirstChild == nil
+	case "meta":
+		return head && !hasAttr(node, "http-equiv") ||
+			head && strings.EqualFold(attr(node, "http-equiv"), "content-security-policy")
+	case "base":
+		return head && !hasAttr(node, "href")
+	case "link":
+		return head && slices.Contains(strings.Fields(strings.ToLower(attr(node, "rel"))), "stylesheet")
+	case "iframe":
+		return node.Parent != nil && hasClass(node.Parent, "archive-toc")
+	case "input":
+		return name == "index.html" && hasAttr(node, "data-guide-search")
+	case "object", "embed", "applet":
+		return false
+	}
+	return !contentRemovedElements[node.Data]
+}
+
+// outputAttributeProblem describes an attribute that sanitizing should have
+// removed or rewritten to a local or explicit online target, or returns "".
+func outputAttributeProblem(node *html.Node, item html.Attribute, head bool) string {
+	key := strings.ToLower(item.Key)
+	if item.Namespace != "" {
+		key = item.Namespace + ":" + key
+	}
+	value := strings.TrimSpace(item.Val)
+	lower := strings.ToLower(value)
+	switch {
+	case strings.HasPrefix(key, "on"):
+		return "event handler attribute " + key + " on <" + node.Data + ">"
+	case key == "style":
+		if problem := cssReferenceProblem([]byte(item.Val)); problem != "" {
+			return "style attribute on <" + node.Data + ">: " + problem
+		}
+		return ""
+	case key == "http-equiv" && head && node.Data == "meta" && strings.EqualFold(value, "content-security-policy"):
+		return ""
+	case !contentURLAttributes[key] && !strings.HasPrefix(key, "xlink:"):
+		return ""
+	case node.Namespace != "":
+		// MathML has no URL attributes that the archive supports.
+	case key == "href":
+		switch {
+		case node.Data == "a" || node.Data == "area":
+			if navigableReference(value) {
+				return ""
+			}
+		case node.Data == "link" && head:
+			if !strings.HasPrefix(lower, "data:") && localArchiveReference(value) {
+				return ""
+			}
+		}
+	case key == "src":
+		switch node.Data {
+		case "img", "source":
+			if localArchiveReference(value) {
+				return ""
+			}
+		case "iframe", "script":
+			if !strings.HasPrefix(lower, "data:") && localArchiveReference(value) {
+				return ""
+			}
+		}
+	case key == "srcset":
+		if node.Data == "img" || node.Data == "source" {
+			candidates, err := parseSrcset(value)
+			if err == nil && !slices.ContainsFunc(candidates, func(candidate []string) bool {
+				return !localArchiveReference(candidate[0])
+			}) {
+				return ""
+			}
+		}
+	case key == "background":
+		if localArchiveReference(value) {
+			return ""
+		}
+	case key == "usemap":
+		if strings.HasPrefix(value, "#") {
+			return ""
+		}
+	}
+	return "unsanitized " + key + " attribute on <" + node.Data + ">: " + boundedText(value, 200)
+}
+
+// outputAssetProblems applies the same reference rules to archived
+// stylesheets and standalone SVG files, which browsers open directly.
+func outputAssetProblems(ctx context.Context, root *os.Root, archive *model.HTMLArchive) ([]string, error) {
+	var problems []string
+	for _, record := range archive.Assets {
+		extension := strings.ToLower(path.Ext(record.Path))
+		if record.Status != "complete" || extension != ".css" && extension != ".svg" {
+			continue
+		}
+		if err := ctx.Err(); err != nil {
+			return problems, err
+		}
+		file, err := root.Open(record.Path)
+		if err != nil {
+			problems = append(problems, record.Path+": "+err.Error())
+			continue
+		}
+		body, readErr := io.ReadAll(io.LimitReader(file, record.Size+1))
+		closeErr := file.Close()
+		if err := errors.Join(readErr, closeErr); err != nil {
+			problems = append(problems, record.Path+": "+err.Error())
+			continue
+		}
+		if extension == ".css" {
+			if problem := cssReferenceProblem(body); problem != "" {
+				problems = append(problems, record.Path+": "+problem)
+			}
+			continue
+		}
+		svg, _, err := parseSVGDocument(body)
+		if err != nil {
+			problems = append(problems, record.Path+": "+err.Error())
+			continue
+		}
+		for _, problem := range svgPolicyProblems(svg) {
+			problems = append(problems, record.Path+": "+problem)
+		}
+	}
+	return problems, nil
 }

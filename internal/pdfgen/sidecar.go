@@ -1,11 +1,8 @@
 package pdfgen
 
 import (
-	"crypto/sha256"
-	"encoding/hex"
 	"errors"
 	"fmt"
-	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -17,10 +14,13 @@ const (
 	ChromePlatform         = "mac-arm64"
 	ChromeArchiveSHA256    = "3b133378fe44a5f9c849df9049763577fbed296ee4d02d1ffb31b9fcabf79850"
 	ChromeExecutableSHA256 = "ad3cf5ce958e43a6e3457d6f4d9df0a0c1483fc24ffb36a30530e88d726a82f8"
-	ChromeOfficialURL      = "https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.36/mac-arm64/chrome-headless-shell-mac-arm64.zip"
-	ChromePathEnvironment  = "AOSCX_DOCS_CHROME_PATH"
-	RendererName           = "chrome-for-testing-headless-shell"
-	GeneratedProvenance    = "generated from verified archived HTML with pinned Chrome for Testing"
+	// ChromeManifestSHA256 is the sidecarManifestSHA256 of the complete pinned
+	// mac-arm64 Chrome directory (chromeMacARM64Files).
+	ChromeManifestSHA256  = "0c2d2989ad8ad2fd451e0b92cd807f0018da069d7d02e85ecd1d8b8425e9b1b9"
+	ChromeOfficialURL     = "https://storage.googleapis.com/chrome-for-testing-public/153.0.8010.36/mac-arm64/chrome-headless-shell-mac-arm64.zip"
+	ChromePathEnvironment = "AOSCX_DOCS_CHROME_PATH"
+	RendererName          = "chrome-for-testing-headless-shell"
+	GeneratedProvenance   = "generated from verified archived HTML with pinned Chrome for Testing"
 )
 
 type Sidecar struct {
@@ -28,6 +28,9 @@ type Sidecar struct {
 	Version          string
 	Revision         string
 	ExecutableSHA256 string
+	// ManifestSHA256 identifies the complete pinned Chrome directory that was
+	// verified around the executable.
+	ManifestSHA256 string
 }
 
 type SidecarOptions struct {
@@ -107,35 +110,39 @@ func verifySidecar(platform sidecarPlatform, raw string) (Sidecar, error) {
 	if info.Mode().Perm()&0o111 == 0 {
 		return Sidecar{}, fmt.Errorf("Chrome sidecar is not executable: %s", absolute)
 	}
-	file, err := os.Open(absolute)
-	if err != nil {
-		return Sidecar{}, err
+	if !pinnedContentCurrent(absolute, info, platform.chromeExecutableSHA256) {
+		digest, err := hashPinnedFile("Chrome sidecar", absolute, info, func(file *os.File) error {
+			if _, err := platform.verifyObject(file, absolute); err != nil {
+				return fmt.Errorf("Chrome sidecar: %w", err)
+			}
+			return nil
+		})
+		if err != nil {
+			return Sidecar{}, err
+		}
+		if digest != platform.chromeExecutableSHA256 {
+			return Sidecar{}, fmt.Errorf(
+				"Chrome sidecar SHA-256 is %s, expected %s for Chrome for Testing %s %s; refusing to launch",
+				digest, platform.chromeExecutableSHA256, ChromeVersion, platform.chromePlatform,
+			)
+		}
+		rememberPinnedContent(absolute, info, digest)
 	}
-	defer file.Close()
-	opened, err := file.Stat()
-	if err != nil || !os.SameFile(info, opened) {
-		return Sidecar{}, fmt.Errorf("Chrome sidecar identity changed while opening: %s", absolute)
-	}
-	if _, err := platform.verifyObject(file, absolute); err != nil {
-		return Sidecar{}, fmt.Errorf("Chrome sidecar: %w", err)
-	}
-	if _, err := file.Seek(0, io.SeekStart); err != nil {
-		return Sidecar{}, err
-	}
-	hash := sha256.New()
-	if _, err := io.Copy(hash, file); err != nil {
-		return Sidecar{}, err
-	}
-	digest := hex.EncodeToString(hash.Sum(nil))
-	if digest != platform.chromeExecutableSHA256 {
+	// Chrome loads data files and libraries from its own directory, so the
+	// executable is accepted only inside its complete pinned directory.
+	if filepath.Base(absolute) != platform.chromeExecutable {
 		return Sidecar{}, fmt.Errorf(
-			"Chrome sidecar SHA-256 is %s, expected %s for Chrome for Testing %s %s; refusing to launch",
-			digest, platform.chromeExecutableSHA256, ChromeVersion, platform.chromePlatform,
+			"Chrome sidecar executable must be named %s inside its pinned directory: %s",
+			platform.chromeExecutable, absolute,
 		)
 	}
-	current, err := os.Lstat(absolute)
-	if err != nil || !os.SameFile(info, current) {
-		return Sidecar{}, fmt.Errorf("Chrome sidecar identity changed during verification: %s", absolute)
+	if err := verifySidecarTree(
+		"Chrome sidecar", filepath.Dir(absolute), platform.chromeFiles, platform.finderMetadata,
+	); err != nil {
+		return Sidecar{}, err
 	}
-	return Sidecar{Path: absolute, Version: ChromeVersion, Revision: ChromeRevision, ExecutableSHA256: digest}, nil
+	return Sidecar{
+		Path: absolute, Version: ChromeVersion, Revision: ChromeRevision,
+		ExecutableSHA256: platform.chromeExecutableSHA256, ManifestSHA256: platform.chromeManifestSHA256,
+	}, nil
 }

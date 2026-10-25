@@ -27,14 +27,12 @@ func acceptNamedPDF(t *testing.T, run *Run, id, title, label string) model.Archi
 		ID: id, Title: title, Platform: "6300", Version: "10.10", Kind: "pdf",
 		URL: "https://example.test/" + id + ".pdf", RouteOrigin: "publisher-url",
 	}
-	output, err := run.GuideOutput(id)
-	if err != nil {
-		t.Fatal(err)
-	}
-	result, err := archive.PublisherPDF(
+	guide, output := guideOutput(t, run, id)
+	result, err := archive.PublisherPDFInRoot(
 		context.Background(),
 		model.DocumentPlan{Document: document, PDFURL: document.URL},
 		pdfFetcher(testutil.PDF(label)),
+		guide,
 		output,
 		false,
 		1<<20,
@@ -69,10 +67,7 @@ func publishZIPFixture(t *testing.T, kind string) (string, Manifest) {
 		acceptNamedPDF(t, run, "pdf", "Réseau 指南", "pdf bytes")
 	case "incomplete":
 		acceptHTML(t, run, "html")
-		output, err := run.GuideOutput("failed")
-		if err != nil {
-			t.Fatal(err)
-		}
+		_, output := guideOutput(t, run, "failed")
 
 		result := model.ArchiveResult{
 			Document: model.Document{

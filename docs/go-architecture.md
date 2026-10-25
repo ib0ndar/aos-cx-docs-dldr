@@ -75,6 +75,21 @@ profile falls back to the other or to browser automation.
 - canonical request/final URL, elapsed, attempt, retry, timeout-scope, stage,
   status, cancellation, and deadline evidence.
 
+Every hop, including redirects and robots.txt fetches, must pass the
+destination policy in `internal/fetch/destination.go`: HTTP or HTTPS to a DNS
+name or a public IP literal. `localhost`, non-public IP literals (loopback,
+private, link-local, CGNAT, documentation, multicast, reserved, and mapped or
+embedded forms of them) and non-dotted-quad numeric hosts are refused with a
+final, non-retried error naming the URL. For HTTPS, host names are not resolved
+in advance: certificate verification stops a name that resolves to an internal
+host, and split DNS keeps working. A direct plain-HTTP connection has no such
+protection, so its dialer refuses any non-public address the name resolves to,
+which also covers DNS rebinding; through a configured proxy, the proxy resolves
+the name. The hidden `--portal-url` override, when it names a loopback URL,
+enables fixture mode, which additionally admits loopback only. Responses over the
+size limit are never retried. The raw cache does not persist `Set-Cookie` or
+other credential headers.
+
 Dispatch pacing occurs after compatible lease admission. Up to four deep
 transport clones isolate mutable HTTP/2 setup while retaining bounded reuse.
 The cache adds no retry loop.
@@ -110,6 +125,14 @@ budget. Publisher HTML, table structure, code whitespace, raster bytes, fonts,
 and SVG semantics are preserved. CSS uses the pinned parser. Generated
 navigation is compact and shared; complete TOC content is stored once.
 
+Publisher content is sanitized against an allowlist: active and loading
+elements such as `script`, `meta`, `base`, `link`, `template`, frames and form
+controls are removed, URL attributes survive only where they are rewritten to
+verified targets, SVG is rebuilt from its XML tokens with real namespaces, and
+unrecognized assets are stored as `.bin`. Every generated page carries a
+Content Security Policy with `base-uri`, `form-action` and `object-src` set to
+`'none'`; only index pages run their own scripts.
+
 Active references are validated according to element/attribute semantics.
 Cross-guide links localize only to a unique accepted topic identity. HTML search
 covers titles and archived text; PDFs remain title-only.
@@ -117,7 +140,12 @@ covers titles and archived text; PDFs remain title-only.
 Publication owns lock, staging, incomplete work, snapshots, history, and
 rollback. It rechecks lock inode/owner and journal inode/content before shared
 mutation. This protects cooperating application operations, not arbitrary
-external filesystem changes.
+external filesystem changes. Guide outputs and ZIP targets are handed out as
+directory handles opened inside the destination root, never as absolute paths
+to reopen, and deletion and copying walk one component at a time without
+following symlinks. Pre-existing managed directories owned by another account,
+or writable by group or others on a filesystem that keeps real mode bits, are
+refused.
 
 ## Version and state policy
 
@@ -146,6 +174,13 @@ Conversion is explicit opt-in. Chrome for Testing headless shell
 153.0.8010.36/revision 1681091 renders private local print input with script
 execution disabled and fail-closed request interception. qpdf 12.4.1 merges the
 footer overlay and installs the authoritative occurrence-aware outline.
+
+Chrome is driven over `--remote-debugging-pipe` through a modified local
+replacement of chromedp v0.16.0 (`third_party/chromedp`), so no DevTools TCP
+port exists. Both sidecars get an allowlisted environment, Chrome's whole
+directory and qpdf's whole closure are pinned file by file, and both are
+re-verified immediately before every process start. SIGINT, SIGTERM and SIGHUP
+all cancel a run and exit with 130.
 
 The package uses only executable-relative verified sidecars. Runtime never
 downloads, searches `PATH`, uses Homebrew, attaches to a personal browser, or

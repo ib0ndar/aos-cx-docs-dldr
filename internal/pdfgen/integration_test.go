@@ -38,7 +38,7 @@ func TestPinnedChromeGeneratesValidatedCompanion(t *testing.T) {
 	}
 	if record.Status != "complete" || record.Validation == nil ||
 		record.Validation.PageCount < 1 || record.Validation.ExternalRequests != 0 ||
-		record.Validation.ScriptElements != 2 || record.Validation.ImageObjects < 1 ||
+		record.Validation.ScriptElements != 0 || record.Validation.ImageObjects < 1 ||
 		record.Settings == nil || record.Settings.SchemaVersion != 5 ||
 		record.Settings.GenerateDocumentOutline ||
 		record.Validation.CanonicalCoverTitles != 1 ||
@@ -440,6 +440,38 @@ func TestPinnedChromeBlocksExternalRequestAtCDP(t *testing.T) {
 	_, err = renderChrome(context.Background(), sidecar, input, root, "", output, DefaultConfig(chrome))
 	if err == nil || !strings.Contains(err.Error(), "blocked nonlocal or unsafe resources") {
 		t.Fatalf("CDP did not report the blocked external request: %v", err)
+	}
+}
+
+// Publication strips script from print input, so renderer-level script
+// disabling is proven directly: a script that reaches Chrome must stay inert.
+func TestPinnedChromeKeepsScriptThatReachesRendererInert(t *testing.T) {
+	chrome := os.Getenv(ChromePathEnvironment)
+	if chrome == "" {
+		t.Skip(ChromePathEnvironment + " is not set")
+	}
+	sidecar, err := ResolveSidecar(chrome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	input := filepath.Join(root, "input.html")
+	body := `<!doctype html><html><body><main class="print-content"><section class="print-topic">` +
+		`<p>Script probe</p><script>window.__aoscxPDFScriptProbe=true</script></section></main></body></html>`
+	if err := os.WriteFile(input, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, err := os.CreateTemp(root, ".output-*.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
+	metrics, err := renderChrome(context.Background(), sidecar, input, root, "", output, DefaultConfig(chrome))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if metrics.Audit.ScriptElements != 1 || metrics.Audit.ScriptProbe {
+		t.Fatalf("script reached the renderer but was not kept inert: audit=%+v", metrics.Audit)
 	}
 }
 

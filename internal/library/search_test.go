@@ -1,9 +1,11 @@
 package library
 
 import (
+	"bytes"
 	"encoding/json"
 	"os"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"testing"
 )
@@ -66,5 +68,61 @@ func TestVersionSearchScriptContract(t *testing.T) {
 	}
 	if strings.Contains(script, `entry.title.toLocaleLowerCase()`) {
 		t.Fatal("version search remains title-only")
+	}
+	for _, expected := range []string{
+		`const href = localLink(entry.url);`,
+		`if (!href) continue;`,
+		`link.href = href;`,
+		`.href.startsWith(libraryBase)`,
+		`/^[a-z][a-z\d+.-]*:/i.test(value)`,
+	} {
+		if !strings.Contains(script, expected) {
+			t.Errorf("version search script does not confine links: missing %q", expected)
+		}
+	}
+	if strings.Contains(script, `link.href = entry.url`) {
+		t.Fatal("version search assigns archived URLs to links unchecked")
+	}
+}
+
+func TestVersionIndexContentSecurityPolicy(t *testing.T) {
+	base := t.TempDir()
+	run, err := Open(base, "6300", "10.10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptHTML(t, run, "routing")
+	if _, err := run.Publish(false); err != nil {
+		t.Fatal(err)
+	}
+	if err := run.Close(); err != nil {
+		t.Fatal(err)
+	}
+	body, err := os.ReadFile(filepath.Join(base, "6300", "10.10", "index.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	policy := regexp.MustCompile(`<meta http-equiv="Content-Security-Policy" content="([^"]+)">`).FindSubmatch(body)
+	if policy == nil {
+		t.Fatal("version index has no Content-Security-Policy")
+	}
+	directives := map[string]string{}
+	for _, directive := range strings.Split(string(policy[1]), ";") {
+		name, value, _ := strings.Cut(strings.TrimSpace(directive), " ")
+		directives[name] = value
+	}
+	for name, value := range map[string]string{
+		"default-src": "'none'", "script-src": "'self'", "style-src": "'unsafe-inline'",
+		"object-src": "'none'", "base-uri": "'none'", "form-action": "'none'",
+	} {
+		if directives[name] != value {
+			t.Errorf("CSP %s = %q, want %q", name, directives[name], value)
+		}
+	}
+	if len(directives) != 6 {
+		t.Errorf("unexpected CSP directives: %v", directives)
+	}
+	if bytes.Contains(body, []byte("<script>")) || regexp.MustCompile(`\son[a-z]+=`).Match(body) {
+		t.Fatal("version index uses inline script that its CSP would block")
 	}
 }

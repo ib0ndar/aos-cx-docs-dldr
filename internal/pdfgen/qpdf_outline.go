@@ -683,6 +683,12 @@ func writePrivateJSON(path string, value any) error {
 	return err
 }
 
+// confirmQPDFBeforeExec re-verifies the pinned qpdf closure immediately before
+// every qpdf process start, closing the gap between preflight and a run that
+// can follow a render of up to the generation timeout. Unit tests that drive
+// runQPDF with a stand-in executable replace it; production code never does.
+var confirmQPDFBeforeExec = confirmQPDFSidecar
+
 func runQPDF(
 	ctx context.Context,
 	sidecar QPDFSidecar,
@@ -690,10 +696,14 @@ func runQPDF(
 	maxRSSBytes int64,
 	args ...string,
 ) (peakRSS int64, err error) {
+	if err := confirmQPDFBeforeExec(sidecar); err != nil {
+		return 0, err
+	}
 	commandCtx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	command := exec.CommandContext(commandCtx, sidecar.Path, args...)
 	configureProcessGroup(command)
+	command.Env = sidecarEnvironment("", "")
 	logs := &boundedLog{limit: QPDFOutlineProcessMaxLogBytes, label: "qpdf"}
 	command.Stderr = logs
 	command.Stdout = stdout
