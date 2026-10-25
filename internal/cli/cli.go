@@ -91,8 +91,7 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 		Use: model.ExecutableName, Short: "Native AOS-CX catalogue and documentation archiver",
 		Long: "Native AOS-CX Product Documentation catalogue client.\n" +
 			"This native application supports catalogue listing, directly mapped original\n" +
-			"PDFs, complete Flare and HPE HTML guides, and explicit-plan static/Oxygen\n" +
-			"HTML support (fixture-verified; current catalogue snapshot has no mappings),\n" +
+			"PDFs, complete Flare, Oxygen WebHelp and HPE HTML guides,\n" +
 			"source-verified whole-document PDF preference with complete-HTML fallback,\n" +
 			"optional generated-PDF companions through pinned Chrome and qpdf sidecars,\n" +
 			"fresh mapped-source checks that disable definitive HTTP 404/410 routes,\n" +
