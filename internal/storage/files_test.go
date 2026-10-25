@@ -192,3 +192,22 @@ func TestCopyAndRemoveTreeKeepManagedContent(t *testing.T) {
 	}
 	assertPublishedIntact(t, base)
 }
+
+func TestReadJSONAcceptsLargeReleaseManifests(t *testing.T) {
+	base := t.TempDir()
+	// A release manifest the size the 10.18 Command Line Interface Guide
+	// produces, above the former 8 MiB bound.
+	value := `{"topics":["` + strings.Repeat("x", 12<<20) + `"]}`
+	if err := os.WriteFile(filepath.Join(base, "manifest.json"), []byte(value), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(base)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	var manifest struct{ Topics []string }
+	if err := ReadJSON(root, "manifest.json", &manifest); err != nil || len(manifest.Topics) != 1 {
+		t.Fatalf("large manifest was refused: %v", err)
+	}
+}

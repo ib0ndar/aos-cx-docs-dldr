@@ -182,6 +182,12 @@ func WriteJSON(root *os.Root, name string, value any) error {
 	return Atomic(root, name, append(data, '\n'))
 }
 
+// MaxManagedJSON bounds a manifest or index the application reads back. A
+// release manifest carries every HTML guide's archive record, so it grows with
+// the release's total topics: the 10.18 Command Line Interface Guide alone
+// needs about 14 MiB.
+const MaxManagedJSON = 128 << 20
+
 func ReadJSON(root *os.Root, name string, value any) error {
 	if err := Check(root, name); err != nil {
 		return err
@@ -191,11 +197,11 @@ func ReadJSON(root *os.Root, name string, value any) error {
 		return err
 	}
 	defer f.Close()
-	data, err := io.ReadAll(io.LimitReader(f, (8<<20)+1))
+	data, err := io.ReadAll(io.LimitReader(f, MaxManagedJSON+1))
 	if err != nil {
 		return err
 	}
-	if len(data) > 8<<20 {
+	if len(data) > MaxManagedJSON {
 		return errors.New("managed JSON exceeds limit")
 	}
 	return json.Unmarshal(data, value)

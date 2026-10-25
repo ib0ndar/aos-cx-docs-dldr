@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync"
 	"testing"
 
 	"aos-cx-docs-dldr/internal/model"
@@ -24,6 +25,7 @@ const hpeAPI = "https://support.hpe.com/hpesc/public/api/document/"
 const hpePublic = "https://support.hpe.com/hpesc/public/docDisplay?docId="
 
 type planFixture struct {
+	mu        sync.Mutex
 	responses map[string]model.Resource
 	failures  map[string]error
 	calls     []string
@@ -31,6 +33,8 @@ type planFixture struct {
 }
 
 func (f *planFixture) Get(ctx context.Context, raw string, refresh bool) (model.Resource, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
 	f.calls = append(f.calls, raw)
 	f.refreshes = append(f.refreshes, refresh)
 	if err := f.failures[raw]; err != nil {

@@ -68,9 +68,15 @@ profile falls back to the other or to browser automation.
 
 `model.Transport.Download` owns:
 
-- a 150-second default overall deadline;
+- a 300-second default overall deadline;
 - a fresh 45-second attempt deadline capped by remaining overall time;
 - two retries after the first attempt;
+- after a stall (an attempt that runs out of time, a body that breaks off or
+  a failed connection), a pause of that origin for every request and a retry
+  wait of two thirds of the attempt deadline, doubling, up to two minutes:
+  30 and 60 seconds by default, which outlasts the publisher's observed
+  two-minute stalls. Status retries keep their 1-second doubling and
+  `Retry-After`;
 - complete response consumption and sink replacement on retry;
 - canonical request/final URL, elapsed, attempt, retry, timeout-scope, stage,
   status, cancellation, and deadline evidence.
@@ -94,7 +100,8 @@ Dispatch pacing occurs after compatible lease admission. Up to four deep
 transport clones isolate mutable HTTP/2 setup while retaining bounded reuse.
 The cache adds no retry loop.
 
-Catalogue mappings and planned topics default to four workers. Same canonical
+Catalogue mappings, Oxygen TOC levels and planned topics default to four
+workers. Same canonical
 URL callers share one cache transaction but receive independently verified file
 handles. A canceled zero-waiter flight remains the only writer until retirement.
 DOM parsing, supplementary discovery, assets, rewriting, and emission remain
@@ -137,7 +144,13 @@ in the file named by its `next` value; `menu.hasChildren` describes the top
 menu, not the TOC, and is ignored. Topics outside the TOC, such as a legal
 disclaimer, are found by following `rel="prev"` from the first TOC page and
 `rel="next"` from the last, within the publication and up to a fixed limit.
-The nav-links files are recorded as inventory chunks. Other static sources
+The nav-links files are recorded as inventory chunks. Each TOC level's files
+are requested together, with each branch's own topic page. The data files can
+name topic files that were never published, while the pages link the
+published file, so whenever a branch page's rendered TOC shows the branch
+expanded, it must list the same entries as the data, and its links replace
+data links that differ, recorded as `publisher-link-corrected` notices. A
+branch without that evidence keeps the data's links. Other static sources
 still require an explicit complete TOC; a lazy one is refused.
 
 ## Archive and publication
@@ -165,8 +178,21 @@ online. Each rule is recorded in `stylesheet_recoveries`
 Timeouts, 5xx, connection errors, robots disallow rules, the destination
 policy, size limits, invalid bodies, non-font resources and fonts used outside
 `@font-face src` still make the guide incomplete. Font recoveries are not
-missing resources. A TOC entry whose fragment the publisher's page does not
-define keeps its link to the page and is reported as a warning.
+missing resources.
+
+Publishing tools can rename section and topic identifiers while TOC data and
+links keep the originals. When a fragment that the TOC or a link in the guide
+needs names no element of its page, the page's own markup can show which
+element it stands for: a same-page link carrying the identifier as
+`data-tocid` (Oxygen's "On this page" list), DITA-OT's `<topic id>__`
+identifier prefix shared by every element of one topic, or an element such as
+`body` that encloses the archived content and so stands for its start. When
+that evidence
+agrees and points into the archived content, the archived page gets an empty
+anchor with the original identifier at that element, so TOC, links and PDF
+outlines resolve, and a `publisher-link-corrected` notice is recorded. Without
+such evidence the entry keeps its link to the page and is reported as a
+warning.
 
 Active references are validated according to element/attribute semantics.
 Cross-guide links localize only to a unique accepted topic identity. HTML search

@@ -474,6 +474,14 @@ into a folder it does not recognise, so that it cannot damage unrelated files.
 Just run the same command again. Leave the `.staging`, `.snapshots` and cache
 folders in place; the tool checks and resumes from them safely.
 
+### Downloads pause with "requests to … paused"
+
+The publisher's site sometimes stops answering for a minute or two. The tool
+then stops sending it requests, waits (30 seconds, then 60 seconds by default)
+and tries again, so a large guide can take a few minutes longer. If a guide
+still fails, run the same command again; everything already downloaded is
+reused from the cache.
+
 ### PDF creation is not available
 
 On macOS, the package folder must be intact: the Chrome and qpdf components sit

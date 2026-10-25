@@ -35,9 +35,12 @@ type Config struct {
 	AllowLoopbackFixtures bool
 }
 
+// DefaultConfig allows each retrieval five minutes: the publisher has been seen
+// to stop answering a client for about two minutes, and a stalled attempt is
+// retried after waits that outlast that (see stallDelay).
 func DefaultConfig() Config {
 	return Config{
-		Delay: 100 * time.Millisecond, Timeout: 150 * time.Second,
+		Delay: 100 * time.Millisecond, Timeout: 300 * time.Second,
 		AttemptTimeout: 45 * time.Second, Retries: 2, MaxBytes: 256 << 20,
 	}
 }
@@ -83,7 +86,9 @@ type Client struct {
 	backoff func(context.Context, time.Duration) error
 	mu      sync.Mutex
 	last    map[string]time.Time
-	robots  map[string]*robotsState
+	// paused holds, per origin, when requests may start again after a stall.
+	paused map[string]time.Time
+	robots map[string]*robotsState
 }
 
 func New(c Config, notify func(string)) (*Client, error) {
@@ -111,7 +116,7 @@ func NewWithRoundTripper(c Config, notify func(string), backend http.RoundTrippe
 	}
 	return &Client{
 		config: c, notify: notify, backoff: wait,
-		last: make(map[string]time.Time), robots: make(map[string]*robotsState),
+		last: make(map[string]time.Time), paused: make(map[string]time.Time), robots: make(map[string]*robotsState),
 		http: &http.Client{Transport: scheduledBackend{backend: backend, attempts: c.Attempts}, CheckRedirect: func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
 		}},
@@ -185,6 +190,20 @@ func (c *Client) retry(ctx context.Context, budget *retryBudget, cause error, he
 	if budget.used >= c.config.Retries {
 		return cause
 	}
+	retry := budget.used + 1
+	if networkStall(cause) {
+		// A stalled site is left alone for the whole wait, not only by this
+		// request, so that its other requests do not stall in turn.
+		delay := c.stallDelay(budget.used)
+		c.pause(raw, delay)
+		c.notify(fmt.Sprintf("%s; requests to %s paused, retry %d/%d in %s: %s", cause, origin(raw), retry, c.config.Retries, delay, raw))
+		traceFromContext(ctx).update(StageBackoff, raw)
+		if err := c.backoff(ctx, delay); err != nil {
+			return err
+		}
+		budget.used = retry
+		return nil
+	}
 	delay, err := retryDelay(header, budget.used, time.Now())
 	if err != nil {
 		if delay == 0 {
@@ -192,7 +211,6 @@ func (c *Client) retry(ctx context.Context, budget *retryBudget, cause error, he
 		}
 		c.notify(err.Error())
 	}
-	retry := budget.used + 1
 	c.notify(fmt.Sprintf("%s; retry %d/%d in %s: %s", cause, retry, c.config.Retries, delay, raw))
 	traceFromContext(ctx).update(StageBackoff, raw)
 	if err := c.backoff(ctx, delay); err != nil {
@@ -297,6 +315,33 @@ func normalizeAttemptFailure(caller, overall, attempt context.Context, err error
 		return &attemptTimeoutError{stage: stage, cause: attempt.Err()}
 	}
 	return err
+}
+
+// networkStall reports a failure where the site stopped answering: the
+// attempt ran out of time, the body broke off, or the connection failed.
+func networkStall(err error) bool {
+	var attemptTimeout *attemptTimeoutError
+	var body *transientBodyError
+	var request *transientRequestError
+	return errors.As(err, &attemptTimeout) || errors.As(err, &body) || errors.As(err, &request)
+}
+
+// stallDelay is the wait before the next attempt after a stall: two thirds of
+// the attempt deadline, doubling with each retry, so 30 and 60 seconds by
+// default, and at most two minutes.
+func (c *Client) stallDelay(used int) time.Duration {
+	return min(c.config.AttemptTimeout*2/3<<used, 2*time.Minute)
+}
+
+// pause stops requests to the origin of raw from starting for d.
+func (c *Client) pause(raw string, d time.Duration) {
+	key := origin(raw)
+	until := time.Now().Add(d)
+	c.mu.Lock()
+	if until.After(c.paused[key]) {
+		c.paused[key] = until
+	}
+	c.mu.Unlock()
 }
 
 func retryableAttemptFailure(err error) bool {
@@ -407,7 +452,9 @@ func (b *gzipBody) Read(p []byte) (int, error) {
 	if err != nil && err != io.EOF {
 		b.readErr = err
 		var limit *byteLimitError
-		if !errors.As(err, &limit) {
+		var transient *transientBodyError
+		// A network read error reaches here already marked transient.
+		if !errors.As(err, &limit) && !errors.As(err, &transient) {
 			err = &transientBodyError{err: err}
 		}
 	}
@@ -450,11 +497,21 @@ func wait(ctx context.Context, d time.Duration) error {
 
 func (c *Client) throttle(ctx context.Context, raw string, gap time.Duration) error {
 	key := origin(raw)
+	var waited time.Time
 	for {
 		if err := ctx.Err(); err != nil {
 			return err
 		}
 		c.mu.Lock()
+		if until := c.paused[key]; until.After(waited) && time.Now().Before(until) {
+			c.mu.Unlock()
+			traceFromContext(ctx).update(StageBackoff, raw)
+			if err := c.backoff(ctx, time.Until(until)); err != nil {
+				return err
+			}
+			waited = until
+			continue
+		}
 		delay := time.Until(c.last[key].Add(gap))
 		if delay <= 0 {
 			c.last[key] = time.Now()

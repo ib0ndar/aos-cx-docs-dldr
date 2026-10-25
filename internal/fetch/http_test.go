@@ -410,3 +410,28 @@ func TestExactBodyLimitAndDenialStatus(t *testing.T) {
 		t.Fatalf("access denial hidden by invalid error body: %v", err)
 	}
 }
+
+type failingReader struct{ err error }
+
+func (r failingReader) Read([]byte) (int, error) { return 0, r.err }
+
+func TestTruncatedGzipBodyIsMarkedTransientOnce(t *testing.T) {
+	var compressed strings.Builder
+	writer := gzip.NewWriter(&compressed)
+	writer.Write([]byte(strings.Repeat("publisher topic body ", 4096)))
+	writer.Close()
+	truncated := compressed.String()[:compressed.Len()/2]
+	network := &networkBody{io.NopCloser(io.MultiReader(strings.NewReader(truncated), failingReader{io.ErrUnexpectedEOF}))}
+	reader, err := gzip.NewReader(network)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, err = io.ReadAll(&gzipBody{Reader: reader, source: network})
+	var transient *transientBodyError
+	if !errors.As(err, &transient) || !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("truncated body is not a transient read failure: %v", err)
+	}
+	if got := strings.Count(err.Error(), "transient response read"); got != 1 {
+		t.Fatalf("error is marked transient %d times: %v", got, err)
+	}
+}

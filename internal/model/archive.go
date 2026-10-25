@@ -14,6 +14,9 @@ const (
 	NoticeNavigationStyleOmitted NoticeKind = "navigation-style-omitted"
 	NoticeCSSCleanup             NoticeKind = "css-cleanup"
 	NoticeSourcePolicy           NoticeKind = "source-policy"
+	// NoticePublisherLinkCorrected records a link the publisher's own data
+	// gets wrong that was corrected from evidence in the publisher's pages.
+	NoticePublisherLinkCorrected NoticeKind = "publisher-link-corrected"
 )
 
 type Notice struct {

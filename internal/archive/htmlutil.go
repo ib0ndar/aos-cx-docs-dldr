@@ -83,6 +83,11 @@ type pageInput struct {
 	tableStyles             map[string]tableStyleReference
 	ordinaryStyles          []ordinaryStyleReference
 	ordinaryStyleRecoveries map[string]ordinaryStyleRecovery
+	// bookmarkAliases maps identifiers the source page lacks to the element
+	// its own markup shows they stand for; anchors are the aliases that links
+	// in the guide need, inserted when the page is emitted.
+	bookmarkAliases map[string]string
+	anchors         map[string]string
 }
 
 type sourceBudget struct {

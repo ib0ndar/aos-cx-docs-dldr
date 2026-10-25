@@ -2,9 +2,12 @@ package source
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"aos-cx-docs-dldr/internal/model"
 )
@@ -38,20 +41,53 @@ func oxygenTOCItem(tocID, state, href, title string) string {
 		title + `</a><div class="wh-tooltip"><p class="shortdesc"></p></div></div></div></li>`
 }
 
+// oxygenTOCBranch is an expanded TOC entry with its rendered children.
+func oxygenTOCBranch(tocID, href, title, children string) string {
+	return `<li role="treeitem" aria-expanded="true" class="active"><div data-tocid="` + tocID + `" class="topicref" data-state="expanded">` +
+		`<span role="button" class="wh-expand-btn"></span><div class="title"><a href="` + href + `" id="` + tocID + `-link">` +
+		title + `</a></div></div><ul role="group">` + children + `</ul></li>`
+}
+
 func oxygenNavLinks(id, topics string) string {
 	return `oxy_webhelp_navlinks = {"` + id + `":{"topics":[` + topics + `]}};`
 }
 
-// oxygenFixtureTOC is the publication TOC every fixture topic page carries:
-// the About branch expanded, Chapter collapsed, a leaf and an external link.
+// oxygenFixtureTOC is the publication TOC of the About pages: the About
+// branch expanded, Chapter collapsed, a leaf and an external link.
 var oxygenFixtureTOC = `<ul role="tree" aria-label="Table of Contents">` +
-	`<li role="treeitem" aria-expanded="true" class="active"><div data-tocid="T1" class="topicref" data-state="expanded">` +
-	`<span role="button" class="wh-expand-btn"></span><div class="title"><a href="about.html" id="T1-link">About</a></div></div>` +
-	`<ul role="group">` + oxygenTOCItem("T1a", "leaf", "sub.html", "Sub") + `</ul></li>` +
+	oxygenTOCBranch("T1", "about.html", "About", oxygenTOCItem("T1a", "leaf", "sub.html", "Sub")) +
 	oxygenTOCItem("T2", "not-ready", "../chapter/chapter.html", "Chapter") +
 	oxygenTOCItem("T3", "leaf", "../leaf/leaf.html", "Leaf") +
 	oxygenTOCItem("T4", "leaf", "https://other.example.test/elsewhere.html", "Elsewhere") +
 	`</ul>`
+
+// The rendered children of the Chapter branch, as pages under chapter/ link
+// them.
+var (
+	oxygenSectionItem = oxygenTOCItem("T2a", "leaf", "chapter.html#GUID-SECTION", "Section")
+	oxygenChildItem   = oxygenTOCItem("T2b", "not-ready", "child.html", "Child")
+	oxygenInlineItem  = oxygenTOCItem("T2c", "not-ready", "inline.html", "Inline")
+)
+
+// oxygenChapterTOC is the publication TOC of a page in the Chapter branch.
+func oxygenChapterTOC(children string) string {
+	return `<ul role="tree" aria-label="Table of Contents">` +
+		oxygenTOCItem("T1", "not-ready", "../about/about.html", "About") +
+		oxygenTOCBranch("T2", "chapter.html", "Chapter", children) +
+		oxygenTOCItem("T3", "leaf", "../leaf/leaf.html", "Leaf") +
+		oxygenTOCItem("T4", "leaf", "https://other.example.test/elsewhere.html", "Elsewhere") +
+		`</ul>`
+}
+
+// oxygenT2Topics is the nav-links data of the Chapter branch: a section of
+// the chapter page, a child with its own data file and a child with inline
+// children.
+var oxygenT2Topics = strings.Join([]string{
+	`{"title":"Section","href":"chapter/chapter.html#GUID-SECTION","menu":{"hasChildren":false},"tocID":"T2a","topics":[]}`,
+	`{"title":"Child","href":"chapter/child.html","menu":{"hasChildren":false},"tocID":"T2b","next":"T2b"}`,
+	`{"title":"Inline","href":"chapter/inline.html","menu":{"hasChildren":true},"tocID":"T2c","topics":[` +
+		`{"title":"Deep","href":"chapter/deep.html","menu":{"hasChildren":false},"tocID":"T2d","topics":[]}]}`,
+}, ",")
 
 func oxygenFixture() *planFixture {
 	f := &planFixture{responses: map[string]model.Resource{}, failures: map[string]error{}}
@@ -63,18 +99,20 @@ func oxygenFixture() *planFixture {
 	toc := oxygenFixtureTOC
 	f.set(oxygenRoot+"about/about.html", oxygenTopicPage("About", "../concept/legal.html", "sub.html", toc), "text/html")
 	f.set(oxygenRoot+"concept/legal.html", oxygenTopicPage("Legal disclaimer", "", "", toc), "text/html")
+	f.set(oxygenRoot+"chapter/chapter.html", oxygenTopicPage("Chapter", "", "",
+		oxygenChapterTOC(oxygenSectionItem+oxygenChildItem+oxygenInlineItem)), "text/html")
+	f.set(oxygenRoot+"chapter/child.html", oxygenTopicPage("Child", "", "", oxygenChapterTOC(oxygenSectionItem+
+		oxygenTOCBranch("T2b", "child.html", "Child", oxygenTOCItem("T2b1", "leaf", "grand.html", "Grandchild"))+
+		oxygenInlineItem)), "text/html")
+	f.set(oxygenRoot+"chapter/inline.html", oxygenTopicPage("Inline", "", "", oxygenChapterTOC(oxygenSectionItem+oxygenChildItem+
+		oxygenTOCBranch("T2c", "inline.html", "Inline", oxygenTOCItem("T2d", "leaf", "deep.html", "Deep")))), "text/html")
 	f.set(oxygenRoot+"leaf/leaf.html", oxygenTopicPage("Leaf", "../chapter/deep.html", "../back/notes.html", toc), "text/html")
 	f.set(oxygenRoot+"back/notes.html", oxygenTopicPage("Notes", "../leaf/leaf.html", "", toc), "text/html")
 	nav := oxygenRoot + "oxygen-webhelp/app/nav-links/json/"
 	f.set(nav+"T1.js", oxygenNavLinks("T1",
 		`{"title":"  <span class=\"ph\" id=\"GUID-1\">AOS-CX</span> sub","shortdesc":"<p class=\"shortdesc\"\/>","href":"about/sub.html","attributes":{"data-id":"x"},"menu":{"hasChildren":false},"tocID":"T1a","topics":[]}`),
 		"application/javascript")
-	f.set(nav+"T2.js", oxygenNavLinks("T2", strings.Join([]string{
-		`{"title":"Section","href":"chapter/chapter.html#GUID-SECTION","menu":{"hasChildren":false},"tocID":"T2a","topics":[]}`,
-		`{"title":"Child","href":"chapter/child.html","menu":{"hasChildren":false},"tocID":"T2b","next":"T2b"}`,
-		`{"title":"Inline","href":"chapter/inline.html","menu":{"hasChildren":true},"tocID":"T2c","topics":[` +
-			`{"title":"Deep","href":"chapter/deep.html","menu":{"hasChildren":false},"tocID":"T2d","topics":[]}]}`,
-	}, ",")), "application/javascript")
+	f.set(nav+"T2.js", oxygenNavLinks("T2", oxygenT2Topics), "application/javascript")
 	f.set(nav+"T2b.js", oxygenNavLinks("T2b",
 		`{"title":"Grandchild","href":"chapter/grand.html","menu":{"hasChildren":false},"tocID":"T2b1","topics":[]}`),
 		"application/javascript")
@@ -167,10 +205,10 @@ func TestOxygenPlanFailsClosed(t *testing.T) {
 			f.set(nav+"T2b.js", `oxy_webhelp_navlinks = {"T2b":{"topics":[]}}; fetch("x");`, "application/javascript")
 		}},
 		{"cycle", `"T2" is referenced more than once`, func(f *planFixture) {
-			f.set(nav+"T2b.js", oxygenNavLinks("T2b", `{"title":"Loop","href":"chapter/loop.html","tocID":"T2x","next":"T2"}`), "application/javascript")
+			f.set(nav+"T2b.js", oxygenNavLinks("T2b", `{"title":"Loop","href":"chapter/grand.html","tocID":"T2b1","next":"T2"}`), "application/javascript")
 		}},
 		{"bad id", `invalid Oxygen TOC identifier "../T2"`, func(f *planFixture) {
-			f.set(nav+"T2.js", oxygenNavLinks("T2", `{"title":"Bad","href":"chapter/bad.html","tocID":"x","next":"../T2"}`), "application/javascript")
+			f.set(nav+"T2.js", oxygenNavLinks("T2", strings.Replace(oxygenT2Topics, `"next":"T2b"`, `"next":"../T2"`, 1)), "application/javascript")
 		}},
 		{"empty title", "empty title", func(f *planFixture) {
 			f.set(nav+"T2b.js", oxygenNavLinks("T2b", `{"title":"<span></span>","href":"chapter/grand.html","tocID":"T2b1"}`), "application/javascript")
@@ -181,6 +219,10 @@ func TestOxygenPlanFailsClosed(t *testing.T) {
 		}},
 		{"untitled matter", "has no title", func(f *planFixture) {
 			f.set(oxygenRoot+"concept/legal.html", strings.Replace(oxygenTopicPage("x", "", "", ""), "<title>x</title>", "", 1), "text/html")
+		}},
+		{"rendered TOC disagrees", `lists different topics than the rendered TOC`, func(f *planFixture) {
+			f.set(oxygenRoot+"chapter/chapter.html", oxygenTopicPage("Chapter", "", "",
+				oxygenChapterTOC(oxygenSectionItem+oxygenChildItem)), "text/html")
 		}},
 		{"conflicting prev", `conflicting rel="prev" links`, func(f *planFixture) {
 			page := strings.Replace(oxygenTopicPage("About", "../concept/legal.html", "sub.html", oxygenFixtureTOC),
@@ -226,5 +268,83 @@ func TestStaticNonOxygenLazyTOCIsStillRefused(t *testing.T) {
 	doc := model.Document{ID: "guide", Title: "Guide", Platform: "6300", Version: "10.18", Kind: "static", URL: home}
 	if _, err := LoadPlan(context.Background(), f, doc); err == nil || !strings.Contains(err.Error(), "lazy-loaded") {
 		t.Fatalf("lazy TOC outside an Oxygen main page was accepted: %v", err)
+	}
+}
+
+func TestOxygenRenderedTOCReplacesUnpublishedDataLinks(t *testing.T) {
+	// The publisher's TOC data can name a topic file that was never published,
+	// while the rendered TOC of the branch page links the published file.
+	f := oxygenFixture()
+	nav := oxygenRoot + "oxygen-webhelp/app/nav-links/json/"
+	f.set(nav+"T2.js", oxygenNavLinks("T2", strings.Replace(oxygenT2Topics,
+		`"href":"chapter/child.html"`, `"href":"GUID-CHILD.html"`, 1)), "application/javascript")
+	plan, err := LoadPlan(context.Background(), f, oxygenDocument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outline := strings.Join(tocOutline(plan.TOC, 0), "\n")
+	if !strings.Contains(outline, "  Child chapter/child.html\n    Grandchild chapter/grand.html") || strings.Contains(outline, "GUID-CHILD") {
+		t.Fatalf("unpublished data link was kept:\n%s", outline)
+	}
+	want := `Publisher TOC data links "Child" to ` + oxygenRoot + `GUID-CHILD.html; using ` + oxygenRoot +
+		`chapter/child.html from the rendered TOC of ` + oxygenRoot + `chapter/chapter.html`
+	if !slices.Contains(plan.Notices, model.Notice{Kind: model.NoticePublisherLinkCorrected, Message: want}) || len(plan.Warnings) != 0 {
+		t.Fatalf("correction is not recorded as a notice: %+v %q", plan.Notices, plan.Warnings)
+	}
+	if slices.Contains(f.calls, oxygenRoot+"GUID-CHILD.html") {
+		t.Fatalf("unpublished topic was requested: %v", f.calls)
+	}
+}
+
+// levelFetcher holds the named requests until all of them are in flight.
+type levelFetcher struct {
+	*planFixture
+	together map[string]bool
+	arrived  chan struct{}
+	open     chan struct{}
+}
+
+func (l *levelFetcher) Get(ctx context.Context, raw string, refresh bool) (model.Resource, error) {
+	if l.together[raw] {
+		l.arrived <- struct{}{}
+		select {
+		case <-l.open:
+		case <-time.After(5 * time.Second):
+			return model.Resource{}, errors.New("level files were not requested together: " + raw)
+		}
+	}
+	return l.planFixture.Get(ctx, raw, refresh)
+}
+
+func TestOxygenPlanReadsEachLevelTogether(t *testing.T) {
+	serial, err := LoadPlan(context.Background(), oxygenFixture(), oxygenDocument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	nav := oxygenRoot + "oxygen-webhelp/app/nav-links/json/"
+	l := &levelFetcher{planFixture: oxygenFixture(), together: map[string]bool{nav + "T1.js": true, nav + "T2.js": true},
+		arrived: make(chan struct{}, 2), open: make(chan struct{})}
+	go func() {
+		<-l.arrived
+		<-l.arrived
+		close(l.open)
+	}()
+	plan, err := LoadPlanWithWorkers(context.Background(), l, oxygenDocument(), false, false, 4)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := strings.Join(tocOutline(plan.TOC, 0), "\n"), strings.Join(tocOutline(serial.TOC, 0), "\n"); got != want {
+		t.Fatalf("concurrent TOC:\n%s\nserial TOC:\n%s", got, want)
+	}
+	inputs := func(plan model.DocumentPlan) []string {
+		var result []string
+		for _, input := range plan.Inputs {
+			result = append(result, input.Role+" "+input.RequestedURL)
+		}
+		return result
+	}
+	if !slices.Equal(inputs(plan), inputs(serial)) || !slices.Equal(plan.Inventory.ChunkURLs, serial.Inventory.ChunkURLs) ||
+		len(plan.Topics) != len(serial.Topics) {
+		t.Fatalf("concurrent inputs %v\nserial inputs %v", inputs(plan), inputs(serial))
 	}
 }

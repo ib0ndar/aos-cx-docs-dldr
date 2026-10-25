@@ -175,12 +175,12 @@ func readBoundedData(root *os.Root, name string) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
-	data, readErr := io.ReadAll(io.LimitReader(f, (8<<20)+1))
+	data, readErr := io.ReadAll(io.LimitReader(f, storage.MaxManagedJSON+1))
 	closeErr := f.Close()
 	if err := errors.Join(readErr, closeErr); err != nil {
 		return nil, err
 	}
-	if len(data) > 8<<20 {
+	if len(data) > storage.MaxManagedJSON {
 		return nil, errors.New("managed JSON exceeds limit")
 	}
 	return data, nil

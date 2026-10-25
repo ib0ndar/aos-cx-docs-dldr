@@ -25,12 +25,23 @@ func LoadPlanWithRefresh(ctx context.Context, fetcher model.Fetcher, document mo
 // only source-verified whole-document PDF routes. Preference failures fall back
 // to complete HTML planning with a durable warning.
 func LoadPlanWithPreference(ctx context.Context, fetcher model.Fetcher, document model.Document, refresh, preferPDF bool) (model.DocumentPlan, error) {
+	return LoadPlanWithWorkers(ctx, fetcher, document, refresh, preferPDF, 1)
+}
+
+// LoadPlanWithWorkers is LoadPlanWithPreference with up to workers source
+// inputs requested at once where a format's inventory allows it. Inputs are
+// recorded in the same order whatever the worker count.
+func LoadPlanWithWorkers(ctx context.Context, fetcher model.Fetcher, document model.Document, refresh, preferPDF bool, workers int) (model.DocumentPlan, error) {
+	if workers < 1 {
+		return model.DocumentPlan{}, errors.New("plan workers must be at least 1")
+	}
 	normalized, err := fetch.NormalizeURL(document.URL)
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}
 	document.URL = normalized
 	p := newPlanner(ctx, fetcher, document, refresh)
+	p.workers = workers
 	if document.Kind == "hpe" {
 		return p.hpe(preferPDF)
 	}

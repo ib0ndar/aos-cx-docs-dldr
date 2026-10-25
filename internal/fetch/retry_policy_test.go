@@ -321,7 +321,7 @@ func (b *retryLeaseBackend) RoundTripWithDispatch(
 
 func TestConfigAttemptTimeoutValidationAndNormalization(t *testing.T) {
 	config := DefaultConfig()
-	if config.Timeout != 150*time.Second || config.AttemptTimeout != 45*time.Second || config.Retries != 2 {
+	if config.Timeout != 300*time.Second || config.AttemptTimeout != 45*time.Second || config.Retries != 2 {
 		t.Fatalf("unexpected defaults: %+v", config)
 	}
 	config.AttemptTimeout = config.Timeout + time.Second

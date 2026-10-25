@@ -21,6 +21,12 @@ import (
 // file's menu.hasChildren describes the top menu, not the TOC, and is ignored.
 // Topics outside the TOC, such as a legal disclaimer, are reachable only
 // through the rel="prev" and rel="next" topic links.
+//
+// The data files can name topic files that were never published, where the
+// pages themselves link the published file. So each branch's own topic page,
+// which the archive needs anyway, is read with its data file, and when the
+// page's rendered TOC shows the branch expanded, its children are checked
+// against the data and their links taken from the page.
 
 var (
 	oxygenNavLinksModule = regexp.MustCompile(`(?s)^oxy_webhelp_navlinks\s*=\s*(\{.*\})\s*;?$`)
@@ -44,6 +50,30 @@ type oxygenPlanner struct {
 	root    string
 	chunks  []string
 	visited map[string]bool
+	pages   map[string]oxygenPage
+}
+
+// oxygenPage is a parsed publication page.
+type oxygenPage struct {
+	in   input
+	tree *html.Node
+	base string
+}
+
+// oxygenItem is one entry of a page's rendered TOC.
+type oxygenItem struct {
+	tocID, state string
+	entry        model.TocEntry
+}
+
+// oxygenBranch is a TOC entry whose children are still to be read, from their
+// own nav-links file or inline in the parent's data.
+type oxygenBranch struct {
+	entry  *model.TocEntry
+	tocID  string
+	file   string
+	inline []oxygenTopic
+	depth  int
 }
 
 // oxygenFirstTile returns the first tile link of an Oxygen WebHelp main page,
@@ -78,15 +108,15 @@ func (p *planner) oxygen(index input, tree *html.Node, first string) (model.Docu
 	if !inside(seedURL, root) {
 		return model.DocumentPlan{}, fmt.Errorf("Oxygen guide opens outside its publication: %s", seedURL)
 	}
-	o := &oxygenPlanner{planner: p, root: root, visited: map[string]bool{}}
-	seed, seedTree, seedBase, err := o.page(seedURL, "toc")
+	o := &oxygenPlanner{planner: p, root: root, visited: map[string]bool{}, pages: map[string]oxygenPage{}}
+	seed, err := o.page(seedURL, "toc")
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}
-	if p.plan.Styles, err = styles(p.ctx, seedTree, seedBase); err != nil {
+	if p.plan.Styles, err = styles(p.ctx, seed.tree, seed.base); err != nil {
 		return model.DocumentPlan{}, err
 	}
-	toc, err := o.topLevel(seedTree, seedBase)
+	toc, err := o.topLevel(seed)
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}
@@ -94,21 +124,19 @@ func (p *planner) oxygen(index input, tree *html.Node, first string) (model.Docu
 	if len(pages) == 0 {
 		return model.DocumentPlan{}, errors.New("Oxygen TOC contains no document topics")
 	}
-	firstTree, firstBase := seedTree, seedBase
-	if pages[0] != canonicalPage(seed.url) {
-		if _, firstTree, firstBase, err = o.page(pages[0], "topic"); err != nil {
-			return model.DocumentPlan{}, err
-		}
-	}
-	front, err := o.matter(firstTree, firstBase, "prev", pages)
+	firstPage, err := o.page(pages[0], "topic")
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}
-	_, lastTree, lastBase, err := o.page(pages[len(pages)-1], "topic")
+	front, err := o.matter(firstPage, "prev", pages)
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}
-	back, err := o.matter(lastTree, lastBase, "next", pages)
+	lastPage, err := o.page(pages[len(pages)-1], "topic")
+	if err != nil {
+		return model.DocumentPlan{}, err
+	}
+	back, err := o.matter(lastPage, "next", pages)
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}
@@ -130,29 +158,48 @@ func (p *planner) oxygen(index input, tree *html.Node, first string) (model.Docu
 		}
 		p.plan.TOC = append(p.plan.TOC, entry)
 	}
-	return p.finish(root, seed.url, o.chunks)
+	return p.finish(root, seed.in.url, o.chunks)
 }
 
-// page reads one publication page inside the guide.
-func (o *oxygenPlanner) page(raw, role string) (input, *html.Node, string, error) {
+// page reads one publication page inside the guide, once.
+func (o *oxygenPlanner) page(raw, role string) (oxygenPage, error) {
+	if page, ok := o.pages[raw]; ok {
+		return page, nil
+	}
 	in, err := o.read(raw, role, scopeInside(o.root))
 	if err != nil {
-		return input{}, nil, "", err
+		return oxygenPage{}, err
 	}
+	return o.parse(raw, in)
+}
+
+func (o *oxygenPlanner) parse(raw string, in input) (oxygenPage, error) {
 	tree, err := o.html(in, false)
 	if err != nil {
-		return input{}, nil, "", err
+		return oxygenPage{}, err
 	}
 	base, err := staticBase(tree, in.url, o.root)
 	if err != nil {
-		return input{}, nil, "", err
+		return oxygenPage{}, err
 	}
-	return in, tree, base, nil
+	page := oxygenPage{in: in, tree: tree, base: base}
+	o.pages[raw] = page
+	return page, nil
 }
 
-// topLevel reads the root entries of a topic page's publication TOC and
-// expands every branch from its nav-links data.
-func (o *oxygenPlanner) topLevel(tree *html.Node, base string) ([]model.TocEntry, error) {
+// branchPage returns the publication page a TOC entry opens, if it has one.
+func (o *oxygenPlanner) branchPage(raw string) (string, bool) {
+	page := canonicalPage(raw)
+	u, err := url.Parse(page)
+	if err != nil || !inside(page, o.root) {
+		return "", false
+	}
+	path := strings.ToLower(u.Path)
+	return page, strings.HasSuffix(path, ".htm") || strings.HasSuffix(path, ".html") || strings.HasSuffix(path, ".xhtml")
+}
+
+// oxygenTree returns the list of a page's publication TOC.
+func oxygenTree(tree *html.Node) (*html.Node, error) {
 	containers := nodes(tree, func(n *html.Node) bool {
 		id, _ := attr(n, "id")
 		return n.Data == "nav" && id == "wh_publication_toc"
@@ -167,13 +214,15 @@ func (o *oxygenPlanner) topLevel(tree *html.Node, base string) ([]model.TocEntry
 	if len(trees) != 1 {
 		return nil, errors.New("Oxygen publication TOC must contain one tree")
 	}
-	var result []model.TocEntry
-	for item := trees[0].FirstChild; item != nil; item = item.NextSibling {
+	return trees[0], nil
+}
+
+// oxygenItems reads the entries of one rendered TOC list.
+func oxygenItems(list *html.Node, base string) ([]oxygenItem, error) {
+	var result []oxygenItem
+	for item := list.FirstChild; item != nil; item = item.NextSibling {
 		if item.Type != html.ElementNode || item.Data != "li" {
 			continue
-		}
-		if err := o.check(0); err != nil {
-			return nil, err
 		}
 		refs := nodes(item, func(n *html.Node) bool { return hasClass(n, "topicref") && nearest(n, "li") == item })
 		if len(refs) != 1 {
@@ -195,48 +244,196 @@ func (o *oxygenPlanner) topLevel(tree *html.Node, base string) ([]model.TocEntry
 		if !label(entry.Title) {
 			return nil, errors.New("Oxygen TOC has empty title")
 		}
+		tocID, _ := attr(refs[0], "data-tocid")
 		state, _ := attr(refs[0], "data-state")
-		if state != "leaf" {
-			id, _ := attr(refs[0], "data-tocid")
-			if entry.Children, err = o.navLinks(id, 1); err != nil {
-				return nil, err
-			}
-		}
-		result = append(result, entry)
-	}
-	if len(result) == 0 {
-		return nil, errors.New("Oxygen publication TOC is empty")
+		result = append(result, oxygenItem{tocID: tocID, state: state, entry: entry})
 	}
 	return result, nil
 }
 
-// navLinks reads one nav-links data file and returns its entries, expanding
-// deeper levels named by "next".
-func (o *oxygenPlanner) navLinks(id string, depth int) ([]model.TocEntry, error) {
+// oxygenRendered returns the children a page's rendered TOC lists under the
+// entry tocID, and whether the page shows that entry expanded.
+func oxygenRendered(page oxygenPage, tocID string) ([]oxygenItem, bool, error) {
+	list, err := oxygenTree(page.tree)
+	if err != nil {
+		return nil, false, nil
+	}
+	refs := nodes(list, func(n *html.Node) bool {
+		id, _ := attr(n, "data-tocid")
+		return hasClass(n, "topicref") && id == tocID
+	})
+	if len(refs) != 1 {
+		return nil, false, nil
+	}
+	if state, _ := attr(refs[0], "data-state"); state != "expanded" {
+		return nil, false, nil
+	}
+	item := nearest(refs[0], "li")
+	if item == nil {
+		return nil, false, nil
+	}
+	var groups []*html.Node
+	for child := item.FirstChild; child != nil; child = child.NextSibling {
+		if role, _ := attr(child, "role"); child.Type == html.ElementNode && child.Data == "ul" && role == "group" {
+			groups = append(groups, child)
+		}
+	}
+	if len(groups) != 1 {
+		return nil, false, nil
+	}
+	children, err := oxygenItems(groups[0], page.base)
+	if err != nil {
+		return nil, false, fmt.Errorf("rendered TOC of %s: %w", page.in.url, err)
+	}
+	return children, true, nil
+}
+
+// topLevel reads the root entries of a topic page's publication TOC and
+// expands every branch.
+func (o *oxygenPlanner) topLevel(seed oxygenPage) ([]model.TocEntry, error) {
+	list, err := oxygenTree(seed.tree)
+	if err != nil {
+		return nil, err
+	}
+	items, err := oxygenItems(list, seed.base)
+	if err != nil {
+		return nil, err
+	}
+	if len(items) == 0 {
+		return nil, errors.New("Oxygen publication TOC is empty")
+	}
+	result := make([]model.TocEntry, len(items))
+	var branches []oxygenBranch
+	for index, item := range items {
+		if err := o.check(0); err != nil {
+			return nil, err
+		}
+		result[index] = item.entry
+		if item.state != "leaf" {
+			branches = append(branches, oxygenBranch{entry: &result[index], tocID: item.tocID, file: item.tocID, depth: 1})
+		}
+	}
+	return result, o.expand(branches)
+}
+
+// expand reads the children of the branches one TOC level at a time. Each
+// level's nav-links files and branch pages are requested together.
+func (o *oxygenPlanner) expand(level []oxygenBranch) error {
+	for len(level) > 0 {
+		var jobs []readJob
+		files := make([]string, len(level))
+		queued := map[string]bool{}
+		for index, branch := range level {
+			if branch.file != "" {
+				file, err := o.navLinksURL(branch.file)
+				if err != nil {
+					return err
+				}
+				files[index] = file
+				jobs = append(jobs, readJob{file, "chunk"})
+			}
+			if page, ok := o.branchPage(branch.entry.URL); ok && !queued[page] {
+				if _, done := o.pages[page]; !done {
+					queued[page] = true
+					jobs = append(jobs, readJob{page, "topic"})
+				}
+			}
+		}
+		inputs, err := o.readAll(jobs, scopeInside(o.root))
+		if err != nil {
+			return err
+		}
+		read := map[string]input{}
+		for index, job := range jobs {
+			if job.role == "topic" {
+				if _, err := o.parse(job.url, inputs[index]); err != nil {
+					return err
+				}
+				continue
+			}
+			read[job.url] = inputs[index]
+		}
+		var next []oxygenBranch
+		for index, branch := range level {
+			topics := branch.inline
+			if branch.file != "" {
+				in := read[files[index]]
+				o.chunks = append(o.chunks, in.url)
+				if topics, err = o.navLinksData(in, branch.file); err != nil {
+					return err
+				}
+			}
+			children, err := o.entries(topics, branch.depth)
+			if err != nil {
+				return err
+			}
+			if err := o.verify(branch, topics, children); err != nil {
+				return err
+			}
+			branch.entry.Children = children
+			for child, topic := range topics {
+				switch {
+				case len(topic.Topics) > 0:
+					next = append(next, oxygenBranch{entry: &branch.entry.Children[child], tocID: topic.TocID,
+						inline: topic.Topics, depth: branch.depth + 1})
+				case topic.Next != "":
+					next = append(next, oxygenBranch{entry: &branch.entry.Children[child], tocID: topic.TocID,
+						file: topic.Next, depth: branch.depth + 1})
+				}
+			}
+		}
+		level = next
+	}
+	return nil
+}
+
+// navLinksURL returns the nav-links file of a TOC identifier, refusing
+// identifiers already read.
+func (o *oxygenPlanner) navLinksURL(id string) (string, error) {
 	if !oxygenTocID.MatchString(id) {
-		return nil, fmt.Errorf("invalid Oxygen TOC identifier %q", id)
+		return "", fmt.Errorf("invalid Oxygen TOC identifier %q", id)
 	}
 	if o.visited[id] {
-		return nil, fmt.Errorf("Oxygen TOC data %q is referenced more than once", id)
+		return "", fmt.Errorf("Oxygen TOC data %q is referenced more than once", id)
+	}
+	if len(o.visited) >= maxChunks {
+		return "", errors.New("Oxygen TOC data exceeds file limit")
 	}
 	o.visited[id] = true
-	if len(o.chunks) >= maxChunks {
-		return nil, errors.New("Oxygen TOC data exceeds file limit")
+	return joinSource(o.root, "oxygen-webhelp/app/nav-links/json/"+url.PathEscape(id)+".js", false)
+}
+
+// verify checks a branch's children against the rendered TOC of the branch's
+// own page. When the page shows the branch expanded, both must list the same
+// entries, and the page's links replace links in the data that differ.
+func (o *oxygenPlanner) verify(branch oxygenBranch, topics []oxygenTopic, children []model.TocEntry) error {
+	raw, ok := o.branchPage(branch.entry.URL)
+	if !ok {
+		return nil
 	}
-	chunkURL, err := joinSource(o.root, "oxygen-webhelp/app/nav-links/json/"+url.PathEscape(id)+".js", false)
-	if err != nil {
-		return nil, err
+	page, ok := o.pages[raw]
+	if !ok {
+		return nil
 	}
-	in, err := o.read(chunkURL, "chunk", scopeInside(o.root))
-	if err != nil {
-		return nil, err
+	rendered, expanded, err := oxygenRendered(page, branch.tocID)
+	if err != nil || !expanded {
+		return err
 	}
-	o.chunks = append(o.chunks, in.url)
-	topics, err := o.navLinksData(in, id)
-	if err != nil {
-		return nil, err
+	same := len(rendered) == len(topics)
+	for index := 0; same && index < len(rendered); index++ {
+		same = rendered[index].tocID == topics[index].TocID
 	}
-	return o.entries(topics, depth)
+	if !same {
+		return fmt.Errorf("Oxygen TOC data for %q lists different topics than the rendered TOC of %s", branch.tocID, page.in.url)
+	}
+	for index := range children {
+		if published := rendered[index].entry.URL; published != children[index].URL {
+			o.notice(model.NoticePublisherLinkCorrected, fmt.Sprintf("Publisher TOC data links %q to %s; using %s from the rendered TOC of %s",
+				children[index].Title, children[index].URL, published, page.in.url))
+			children[index].URL = published
+		}
+	}
+	return nil
 }
 
 func (o *oxygenPlanner) navLinksData(in input, id string) ([]oxygenTopic, error) {
@@ -272,8 +469,9 @@ func (o *oxygenPlanner) navLinksData(in input, id string) ([]oxygenTopic, error)
 	return data.Topics, o.ctx.Err()
 }
 
+// entries reads one level of nav-links topics; expand reads their children.
 func (o *oxygenPlanner) entries(topics []oxygenTopic, depth int) ([]model.TocEntry, error) {
-	var result []model.TocEntry
+	result := make([]model.TocEntry, 0, len(topics))
 	for _, topic := range topics {
 		if err := o.check(depth); err != nil {
 			return nil, err
@@ -286,17 +484,7 @@ func (o *oxygenPlanner) entries(topics []oxygenTopic, depth int) ([]model.TocEnt
 		if err != nil {
 			return nil, err
 		}
-		entry := model.TocEntry{Title: title, URL: target}
-		switch {
-		case len(topic.Topics) > 0:
-			entry.Children, err = o.entries(topic.Topics, depth+1)
-		case topic.Next != "":
-			entry.Children, err = o.navLinks(topic.Next, depth+1)
-		}
-		if err != nil {
-			return nil, err
-		}
-		result = append(result, entry)
+		result = append(result, model.TocEntry{Title: title, URL: target})
 	}
 	return result, nil
 }
@@ -330,7 +518,8 @@ func (o *oxygenPlanner) register(entries []model.TocEntry) error {
 
 // matter follows rel="prev" or rel="next" topic links from a TOC end page and
 // returns the publication topics that the TOC does not list, nearest first.
-func (o *oxygenPlanner) matter(tree *html.Node, base, rel string, toc []string) ([]model.TocEntry, error) {
+func (o *oxygenPlanner) matter(from oxygenPage, rel string, toc []string) ([]model.TocEntry, error) {
+	tree, base := from.tree, from.base
 	listed := map[string]bool{}
 	for _, page := range toc {
 		listed[page] = true
@@ -360,13 +549,14 @@ func (o *oxygenPlanner) matter(tree *html.Node, base, rel string, toc []string) 
 			return result, nil
 		}
 		listed[page] = true
-		var in input
-		if in, tree, base, err = o.page(page, "topic"); err != nil {
+		next, err := o.page(page, "topic")
+		if err != nil {
 			return nil, err
 		}
+		tree, base = next.tree, next.base
 		titles := nodes(tree, func(n *html.Node) bool { return n.Data == "title" })
 		if len(titles) != 1 || !label(text(titles[0])) {
-			return nil, fmt.Errorf("Oxygen topic outside the TOC has no title: %s", in.url)
+			return nil, fmt.Errorf("Oxygen topic outside the TOC has no title: %s", next.in.url)
 		}
 		result = append(result, model.TocEntry{Title: text(titles[0]), URL: page})
 	}

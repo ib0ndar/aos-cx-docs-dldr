@@ -44,6 +44,7 @@ type htmlArchiver struct {
 	required                 map[string]map[string]bool
 	requiredRefs             []sourceBookmarkReference
 	sourceAbsent             map[localBookmarkReference]bool
+	bookmarksUnrecorded      int
 	localIDs                 map[string]map[string]bool
 	usedClasses              map[string]bool
 	usedIDs                  map[string]bool
@@ -99,10 +100,13 @@ type Progress struct {
 
 type ProgressObserver func(Progress)
 
+// Source bookmark evidence is bounded per guide. The largest publisher guide
+// seen, the 10.18 Command Line Interface Guide, has about 2,800 topics and
+// 91,000 identifiers in 7 MiB; the bounds leave several times that.
 const (
-	maxRecordedBookmarks      = 65_536
+	maxRecordedBookmarks      = 524_288
 	maxRecordedBookmarksPage  = 4_096
-	maxRecordedBookmarkBytes  = 2 << 20
+	maxRecordedBookmarkBytes  = 32 << 20
 	maxRecordedBookmarkLength = 1_024
 )
 
@@ -266,6 +270,10 @@ func HTMLInRoot(ctx context.Context, plan model.DocumentPlan, fetcher model.Fetc
 			}
 		}
 	}
+	if a.bookmarksUnrecorded > 0 {
+		a.warnings = append(a.warnings, fmt.Sprintf("Source bookmark evidence for %d topics exceeds archive limits; "+
+			"cross-guide missing-fragment localization into them will fail closed", a.bookmarksUnrecorded))
+	}
 	archive.Warnings, archive.Errors = uniqueStrings(a.warnings), uniqueStrings(a.errors)
 	if len(archive.Errors) > 0 || slices.ContainsFunc(archive.Assets, func(record model.FileRecord) bool { return record.Status != "complete" }) {
 		archive.Status = "incomplete"
@@ -375,7 +383,7 @@ func (a *htmlArchiver) recordedBookmarks(page *pageInput) ([]string, bool) {
 	if len(bookmarks) > maxRecordedBookmarksPage ||
 		a.bookmarkCount > maxRecordedBookmarks-len(bookmarks) ||
 		a.bookmarkBytes > maxRecordedBookmarkBytes-bytes {
-		a.warnings = append(a.warnings, page.topic.URL+": source bookmark evidence exceeds archive limits; cross-guide missing-fragment localization will fail closed")
+		a.bookmarksUnrecorded++
 		return nil, false
 	}
 	a.bookmarkCount += len(bookmarks)
@@ -646,6 +654,7 @@ func (a *htmlArchiver) inventory() error {
 			return err
 		}
 		page.sourceIDs = sourceIDs(content)
+		page.bookmarkAliases = bookmarkAliases(doc, content, page.sourceIDs)
 		for id := range page.sourceIDs {
 			a.usedIDs[id] = true
 		}
@@ -715,12 +724,22 @@ func (a *htmlArchiver) inventory() error {
 			}
 		}
 	}
+	var aliased []*pageInput
 	for key, fragments := range a.required {
 		page := a.pageByURL[key]
 		if page == nil {
 			continue
 		}
 		for fragment := range fragments {
+			if target, found := page.bookmarkAliases[normalizeBookmarkFragment(fragment)]; found && !hasBookmark(page.sourceIDs, fragment) {
+				if page.anchors == nil {
+					page.anchors = map[string]string{}
+					aliased = append(aliased, page)
+				}
+				page.anchors[normalizeBookmarkFragment(fragment)] = target
+				a.usedIDs[normalizeBookmarkFragment(fragment)] = true
+				continue
+			}
 			if !hasBookmark(page.sourceIDs, fragment) {
 				a.warnings = append(a.warnings, fmt.Sprintf("Publisher bookmark #%s is absent from source topic %s", fragment, page.topic.URL))
 				for _, reference := range a.requiredRefs {
@@ -735,6 +754,12 @@ func (a *htmlArchiver) inventory() error {
 				}
 			}
 		}
+	}
+	slices.SortFunc(aliased, func(first, second *pageInput) int { return strings.Compare(first.topic.URL, second.topic.URL) })
+	for _, page := range aliased {
+		a.notices = append(a.notices, model.Notice{Kind: model.NoticePublisherLinkCorrected, Message: fmt.Sprintf(
+			"%s: %d bookmarks that links name by an original publisher identifier were anchored at the renamed elements the page identifies",
+			page.topic.URL, len(page.anchors))})
 	}
 	return a.ctx.Err()
 }
@@ -827,10 +852,15 @@ func (a *htmlArchiver) emit() error {
 			a.errors = append(a.errors, page.topic.URL+": "+err.Error())
 			continue
 		}
+		if err := insertBookmarkAnchors(content, page.anchors); err != nil {
+			a.errors = append(a.errors, page.topic.URL+": "+err.Error())
+			continue
+		}
 		localIDs := sourceIDs(content)
 		a.localIDs[canonicalNoFragment(page.topic.URL)] = localIDs
 		for fragment := range a.required[canonicalNoFragment(page.topic.URL)] {
-			sourceHad := hasBookmark(page.sourceIDs, fragment)
+			_, anchored := page.anchors[normalizeBookmarkFragment(fragment)]
+			sourceHad := hasBookmark(page.sourceIDs, fragment) || anchored
 			localHas := hasBookmark(localIDs, fragment)
 			if sourceHad && !localHas {
 				a.errors = append(a.errors, fmt.Sprintf("%s: source bookmark #%s was lost during archival", page.topic.URL, fragment))

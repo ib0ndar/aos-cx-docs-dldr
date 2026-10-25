@@ -18,7 +18,18 @@ select#platform"); this change restores catalogue, listing and downloads.
   from the portal and is no longer derived from mappings.
 - Plan Oxygen guides from their lazily loaded TOC data and include topics
   outside the TOC, such as the legal disclaimer, found through the topic
-  links.
+  links. Each TOC level is read with `--workers` requests at once, and each
+  branch's topic page is read with its data: where the data names a topic file
+  the publisher never published, the link the page renders is used. In the
+  10.18 VXLAN Guide this affected 35 entries, which made the guide fail.
+- Anchor TOC entries and links whose section or topic identifier the
+  publisher renamed or placed outside the topic content: the target page's
+  "On this page" list, the DITA identifiers inside the topic, or an enclosing
+  element such as `body` show which element the original identifier stands
+  for, and the archived page carries an anchor with that identifier.
+  This applies to every guide: in the 10.18 VXLAN Guide it resolves 189 of 190
+  missing anchors; the last is absent from the publisher's page.
+  Both corrections are `publisher-link-corrected` notices in the manifest.
 - Releases are now labelled as the portal lists them, such as `10.18` instead
   of `10.18.xxxx`. Libraries and automation that use the old labels need the
   new values; existing libraries are left untouched.
@@ -31,6 +42,19 @@ select#platform"); this change restores catalogue, listing and downloads.
   is never requested.
 - Keep TOC entries whose anchor the publisher's page lacks as warnings on both
   generated navigation pages instead of failing the guide.
+- Size library limits for the largest guides: manifests and indexes are read
+  up to 128 MiB instead of 8 MiB, and source bookmark evidence is recorded up
+  to 524,288 identifiers or 32 MiB per guide instead of 65,536 or 2 MiB. The
+  10.18 Command Line Interface Guide exceeded both and could not be
+  published. Topics beyond the evidence bound are reported in one warning per
+  guide instead of one per topic.
+- Wait out the publisher's stalls: it has been seen to stop answering a
+  client for about two minutes, which failed the whole guide. A stalled
+  request now pauses all requests to that site and is retried after two
+  thirds of `--attempt-timeout`, doubling (30 and 60 seconds by default), and
+  the default `--timeout` is 300 seconds instead of 150.
+- Report a response body that ends early as one transient read error; the
+  cause was repeated.
 
 ## Unreleased - security hardening
 

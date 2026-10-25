@@ -14,6 +14,7 @@ import (
 	"regexp"
 	"slices"
 	"strings"
+	"sync"
 	"time"
 	"unicode"
 	"unicode/utf8"
@@ -49,10 +50,12 @@ type planner struct {
 	notices  map[model.Notice]bool
 	warnings map[string]bool
 	count    int
+	// workers bounds the source inputs readAll requests at once.
+	workers int
 }
 
 func newPlanner(ctx context.Context, f model.Fetcher, doc model.Document, refresh bool) *planner {
-	return &planner{ctx: ctx, fetcher: f, refresh: refresh, seen: map[string]bool{},
+	return &planner{ctx: ctx, fetcher: f, refresh: refresh, seen: map[string]bool{}, workers: 1,
 		notices: map[model.Notice]bool{}, warnings: map[string]bool{}, plan: model.DocumentPlan{
 			Document: doc, Topics: []model.Topic{}, TOC: []model.TocEntry{}, Styles: []string{},
 			Notices: []model.Notice{}, Warnings: []string{}, Inputs: []model.SourceInput{},
@@ -71,42 +74,108 @@ func (r contextReader) Read(b []byte) (int, error) {
 	return r.Reader.Read(b)
 }
 
-func (p *planner) read(raw, role string, scope func(string) error) (in input, err error) {
-	if err := p.ctx.Err(); err != nil {
-		return in, err
-	}
-	ctx := p.ctx
-	if scope != nil {
-		if err := scope(raw); err != nil {
-			return in, err
-		}
-		ctx = fetch.WithRequestScope(ctx, scope)
-	}
-	r, err := getResource(ctx, p.fetcher, raw, p.refresh)
+func (p *planner) read(raw, role string, scope func(string) error) (input, error) {
+	in, record, err := p.fetchInput(p.ctx, raw, role, scope)
 	if err != nil {
 		return in, err
+	}
+	p.plan.Inputs = append(p.plan.Inputs, record)
+	return in, p.ctx.Err()
+}
+
+// fetchInput retrieves one source input and its evidence record without
+// recording it, so that concurrent reads can be recorded in a fixed order.
+func (p *planner) fetchInput(ctx context.Context, raw, role string, scope func(string) error) (in input, record model.SourceInput, err error) {
+	if err := ctx.Err(); err != nil {
+		return in, record, err
+	}
+	requestCtx := ctx
+	if scope != nil {
+		if err := scope(raw); err != nil {
+			return in, record, err
+		}
+		requestCtx = fetch.WithRequestScope(ctx, scope)
+	}
+	r, err := getResource(requestCtx, p.fetcher, raw, p.refresh)
+	if err != nil {
+		return in, record, err
 	}
 	defer func() { err = errors.Join(err, r.Body.Close()) }()
 	if scope != nil {
 		if err := scope(r.URL); err != nil {
-			return in, err
+			return in, record, err
 		}
 	}
-	body, err := io.ReadAll(io.LimitReader(contextReader{p.ctx, r.Body}, maxInventoryBytes+1))
+	body, err := io.ReadAll(io.LimitReader(contextReader{ctx, r.Body}, maxInventoryBytes+1))
 	if err != nil {
-		return in, err
+		return in, record, err
 	}
 	if len(body) > maxInventoryBytes {
-		return in, fmt.Errorf("source inventory exceeds byte limit: %s", r.URL)
+		return in, record, fmt.Errorf("source inventory exceeds byte limit: %s", r.URL)
 	}
 	sum := sha256.Sum256(body)
 	requested, err := fetch.CanonicalURL(raw)
 	if err != nil {
-		return in, err
+		return in, record, err
 	}
-	p.plan.Inputs = append(p.plan.Inputs, model.SourceInput{RequestedURL: requested, FinalURL: r.URL, Role: role,
-		ContentType: r.Headers.Get("Content-Type"), SHA256: hex.EncodeToString(sum[:]), Size: len(body), ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)})
-	return input{r.URL, body, r.Headers}, p.ctx.Err()
+	record = model.SourceInput{RequestedURL: requested, FinalURL: r.URL, Role: role,
+		ContentType: r.Headers.Get("Content-Type"), SHA256: hex.EncodeToString(sum[:]), Size: len(body), ObservedAt: time.Now().UTC().Format(time.RFC3339Nano)}
+	return input{r.URL, body, r.Headers}, record, ctx.Err()
+}
+
+type readJob struct{ url, role string }
+
+// readAll reads independent source inputs with up to p.workers requests in
+// flight and records them in the order given. The first failure cancels the
+// reads still running.
+func (p *planner) readAll(jobs []readJob, scope func(string) error) ([]input, error) {
+	ctx, cancel := context.WithCancel(p.ctx)
+	defer cancel()
+	inputs := make([]input, len(jobs))
+	records := make([]model.SourceInput, len(jobs))
+	errs := make([]error, len(jobs))
+	next := make(chan int)
+	var group sync.WaitGroup
+	for range min(max(p.workers, 1), len(jobs)) {
+		group.Add(1)
+		go func() {
+			defer group.Done()
+			for index := range next {
+				inputs[index], records[index], errs[index] = p.fetchInput(ctx, jobs[index].url, jobs[index].role, scope)
+				if errs[index] != nil {
+					cancel()
+				}
+			}
+		}()
+	}
+feed:
+	for index := range jobs {
+		select {
+		case next <- index:
+		case <-ctx.Done():
+			break feed
+		}
+	}
+	close(next)
+	group.Wait()
+	if err := p.ctx.Err(); err != nil {
+		return nil, err
+	}
+	// Report the first failure that is not the cancellation of another read.
+	var cancelled error
+	for _, err := range errs {
+		if err != nil && !errors.Is(err, context.Canceled) {
+			return nil, err
+		}
+		if err != nil && cancelled == nil {
+			cancelled = err
+		}
+	}
+	if cancelled != nil {
+		return nil, cancelled
+	}
+	p.plan.Inputs = append(p.plan.Inputs, records...)
+	return inputs, nil
 }
 
 func inventoryText(body []byte, contentType string) ([]byte, error) {

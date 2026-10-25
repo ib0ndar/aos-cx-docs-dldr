@@ -296,7 +296,7 @@ func downloadGuidesObserved(
 			if progress != nil {
 				progress.Guide(index+1, len(documents), document.Title, "discovering complete source plan")
 			}
-			plan, planErr := source.LoadPlanWithPreference(ctx, fetcher, document, o.refresh, o.preferPDF)
+			plan, planErr := source.LoadPlanWithWorkers(ctx, fetcher, document, o.refresh, o.preferPDF, o.workerCount())
 			if planErr != nil {
 				archiveErr = planErr
 				result = model.ArchiveResult{Document: document, OutputDir: output, Status: "failed", Format: "html", Errors: []string{planErr.Error()}}
@@ -317,7 +317,7 @@ func downloadGuidesObserved(
 						!errors.Is(archiveErr, context.Canceled) && !errors.Is(archiveErr, context.DeadlineExceeded) &&
 						ctx.Err() == nil {
 						preferenceErr := archiveErr
-						htmlPlan, htmlPlanErr := source.LoadPlanWithPreference(ctx, fetcher, document, false, false)
+						htmlPlan, htmlPlanErr := source.LoadPlanWithWorkers(ctx, fetcher, document, false, false, o.workerCount())
 						if htmlPlanErr != nil {
 							archiveErr = htmlPlanErr
 							result = model.ArchiveResult{Document: document, OutputDir: output, Status: "failed",
@@ -519,10 +519,14 @@ func summarizeNotices(notices []model.Notice) string {
 	if count := counts[model.NoticeSourcePolicy]; count > 0 {
 		parts = append(parts, fmt.Sprintf("%d source policy", count))
 	}
+	if count := counts[model.NoticePublisherLinkCorrected]; count > 0 {
+		parts = append(parts, fmt.Sprintf("%d publisher link correction", count))
+	}
 	known := counts[model.NoticeExternalLinkRetained] +
 		counts[model.NoticeNavigationStyleOmitted] +
 		counts[model.NoticeCSSCleanup] +
-		counts[model.NoticeSourcePolicy]
+		counts[model.NoticeSourcePolicy] +
+		counts[model.NoticePublisherLinkCorrected]
 	if other := len(unique) - known; other > 0 {
 		parts = append(parts, fmt.Sprintf("%d other", other))
 	}

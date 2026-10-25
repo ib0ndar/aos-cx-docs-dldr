@@ -404,7 +404,7 @@ func TestOfflineCommandsAndInvalidConfigurationNeverFetchOrCreateCache(t *testin
 		{[]string{"--list", "--timeout", "0"}, 1, "finite"},
 		{[]string{"--list", "--attempt-timeout", "NaN"}, 1, "finite"},
 		{[]string{"--list", "--attempt-timeout", "0"}, 1, "finite"},
-		{[]string{"--list", "--attempt-timeout", "151"}, 1, "must not exceed"},
+		{[]string{"--list", "--attempt-timeout", "301"}, 1, "must not exceed"},
 		{[]string{"--list", "--timeout", "44"}, 1, "must not exceed"},
 		{[]string{"--list", "--max-resource-mb", "-1"}, 1, "finite"},
 		{[]string{"--list", "--retries", "11"}, 1, "network limits"},
@@ -438,14 +438,14 @@ func TestOfflineCommandsAndInvalidConfigurationNeverFetchOrCreateCache(t *testin
 func TestDefaultAndExplicitRetrievalDeadlines(t *testing.T) {
 	defaults := options{
 		list: true, portal: "https://example.test/portal", transport: "compatible",
-		delay: 0.1, timeout: 150, attemptTimeout: 45, retries: 2,
+		delay: 0.1, timeout: 300, attemptTimeout: 45, retries: 2,
 		workers: 4, maxMB: 256, maxArchiveMB: 1024,
 	}
 	config, err := defaults.validate()
 	if err != nil {
 		t.Fatal(err)
 	}
-	if config.Timeout != 150*time.Second || config.AttemptTimeout != 45*time.Second ||
+	if config.Timeout != 300*time.Second || config.AttemptTimeout != 45*time.Second ||
 		config.Retries != 2 {
 		t.Fatalf("unexpected retrieval defaults: %+v", config)
 	}
@@ -469,7 +469,7 @@ func TestHelpDocumentsOverallAndAttemptTimeoutDefaults(t *testing.T) {
 	text := out.String()
 	for _, expected := range []string{
 		"This native application supports",
-		"--timeout float", "Overall deadline for a retrieval", "(default 150)",
+		"--timeout float", "Overall deadline for a retrieval", "(default 300)",
 		"--attempt-timeout float", "Deadline for each retrieval attempt", "(default 45)",
 		"--retries int", "Retries after transient failures", "(default 2)",
 	} {
