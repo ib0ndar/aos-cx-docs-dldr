@@ -268,7 +268,7 @@ func (r *Run) Accept(result model.ArchiveResult) error {
 	work := path.Join(r.stage, ".work", name)
 	if result.OutputDir != filepath.Join(r.Destination, filepath.FromSlash(work)) ||
 		result.Document.Platform != r.platform || result.Document.Version != r.version ||
-		(result.Format != "pdf" && result.Format != "html") || result.HTMLRemoved {
+		(result.Format != "pdf" && result.Format != "html") || result.AtReleaseRoot {
 		return errors.New("archive result is outside this library transaction")
 	}
 	generatedFailed := result.Format == "html" && result.HTML != nil &&
@@ -301,22 +301,30 @@ func (r *Run) Accept(result model.ArchiveResult) error {
 			return err
 		}
 	}
-	if accept && !retained && r.ReplaceHTMLWithPDF && result.Format == "html" &&
-		result.HTML != nil && result.HTML.GeneratedPDF != nil && result.HTML.GeneratedPDF.Status == "complete" {
-		if err := r.removeHTML(work, result.HTML.GeneratedPDF.Path); err != nil {
-			return err
-		}
-		result.HTMLRemoved = true
-		if err := r.verifyGuide(work, result); err != nil {
-			return err
-		}
-	}
 	if accept && !retained {
 		target := path.Join(r.stage, name)
 		if err := storage.RemoveTree(r.root, target); err != nil {
 			return err
 		}
-		if err := r.rename(work, target); err != nil {
+		if hasPrevious && previous.AtReleaseRoot {
+			if err := storage.RemoveTree(r.root, path.Join(r.stage, guidePDFPath(previous))); err != nil {
+				return err
+			}
+		}
+		if pdf := r.releaseRootPDF(name, &result); pdf != "" {
+			// The PDF moves to the release folder; the rest of the work
+			// folder, the guide's HTML if it has any, is removed.
+			if err := r.rename(path.Join(work, pdf), path.Join(r.stage, pdf)); err != nil {
+				return err
+			}
+			if err := storage.RemoveTree(r.root, work); err != nil {
+				return err
+			}
+			result.AtReleaseRoot = true
+			if err := r.verifyGuide(target, result); err != nil {
+				return err
+			}
+		} else if err := r.rename(work, target); err != nil {
 			return err
 		}
 		result.OutputDir = ""
@@ -353,33 +361,75 @@ func (r *Run) verifyGuide(directory string, result model.ArchiveResult) error {
 	return r.verifyPDFGuide(directory, result)
 }
 
-// removeHTML removes everything in a verified HTML guide directory except its
-// generated PDF, keep.
-func (r *Run) removeHTML(directory, keep string) error {
-	dir, err := r.root.Open(directory)
+// guidePDFPath is the file name of a guide's PDF: the publisher's, or the one
+// generated from its HTML, if any.
+func guidePDFPath(result model.ArchiveResult) string {
+	switch {
+	case result.Format == "pdf" && result.PDF != nil:
+		return result.PDF.Path
+	case result.Format == "html" && result.HTML != nil && result.HTML.GeneratedPDF != nil:
+		return result.HTML.GeneratedPDF.Path
+	}
+	return ""
+}
+
+// releaseRootPDF names the PDF of verified guide name to keep in the release
+// folder, without a folder of its own, or returns "" to keep the guide in its
+// folder. Only ReplaceHTMLWithPDF keeps guides there, and only those with a
+// complete PDF. A guide whose PDF name another guide already uses there keeps
+// its folder, and result says so.
+func (r *Run) releaseRootPDF(name string, result *model.ArchiveResult) string {
+	if !r.ReplaceHTMLWithPDF {
+		return ""
+	}
+	pdf := guidePDFPath(*result)
+	if pdf == "" || (result.Format == "html" && result.HTML.GeneratedPDF.Status != "complete") {
+		return ""
+	}
+	for key, other := range r.guides {
+		if key != name && (strings.EqualFold(key, pdf) || other.AtReleaseRoot && strings.EqualFold(guidePDFPath(other), pdf)) {
+			result.Warnings = append(result.Warnings, fmt.Sprintf(
+				"The release folder already holds a PDF named %q for guide %s, so this guide keeps its own folder",
+				pdf, other.Document.ID))
+			return ""
+		}
+	}
+	return pdf
+}
+
+// releaseEntry is the release-folder entry of the guide kept under key: its
+// folder, or the PDF of a guide kept in the release folder.
+func releaseEntry(key string, result model.ArchiveResult) string {
+	if result.AtReleaseRoot {
+		return guidePDFPath(result)
+	}
+	return key
+}
+
+// releaseRootFile checks that a guide kept in the release folder has no
+// folder, directory, and that its PDF there, name, is a regular file, and
+// returns the PDF's path.
+func (r *Run) releaseRootFile(directory, name string) (string, error) {
+	if _, err := r.root.Lstat(directory); !errors.Is(err, os.ErrNotExist) {
+		return "", fmt.Errorf("guide kept in the release folder also has a folder: %s: %v", directory, err)
+	}
+	file := path.Join(path.Dir(directory), name)
+	if err := storage.Check(r.root, file); err != nil {
+		return "", err
+	}
+	info, err := r.root.Lstat(file)
 	if err != nil {
-		return err
+		return "", err
 	}
-	entries, readErr := dir.ReadDir(-1)
-	closeErr := dir.Close()
-	if err := errors.Join(readErr, closeErr); err != nil {
-		return err
+	if !info.Mode().IsRegular() {
+		return "", fmt.Errorf("PDF in the release folder is not a regular file: %s", file)
 	}
-	for _, entry := range entries {
-		if entry.Name() == keep {
-			continue
-		}
-		if err := storage.RemoveTree(r.root, path.Join(directory, entry.Name())); err != nil {
-			return fmt.Errorf("remove HTML replaced by its PDF: %w", err)
-		}
-	}
-	return nil
+	return file, nil
 }
 
 func (r *Run) verifyPDFGuide(directory string, result model.ArchiveResult) error {
 	pdf := result.PDF
 	if result.Status != "complete" || result.Format != "pdf" || result.Document.Kind != "pdf" || pdf == nil ||
-		result.HTMLRemoved ||
 		pdf.Status != "complete" || pdf.SHA256 == "" || pdf.SourceSHA256 != pdf.SHA256 || pdf.Size < 32 ||
 		pdf.Size > 16<<30 {
 		return fmt.Errorf("invalid complete publisher PDF metadata: %s", directory)
@@ -420,27 +470,35 @@ func (r *Run) verifyPDFGuide(directory string, result model.ArchiveResult) error
 	if err := storage.Check(r.root, directory); err != nil {
 		return err
 	}
-	f, err := r.root.Open(directory)
-	if err != nil {
-		return err
+	file := path.Join(directory, pdf.Path)
+	if result.AtReleaseRoot {
+		var err error
+		if file, err = r.releaseRootFile(directory, pdf.Path); err != nil {
+			return err
+		}
+	} else {
+		f, err := r.root.Open(directory)
+		if err != nil {
+			return err
+		}
+		entries, readErr := f.ReadDir(-1)
+		closeErr := f.Close()
+		if err := errors.Join(readErr, closeErr); err != nil {
+			return err
+		}
+		entries, err = withoutFinderMetadata(r.root, directory, entries)
+		if err != nil {
+			return err
+		}
+		if len(entries) != 1 || entries[0].Name() != pdf.Path || !entries[0].Type().IsRegular() {
+			return fmt.Errorf("publisher PDF guide must contain only its PDF: %s", directory)
+		}
 	}
-	entries, readErr := f.ReadDir(-1)
-	closeErr := f.Close()
-	if err := errors.Join(readErr, closeErr); err != nil {
-		return err
-	}
-	entries, err = withoutFinderMetadata(r.root, directory, entries)
-	if err != nil {
-		return err
-	}
-	if len(entries) != 1 || entries[0].Name() != pdf.Path || !entries[0].Type().IsRegular() {
-		return fmt.Errorf("publisher PDF guide must contain only its PDF: %s", directory)
-	}
-	hash, size, err := storage.Hash(r.root, path.Join(directory, pdf.Path), pdf.Size)
+	hash, size, err := storage.Hash(r.root, file, pdf.Size)
 	if err != nil || hash != pdf.SHA256 || size != pdf.Size {
-		return fmt.Errorf("publisher PDF integrity mismatch at %s: %v", directory, err)
+		return fmt.Errorf("publisher PDF integrity mismatch at %s: %v", file, err)
 	}
-	body, err := r.root.Open(path.Join(directory, pdf.Path))
+	body, err := r.root.Open(file)
 	if err != nil {
 		return err
 	}
@@ -458,17 +516,17 @@ func (r *Run) verifyHTMLGuide(directory string, result model.ArchiveResult) erro
 		!reflect.DeepEqual(result.UnpublishedTopics, manifest.UnpublishedTopics) {
 		return fmt.Errorf("invalid publishable HTML archive metadata: %s", directory)
 	}
-	// A guide whose HTML was removed holds only its generated PDF; the HTML
-	// records describe what the PDF was made from and were verified, file
-	// by file, before the HTML was removed.
-	removed := result.HTMLRemoved
-	if removed && (manifest.GeneratedPDF == nil || manifest.GeneratedPDF.Status != "complete") {
-		return fmt.Errorf("HTML guide without its HTML has no complete generated PDF: %s", directory)
+	// A guide kept in the release folder has no folder: its HTML was removed
+	// once it and its generated PDF were verified, file by file, and its HTML
+	// records describe what the PDF was made from.
+	flat := result.AtReleaseRoot
+	if flat && (manifest.GeneratedPDF == nil || manifest.GeneratedPDF.Status != "complete") {
+		return fmt.Errorf("HTML guide kept in the release folder has no complete generated PDF: %s", directory)
 	}
 	if err := storage.Check(r.root, directory); err != nil {
 		return err
 	}
-	if !removed {
+	if !flat {
 		var disk model.HTMLArchive
 		if err := storage.ReadJSON(r.root, path.Join(directory, "manifest.json"), &disk); err != nil {
 			return err
@@ -477,13 +535,13 @@ func (r *Run) verifyHTMLGuide(directory string, result model.ArchiveResult) erro
 			return fmt.Errorf("HTML guide manifest does not match accepted metadata: %s", directory)
 		}
 	}
-	if err := r.verifyMissingResources(directory, manifest, !removed); err != nil {
+	if err := r.verifyMissingResources(directory, manifest, !flat); err != nil {
 		return err
 	}
 	allowed := map[string]bool{
 		"index.html": true, "toc.html": true, "search.json": true, "search-index.js": true, "search.js": true, "manifest.json": true,
 	}
-	if removed {
+	if flat {
 		allowed = map[string]bool{}
 	}
 	if generated := manifest.GeneratedPDF; generated != nil {
@@ -544,11 +602,17 @@ func (r *Run) verifyHTMLGuide(directory string, result model.ArchiveResult) erro
 				!validGeneratedPDFValidation(*generated.Validation) {
 				return fmt.Errorf("invalid complete generated PDF metadata: %s", directory)
 			}
-			hash, size, err := storage.Hash(r.root, path.Join(directory, generated.Path), generated.Size)
-			if err != nil || hash != generated.SHA256 || size != generated.Size {
-				return fmt.Errorf("generated PDF integrity mismatch at %s: %v", directory, err)
+			pdfFile := path.Join(directory, generated.Path)
+			if flat {
+				if pdfFile, err = r.releaseRootFile(directory, generated.Path); err != nil {
+					return err
+				}
 			}
-			pdf, err := r.root.Open(path.Join(directory, generated.Path))
+			hash, size, err := storage.Hash(r.root, pdfFile, generated.Size)
+			if err != nil || hash != generated.SHA256 || size != generated.Size {
+				return fmt.Errorf("generated PDF integrity mismatch at %s: %v", pdfFile, err)
+			}
+			pdf, err := r.root.Open(pdfFile)
 			if err != nil {
 				return err
 			}
@@ -587,7 +651,7 @@ func (r *Run) verifyHTMLGuide(directory string, result model.ArchiveResult) erro
 			return fmt.Errorf("unsafe or colliding HTML guide path %s", record.Path)
 		}
 		folded[strings.ToLower(record.Path)] = true
-		if removed {
+		if flat {
 			continue
 		}
 		allowed[record.Path] = true
@@ -603,7 +667,7 @@ func (r *Run) verifyHTMLGuide(directory string, result model.ArchiveResult) erro
 		"search-index.js": manifest.Integrity.SearchIndexSHA256,
 		"search.js":       manifest.Integrity.SearchJSSHA256,
 	}
-	if removed {
+	if flat {
 		generatedFiles = nil
 	}
 	for generated, expected := range generatedFiles {
@@ -611,6 +675,9 @@ func (r *Run) verifyHTMLGuide(directory string, result model.ArchiveResult) erro
 		if err != nil || expected == "" || hash != expected {
 			return fmt.Errorf("HTML generated-file integrity mismatch at %s: %v", generated, err)
 		}
+	}
+	if flat {
+		return nil
 	}
 	files, err := managedFiles(r.root, directory, "")
 	if err != nil {
@@ -920,7 +987,14 @@ func (r *Run) readLibraryTree(directory string) (Manifest, error) {
 			return manifest, fmt.Errorf("invalid/colliding guide identity in %s", directory)
 		}
 		folded[fold] = true
-		allowed[key] = true
+		entry := releaseEntry(key, result)
+		if entry != key {
+			if folded[strings.ToLower(entry)] {
+				return manifest, fmt.Errorf("colliding PDF name %q in %s", entry, directory)
+			}
+			folded[strings.ToLower(entry)] = true
+		}
+		allowed[entry] = true
 		if err := r.verifyGuide(path.Join(directory, key), result); err != nil {
 			return manifest, err
 		}
@@ -932,7 +1006,14 @@ func (r *Run) readLibraryTree(directory string) (Manifest, error) {
 			return manifest, fmt.Errorf("invalid/colliding guide identity in %s", directory)
 		}
 		folded[fold] = true
-		allowed[key] = true
+		entry := releaseEntry(key, result)
+		if entry != key {
+			if folded[strings.ToLower(entry)] {
+				return manifest, fmt.Errorf("colliding PDF name %q in %s", entry, directory)
+			}
+			folded[strings.ToLower(entry)] = true
+		}
+		allowed[entry] = true
 		if err := r.verifyGuide(path.Join(directory, key), result); err != nil {
 			return manifest, err
 		}
@@ -945,7 +1026,7 @@ func (r *Run) readLibraryTree(directory string) (Manifest, error) {
 		}
 		if !ok || summaries[guide.Path] || guide.ID != result.Document.ID || guide.Title != result.Document.Title ||
 			guide.Status != result.Status || guide.Format != result.Format || guide.SourceURL != result.Document.URL ||
-			guide.RouteOrigin != result.Document.RouteOrigin || guide.HTMLRemoved != result.HTMLRemoved {
+			guide.RouteOrigin != result.Document.RouteOrigin || guide.AtReleaseRoot != result.AtReleaseRoot {
 			return manifest, fmt.Errorf("inconsistent central guide summary in %s", directory)
 		}
 		summaries[guide.Path] = true
@@ -1268,7 +1349,7 @@ func (r *Run) Publish(cancelled bool) (Manifest, error) {
 			Status: result.Status, SourceURL: result.Document.URL, RouteOrigin: result.Document.RouteOrigin,
 			TopicCount: topicCount, AssetCount: assetCount,
 			PlaceholderCount: model.ImagePlaceholderCount(result.MissingResources),
-			UnpublishedCount: len(result.UnpublishedTopics), HTMLRemoved: result.HTMLRemoved})
+			UnpublishedCount: len(result.UnpublishedTopics), AtReleaseRoot: result.AtReleaseRoot})
 	}
 	manifest.Status = versionStatus(manifest.Errors, manifest.Attempts, manifest.Guides)
 	if err := r.localizeCrossGuideLinks(&manifest); err != nil {

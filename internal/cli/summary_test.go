@@ -131,23 +131,26 @@ func TestPDFSummarySaysWhereEachPDFCameFrom(t *testing.T) {
 	}
 }
 
-func TestSummarySaysWhichGuidesKeepOnlyTheirPDF(t *testing.T) {
+func TestSummarySaysWhichGuidesAreOnlyAPDFInTheReleaseFolder(t *testing.T) {
 	m := summaryManifest(summaryGuide{"cli", "pdf", "complete", false}, summaryGuide{"acls", "html", "complete", true},
 		summaryGuide{"vsx", "html", "complete", false})
-	m.Guides[1].HTMLRemoved = true
-	acls := m.HTMLGuides["acls"]
-	acls.HTMLRemoved = true
-	m.HTMLGuides["acls"] = acls
+	m.Guides[0].AtReleaseRoot, m.Guides[1].AtReleaseRoot = true, true
 	m.HTMLGuides["vsx"].HTML.GeneratedPDF = &model.GeneratedPDFRecord{Status: "failed", Error: "renderer stopped"}
 	m.Attempts[2].Status = "incomplete"
 	got := strings.Join(librarySummary(m, selectedGuides("cli", "acls", "vsx"), true, true), "\n")
 	want := "Guides: all 3 selected guides are present and complete.\n" +
 		"PDF files: 2 of the 3 guides have one: 1 downloaded from the publisher, 1 converted from its downloaded web pages; " +
 		"the guides without one are listed under Missing.\n" +
-		"Web pages: removed after conversion; 1 guide keeps only its PDF.\n" +
+		"Guide folders: removed for 2 of the 3 guides, whose PDF files are in the release folder; the others keep their folders.\n" +
 		"Missing:\n" +
 		"  VSX Guide: no PDF, so its web pages are kept; creating it failed: renderer stopped"
 	if got != want {
 		t.Fatalf("summary:\n%s\nwant:\n%s", got, want)
+	}
+	m = summaryManifest(summaryGuide{"acls", "html", "complete", true}, summaryGuide{"vsx", "html", "complete", true})
+	m.Guides[0].AtReleaseRoot, m.Guides[1].AtReleaseRoot = true, true
+	got = strings.Join(librarySummary(m, selectedGuides("acls", "vsx"), true, true), "\n")
+	if !strings.HasSuffix(got, "\nGuide folders: removed; all 2 PDF files are in the release folder.") {
+		t.Fatalf("summary:\n%s", got)
 	}
 }

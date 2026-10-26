@@ -45,11 +45,11 @@ type indexCopy struct {
 
 func describeIndex(manifest Manifest) indexCopy {
 	// generatedCount counts HTML guides the library keeps only as their
-	// generated PDF.
+	// generated PDF, in the release folder.
 	htmlCount, pdfCount, generatedCount := 0, 0, 0
 	for _, guide := range manifest.Guides {
 		switch {
-		case guide.Format == "html" && guide.HTMLRemoved:
+		case guide.Format == "html" && guide.AtReleaseRoot:
 			generatedCount++
 		case guide.Format == "html":
 			htmlCount++
@@ -154,10 +154,13 @@ func (r *Run) writeIndexAt(directory string, manifest Manifest, history []Histor
 		if guide.Format == "pdf" {
 			pdf := manifest.PDFGuides[guide.Path].PDF
 			link = (&url.URL{Path: path.Join(guide.Path, pdf.Path)}).EscapedPath()
+			if guide.AtReleaseRoot {
+				link = (&url.URL{Path: pdf.Path}).EscapedPath()
+			}
 			text = ""
-		} else if guide.HTMLRemoved {
+		} else if guide.AtReleaseRoot {
 			generated := manifest.HTMLGuides[guide.Path].HTML.GeneratedPDF
-			link = (&url.URL{Path: path.Join(guide.Path, generated.Path)}).EscapedPath()
+			link = (&url.URL{Path: generated.Path}).EscapedPath()
 			text = ""
 		} else if generated := manifest.HTMLGuides[guide.Path].HTML.GeneratedPDF; generated != nil &&
 			generated.Status == "complete" {
@@ -173,7 +176,7 @@ func (r *Run) writeIndexAt(directory string, manifest Manifest, history []Histor
 		}
 		entries = append(entries, indexEntry{Title: guide.Title, Status: guide.Status, URL: link})
 		search = append(search, searchEntry{Guide: guide.Title, Title: guide.Title, URL: link, Text: text})
-		if guide.Format == "html" && !guide.HTMLRemoved {
+		if guide.Format == "html" && !guide.AtReleaseRoot {
 			records, err := r.guideSearchEntries(directory, guide, manifest.HTMLGuides[guide.Path])
 			if err != nil {
 				return err

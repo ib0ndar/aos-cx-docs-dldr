@@ -118,9 +118,14 @@ func acceptHTMLWithDiagnostics(t *testing.T, r *Run, id string, notices []model.
 // without accepting it.
 func archiveHTMLGuide(t *testing.T, r *Run, id string, notices []model.Notice, recoveries []model.StylesheetRecovery) model.ArchiveResult {
 	t.Helper()
+	return archiveTitledHTMLGuide(t, r, id, id+" Guide", notices, recoveries)
+}
+
+func archiveTitledHTMLGuide(t *testing.T, r *Run, id, title string, notices []model.Notice, recoveries []model.StylesheetRecovery) model.ArchiveResult {
+	t.Helper()
 	url := "https://example.test/guide/Content/home.htm"
 	doc := model.Document{
-		ID: id, Title: id + " Guide", Platform: "6300", Version: "10.10", Kind: "flare",
+		ID: id, Title: title, Platform: "6300", Version: "10.10", Kind: "flare",
 		URL: url, RouteOrigin: "publisher-url",
 	}
 	plan := model.DocumentPlan{Document: doc, Topics: []model.Topic{{URL: url, Title: "Home"}},

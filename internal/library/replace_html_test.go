@@ -1,7 +1,9 @@
 package library
 
 import (
+	"archive/zip"
 	"context"
+	"errors"
 	"net/url"
 	"os"
 	"path"
@@ -20,7 +22,12 @@ import (
 // generated-PDF record of the given status, without accepting it.
 func archiveHTMLWithPDF(t *testing.T, r *Run, id, status string) model.ArchiveResult {
 	t.Helper()
-	result := archiveHTMLGuide(t, r, id, nil, nil)
+	return archiveTitledHTMLWithPDF(t, r, id, id+" Guide", status)
+}
+
+func archiveTitledHTMLWithPDF(t *testing.T, r *Run, id, title, status string) model.ArchiveResult {
+	t.Helper()
+	result := archiveTitledHTMLGuide(t, r, id, title, nil, nil)
 	name, err := storage.PDFFilename(result.Document.Platform, result.Document.Version, result.Document.Title)
 	if err != nil {
 		t.Fatal(err)
@@ -56,19 +63,18 @@ func directoryNames(t *testing.T, directory string) []string {
 	return names
 }
 
-func TestReplaceHTMLWithPDFKeepsOnlyTheVerifiedPDF(t *testing.T) {
-	base := t.TempDir()
+func openReplacing(t *testing.T, base string) *Run {
+	t.Helper()
 	r, err := Open(base, "6300", "10.10")
 	if err != nil {
 		t.Fatal(err)
 	}
 	r.ReplaceHTMLWithPDF = true
-	converted := archiveHTMLWithPDF(t, r, "acls", "complete")
-	if err := r.Accept(converted); err != nil {
-		t.Fatal(err)
-	}
-	// A guide without a PDF keeps its HTML in the same run.
-	acceptHTML(t, r, "vsx")
+	return r
+}
+
+func publishAndClose(t *testing.T, r *Run) Manifest {
+	t.Helper()
 	manifest, err := r.Publish(false)
 	if err != nil {
 		t.Fatal(err)
@@ -76,42 +82,61 @@ func TestReplaceHTMLWithPDFKeepsOnlyTheVerifiedPDF(t *testing.T) {
 	if err := r.Close(); err != nil {
 		t.Fatal(err)
 	}
-	pdfName := converted.HTML.GeneratedPDF.Path
-	result := manifest.HTMLGuides["acls"]
-	if manifest.Status != "complete" || !result.HTMLRemoved || manifest.HTMLGuides["vsx"].HTMLRemoved ||
-		len(manifest.Guides) != 2 || !manifest.Guides[0].HTMLRemoved || manifest.Guides[1].HTMLRemoved ||
-		result.HTML == nil || len(result.HTML.Topics) != 1 || result.HTML.GeneratedPDF.Status != "complete" {
-		t.Fatalf("replaced HTML was not recorded: %+v", manifest)
+	return manifest
+}
+
+func TestReplaceHTMLWithPDFKeepsOnlyThePDFsInTheReleaseFolder(t *testing.T) {
+	base := t.TempDir()
+	r := openReplacing(t, base)
+	converted := archiveHTMLWithPDF(t, r, "acls", "complete")
+	if err := r.Accept(converted); err != nil {
+		t.Fatal(err)
 	}
-	if names := directoryNames(t, filepath.Join(r.Target, "acls")); !slices.Equal(names, []string{pdfName}) {
-		t.Fatalf("guide whose HTML was replaced holds %v, want only %s", names, pdfName)
+	publisher := acceptPDF(t, r, "cli", "CLI")
+	// A guide without a PDF keeps its HTML, in its folder, in the same run.
+	acceptHTML(t, r, "vsx")
+	manifest := publishAndClose(t, r)
+
+	generatedName, publisherName := converted.HTML.GeneratedPDF.Path, publisher.PDF.Path
+	if manifest.Status != "complete" || !manifest.HTMLGuides["acls"].AtReleaseRoot ||
+		!manifest.PDFGuides["cli"].AtReleaseRoot || manifest.HTMLGuides["vsx"].AtReleaseRoot ||
+		len(manifest.Guides) != 3 || !manifest.Guides[0].AtReleaseRoot || !manifest.Guides[1].AtReleaseRoot ||
+		manifest.Guides[2].AtReleaseRoot || len(manifest.HTMLGuides["acls"].HTML.Topics) != 1 {
+		t.Fatalf("release-folder PDFs were not recorded: %+v", manifest)
 	}
-	if _, err := os.Stat(filepath.Join(r.Target, "vsx", "index.html")); err != nil {
-		t.Fatalf("guide without a PDF lost its HTML: %v", err)
+	want := []string{generatedName, publisherName, "history.json", "index.html", "manifest.json",
+		"search-index.js", "search.js", "vsx"}
+	slices.Sort(want)
+	if names := directoryNames(t, r.Target); !slices.Equal(names, want) {
+		t.Fatalf("release folder holds %v, want %v", names, want)
 	}
 
 	index, err := os.ReadFile(filepath.Join(r.Target, "index.html"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	pdfLink := (&url.URL{Path: path.Join("acls", pdfName)}).EscapedPath()
-	if !strings.Contains(string(index), `href="`+pdfLink+`"`) || strings.Contains(string(index), `href="acls/index.html"`) ||
+	generatedLink := (&url.URL{Path: generatedName}).EscapedPath()
+	publisherLink := (&url.URL{Path: publisherName}).EscapedPath()
+	if !strings.Contains(string(index), `href="`+generatedLink+`"`) ||
+		!strings.Contains(string(index), `href="`+publisherLink+`"`) ||
+		strings.Contains(string(index), `href="acls/`) || strings.Contains(string(index), `href="cli/`) ||
 		!strings.Contains(string(index), "Downloaded HTML guides and PDFs are available offline.") {
-		t.Fatalf("release index does not link the PDF in place of the HTML:\n%s", index)
+		t.Fatalf("release index does not link the PDFs in the release folder:\n%s", index)
 	}
 	search, err := os.ReadFile(filepath.Join(r.Target, "search-index.js"))
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !strings.Contains(string(search), `"url":"`+pdfLink+`"`) || strings.Contains(string(search), "acls/pages/") ||
+	if !strings.Contains(string(search), `"url":"`+generatedLink+`"`) || strings.Contains(string(search), "acls/") ||
 		!strings.Contains(string(search), "vsx/pages/") {
-		t.Fatalf("search does not treat the replaced guide as title-only:\n%s", search)
+		t.Fatalf("search does not treat the converted guide as title-only:\n%s", search)
 	}
 
 	reopened, err := Open(base, "6300", "10.10")
 	if err != nil {
-		t.Fatalf("library with a replaced guide does not reopen: %v", err)
+		t.Fatalf("library with PDFs in the release folder does not reopen: %v", err)
 	}
+	result := manifest.HTMLGuides["acls"]
 	for name, mutate := range map[string]func(*model.ArchiveResult){
 		"no PDF record": func(result *model.ArchiveResult) { result.HTML.GeneratedPDF = nil },
 		"failed PDF": func(result *model.ArchiveResult) {
@@ -119,12 +144,12 @@ func TestReplaceHTMLWithPDFKeepsOnlyTheVerifiedPDF(t *testing.T) {
 			failed.Status = "failed"
 			result.HTML.GeneratedPDF = &failed
 		},
-		"HTML still claimed": func(result *model.ArchiveResult) { result.HTMLRemoved = false },
+		"folder claimed": func(result *model.ArchiveResult) { result.AtReleaseRoot = false },
 	} {
 		mutated := cloneArchiveResult(result)
 		mutate(&mutated)
 		if err := reopened.verifyGuide(path.Join(reopened.target, "acls"), mutated); err == nil {
-			t.Fatalf("%s: inconsistent replaced guide was accepted", name)
+			t.Fatalf("%s: inconsistent release-folder guide was accepted", name)
 		}
 	}
 	if err := reopened.Close(); err != nil {
@@ -132,38 +157,66 @@ func TestReplaceHTMLWithPDFKeepsOnlyTheVerifiedPDF(t *testing.T) {
 	}
 	zipPath, err := ExportZIP(context.Background(), r.Target)
 	if err != nil {
-		t.Fatalf("library with a replaced guide does not export: %v", err)
+		t.Fatalf("library with PDFs in the release folder does not export: %v", err)
 	}
-	if _, err := os.Stat(zipPath); err != nil {
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
 		t.Fatal(err)
 	}
+	var members []string
+	for _, file := range reader.File {
+		members = append(members, file.Name)
+	}
+	reader.Close()
+	if !slices.Contains(members, "10.10/"+generatedName) || !slices.Contains(members, "10.10/"+publisherName) ||
+		slices.ContainsFunc(members, func(name string) bool { return strings.HasPrefix(name, "10.10/acls/") }) {
+		t.Fatalf("ZIP does not hold the PDFs in the release folder: %v", members)
+	}
 
-	if err := os.WriteFile(filepath.Join(r.Target, "acls", "index.html"), []byte("<p>stray</p>"), 0o640); err != nil {
+	if err := os.MkdirAll(filepath.Join(r.Target, "acls"), 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if reopened, err := Open(base, "6300", "10.10"); err == nil {
 		reopened.Close()
-		t.Fatal("a stray file beside the PDF of a replaced guide was accepted")
-	} else if !strings.Contains(err.Error(), "unexpected/missing files in HTML guide") {
-		t.Fatalf("a stray file beside the PDF of a replaced guide was rejected for another reason: %v", err)
+		t.Fatal("a folder for a guide kept in the release folder was accepted")
+	} else if !strings.Contains(err.Error(), "also has a folder") {
+		t.Fatalf("a folder for a guide kept in the release folder was rejected for another reason: %v", err)
 	}
-}
-
-func TestReplaceHTMLWithPDFOnlyLibraryIndex(t *testing.T) {
-	base := t.TempDir()
-	r, err := Open(base, "6300", "10.10")
+	if err := os.Remove(filepath.Join(r.Target, "acls")); err != nil {
+		t.Fatal(err)
+	}
+	pdfFile, err := os.OpenFile(filepath.Join(r.Target, generatedName), os.O_APPEND|os.O_WRONLY, 0)
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.ReplaceHTMLWithPDF = true
-	if err := r.Accept(archiveHTMLWithPDF(t, r, "acls", "complete")); err != nil {
+	_, writeErr := pdfFile.WriteString("%")
+	if err := errors.Join(writeErr, pdfFile.Close()); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := r.Publish(false); err != nil {
+	if reopened, err := Open(base, "6300", "10.10"); err == nil {
+		reopened.Close()
+		t.Fatal("a changed PDF in the release folder was accepted")
+	} else if !strings.Contains(err.Error(), "generated PDF integrity mismatch") {
+		t.Fatalf("a changed PDF in the release folder was rejected for another reason: %v", err)
+	}
+}
+
+func TestReplaceHTMLWithPDFOnlyLibrary(t *testing.T) {
+	base := t.TempDir()
+	r := openReplacing(t, base)
+	converted := archiveHTMLWithPDF(t, r, "acls", "complete")
+	if err := r.Accept(converted); err != nil {
 		t.Fatal(err)
 	}
-	if err := r.Close(); err != nil {
-		t.Fatal(err)
+	publishAndClose(t, r)
+	want := []string{converted.HTML.GeneratedPDF.Path, "history.json", "index.html", "manifest.json",
+		"search-index.js", "search.js"}
+	slices.Sort(want)
+	if names := directoryNames(t, r.Target); !slices.Equal(names, want) {
+		t.Fatalf("release folder holds %v, want %v", names, want)
+	}
+	if names := directoryNames(t, filepath.Join(base, "6300", ".staging")); len(names) != 0 {
+		t.Fatalf("work folders were left behind: %v", names)
 	}
 	index, err := os.ReadFile(filepath.Join(r.Target, "index.html"))
 	if err != nil {
@@ -177,22 +230,12 @@ func TestReplaceHTMLWithPDFOnlyLibraryIndex(t *testing.T) {
 
 func TestReplaceHTMLWithPDFKeepsHTMLWhenThePDFFailed(t *testing.T) {
 	base := t.TempDir()
-	r, err := Open(base, "6300", "10.10")
-	if err != nil {
-		t.Fatal(err)
-	}
-	r.ReplaceHTMLWithPDF = true
+	r := openReplacing(t, base)
 	if err := r.Accept(archiveHTMLWithPDF(t, r, "acls", "failed")); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := r.Publish(false)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if manifest.HTMLGuides["acls"].HTMLRemoved || manifest.Guides[0].HTMLRemoved ||
+	manifest := publishAndClose(t, r)
+	if manifest.HTMLGuides["acls"].AtReleaseRoot || manifest.Guides[0].AtReleaseRoot ||
 		manifest.Attempts[0].Status != "incomplete" {
 		t.Fatalf("failed PDF removed the HTML or was not reported: %+v", manifest)
 	}
@@ -201,43 +244,92 @@ func TestReplaceHTMLWithPDFKeepsHTMLWhenThePDFFailed(t *testing.T) {
 	}
 }
 
-func TestReplacedGuideIsRetainedWhenALaterPDFFails(t *testing.T) {
+func TestReleaseFolderPDFIsRetainedWhenALaterPDFFails(t *testing.T) {
 	base := t.TempDir()
-	first, err := Open(base, "6300", "10.10")
-	if err != nil {
+	first := openReplacing(t, base)
+	converted := archiveHTMLWithPDF(t, first, "acls", "complete")
+	if err := first.Accept(converted); err != nil {
 		t.Fatal(err)
 	}
-	first.ReplaceHTMLWithPDF = true
-	if err := first.Accept(archiveHTMLWithPDF(t, first, "acls", "complete")); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := first.Publish(false); err != nil {
-		t.Fatal(err)
-	}
-	if err := first.Close(); err != nil {
-		t.Fatal(err)
-	}
+	publishAndClose(t, first)
 
+	second := openReplacing(t, base)
+	if err := second.Accept(archiveHTMLWithPDF(t, second, "acls", "failed")); err != nil {
+		t.Fatal(err)
+	}
+	manifest := publishAndClose(t, second)
+	if !manifest.HTMLGuides["acls"].AtReleaseRoot || !manifest.Attempts[0].RetainedPrevious {
+		t.Fatalf("failed PDF displaced the earlier PDF: %+v", manifest)
+	}
+	names := directoryNames(t, second.Target)
+	if !slices.Contains(names, converted.HTML.GeneratedPDF.Path) || slices.Contains(names, "acls") {
+		t.Fatalf("retained guide is not only its PDF in the release folder: %v", names)
+	}
+}
+
+func TestGuideMovesBetweenReleaseFolderAndItsFolder(t *testing.T) {
+	base := t.TempDir()
+	first := openReplacing(t, base)
+	converted := archiveHTMLWithPDF(t, first, "acls", "complete")
+	if err := first.Accept(converted); err != nil {
+		t.Fatal(err)
+	}
+	publishAndClose(t, first)
+
+	// Downloaded again without --replace-html-with-pdf, the guide is HTML in
+	// its folder again and its PDF leaves the release folder.
 	second, err := Open(base, "6300", "10.10")
 	if err != nil {
 		t.Fatal(err)
 	}
-	second.ReplaceHTMLWithPDF = true
-	if err := second.Accept(archiveHTMLWithPDF(t, second, "acls", "failed")); err != nil {
+	acceptHTML(t, second, "acls")
+	manifest := publishAndClose(t, second)
+	names := directoryNames(t, second.Target)
+	if manifest.HTMLGuides["acls"].AtReleaseRoot || slices.Contains(names, converted.HTML.GeneratedPDF.Path) ||
+		!slices.Contains(names, "acls") {
+		t.Fatalf("guide did not return to its folder: %v %+v", names, manifest.Guides)
+	}
+
+	third := openReplacing(t, base)
+	if err := third.Accept(archiveHTMLWithPDF(t, third, "acls", "complete")); err != nil {
 		t.Fatal(err)
 	}
-	manifest, err := second.Publish(false)
+	manifest = publishAndClose(t, third)
+	names = directoryNames(t, third.Target)
+	if !manifest.HTMLGuides["acls"].AtReleaseRoot || !slices.Contains(names, converted.HTML.GeneratedPDF.Path) ||
+		slices.Contains(names, "acls") {
+		t.Fatalf("guide folder was not removed: %v %+v", names, manifest.Guides)
+	}
+}
+
+func TestSamePDFNameKeepsTheSecondGuideInItsFolder(t *testing.T) {
+	base := t.TempDir()
+	r := openReplacing(t, base)
+	first := archiveTitledHTMLWithPDF(t, r, "acls", "Shared Guide", "complete")
+	if err := r.Accept(first); err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Accept(archiveTitledHTMLWithPDF(t, r, "acls2", "Shared Guide", "complete")); err != nil {
+		t.Fatal(err)
+	}
+	manifest := publishAndClose(t, r)
+	if !manifest.HTMLGuides["acls"].AtReleaseRoot || manifest.HTMLGuides["acls2"].AtReleaseRoot ||
+		!slices.ContainsFunc(manifest.Attempts[1].Warnings, func(warning string) bool {
+			return strings.Contains(warning, "already holds a PDF named")
+		}) {
+		t.Fatalf("PDF name collision was not resolved: %+v", manifest)
+	}
+	if _, err := os.Stat(filepath.Join(r.Target, "acls2", first.HTML.GeneratedPDF.Path)); err != nil {
+		t.Fatalf("second guide did not keep its PDF in its folder: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(r.Target, "acls2", "index.html")); err != nil {
+		t.Fatalf("second guide did not keep its HTML: %v", err)
+	}
+	reopened, err := Open(base, "6300", "10.10")
 	if err != nil {
+		t.Fatalf("library does not reopen: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
 		t.Fatal(err)
-	}
-	if err := second.Close(); err != nil {
-		t.Fatal(err)
-	}
-	if !manifest.HTMLGuides["acls"].HTMLRemoved || !manifest.Attempts[0].RetainedPrevious {
-		t.Fatalf("failed PDF displaced the earlier PDF: %+v", manifest)
-	}
-	if names := directoryNames(t, filepath.Join(second.Target, "acls")); len(names) != 1 ||
-		!strings.HasSuffix(names[0], ".pdf") {
-		t.Fatalf("retained guide holds %v, want only its PDF", names)
 	}
 }

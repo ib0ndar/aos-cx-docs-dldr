@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -146,13 +147,23 @@ func TestPinnedChromeCLIReplacesHTMLWithPDF(t *testing.T) {
 	}
 	guide := output.Manifest.HTMLGuides["job"]
 	generated := guide.HTML.GeneratedPDF
-	if output.Manifest.Status != "complete" || !guide.HTMLRemoved || generated == nil ||
-		generated.Status != "complete" || len(output.Manifest.Guides) != 1 || !output.Manifest.Guides[0].HTMLRemoved {
+	if output.Manifest.Status != "complete" || !guide.AtReleaseRoot || generated == nil ||
+		generated.Status != "complete" || len(output.Manifest.Guides) != 1 || !output.Manifest.Guides[0].AtReleaseRoot {
 		t.Fatalf("PDF did not replace the HTML: %+v", output.Manifest)
 	}
-	entries, err := os.ReadDir(filepath.Join(output.Library, "job"))
-	if err != nil || len(entries) != 1 || entries[0].Name() != generated.Path {
-		t.Fatalf("guide whose HTML was replaced holds %v: %v", entries, err)
+	entries, err := os.ReadDir(output.Library)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var names []string
+	for _, entry := range entries {
+		names = append(names, entry.Name())
+		if entry.IsDir() {
+			t.Fatalf("release folder still holds folder %s: %v", entry.Name(), names)
+		}
+	}
+	if !slices.Contains(names, generated.Path) {
+		t.Fatalf("release folder holds %v, not the PDF %s", names, generated.Path)
 	}
 	search, _ := os.ReadFile(filepath.Join(output.Library, "search-index.js"))
 	if strings.Contains(string(search), "Offline generated PDF fixture") {
@@ -163,11 +174,10 @@ func TestPinnedChromeCLIReplacesHTMLWithPDF(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer reader.Close()
-	if !containsZIPMember(reader.File, filepath.ToSlash(filepath.Join("10.16", "job", generated.Path))) ||
-		containsZIPMember(reader.File, "10.16/job/index.html") {
-		t.Fatal("ZIP does not hold exactly the PDF of the replaced guide")
+	if !containsZIPMember(reader.File, "10.16/"+generated.Path) || containsZIPMember(reader.File, "10.16/job/index.html") {
+		t.Fatal("ZIP does not hold exactly the PDF of the converted guide")
 	}
 	if _, err := library.ExportZIP(context.Background(), output.Library); err != nil {
-		t.Fatalf("published library with a replaced guide does not verify: %v", err)
+		t.Fatalf("published library with PDFs in the release folder does not verify: %v", err)
 	}
 }

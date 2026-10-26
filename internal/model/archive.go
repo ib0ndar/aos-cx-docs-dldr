@@ -303,10 +303,11 @@ type ArchiveResult struct {
 	StylesheetRecoveries []StylesheetRecovery `json:"stylesheet_recoveries"`
 	MissingResources     []MissingResource    `json:"missing_resources,omitempty"`
 	UnpublishedTopics    []UnpublishedTopic   `json:"unpublished_topics,omitempty"`
-	// HTMLRemoved records that the library keeps only the generated PDF of
-	// this HTML guide. HTML still describes the archive the PDF was made
-	// from, which was verified before its files were removed.
-	HTMLRemoved bool `json:"html_removed,omitempty"`
+	// AtReleaseRoot records that the guide has no folder of its own: its only
+	// file is its PDF, kept in the release folder. An HTML guide kept this way
+	// had its HTML removed after it and its generated PDF were verified; HTML
+	// still describes the archive the PDF was made from.
+	AtReleaseRoot bool `json:"at_release_root,omitempty"`
 }
 
 type FileRecord struct {

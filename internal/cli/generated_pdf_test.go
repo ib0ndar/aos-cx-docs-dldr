@@ -209,7 +209,7 @@ func TestReplaceHTMLWithPDFFailureKeepsCompleteHTML(t *testing.T) {
 		t.Fatal(err)
 	}
 	guide := output.Manifest.HTMLGuides["job"]
-	if guide.HTMLRemoved || guide.Status != "complete" || guide.HTML.GeneratedPDF == nil ||
+	if guide.AtReleaseRoot || guide.Status != "complete" || guide.HTML.GeneratedPDF == nil ||
 		guide.HTML.GeneratedPDF.Status != "failed" {
 		t.Fatalf("failed replacement removed the HTML: %+v", output.Manifest)
 	}

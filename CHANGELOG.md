@@ -5,10 +5,12 @@
 - Add `--replace-html-with-pdf` and a third answer to the guided "Generate
   PDF companions" question, "Yes - generate PDFs with pinned Chrome and remove
   the HTML". The guide's HTML is converted with pinned Chrome, both are
-  verified, and then only the PDF is kept. A guide whose PDF fails keeps its
-  HTML. The release manifest marks such guides `html_removed`; the release
-  index links the PDF, which is searchable by title only. A 0.9 binary cannot
-  open a library holding such a guide.
+  verified, and then only the PDF is kept, in the release folder next to
+  `index.html`; the guide's folder is removed. Publisher PDFs are kept there
+  too, so the release folder has no guide folders. A guide whose PDF fails
+  keeps its HTML in its folder. The release manifest marks these guides
+  `at_release_root`; the release index links the PDFs, which are searchable by
+  title only. A 0.9 binary cannot open a library holding such a guide.
 - Links from a guide kept from an earlier download to a page the library no
   longer has go back online, or to the topic's new page: for example when the
   linked guide has since been replaced by a publisher PDF (`--prefer-pdf`) or

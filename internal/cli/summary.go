@@ -17,7 +17,7 @@ const maxSummaryTitles = 3
 // selected guides are all there, how many have a PDF, and, guide by guide,
 // what is missing and why. selected are the guides this run downloaded, in
 // order; the manifest's skipped guides were selected too. replace says the
-// run kept only the PDF of each guide converted from HTML.
+// run kept only the PDF of each guide, in the release folder.
 func librarySummary(manifest library.Manifest, selected []model.Document, convert, replace bool) []string {
 	published := map[string]library.Guide{}
 	for _, guide := range manifest.Guides {
@@ -28,7 +28,7 @@ func librarySummary(manifest library.Manifest, selected []model.Document, conver
 		attempts[attempt.ID] = attempt
 	}
 	total := len(selected) + len(manifest.SkippedUnavailable)
-	present, complete, degraded, publisherPDFs, generatedPDFs, removed := 0, 0, 0, 0, 0, 0
+	present, complete, degraded, publisherPDFs, generatedPDFs, atRoot := 0, 0, 0, 0, 0, 0
 	var missing []string
 	for _, document := range selected {
 		guide, ok := published[document.ID]
@@ -47,14 +47,14 @@ func librarySummary(manifest library.Manifest, selected []model.Document, conver
 				publisherPDFs++
 			case generatedPDF(manifest, guide.Path):
 				generatedPDFs++
-				if guide.HTMLRemoved {
-					removed++
-				}
 			case replace:
 				missing = append(missing, fmt.Sprintf("%s: no PDF, so its web pages are kept; %s",
 					title, pdfFailure(manifest, guide.Path, attempt)))
 			case convert:
 				missing = append(missing, fmt.Sprintf("%s: no PDF; %s", title, pdfFailure(manifest, guide.Path, attempt)))
+			}
+			if guide.AtReleaseRoot {
+				atRoot++
 			}
 		}
 		switch {
@@ -102,8 +102,8 @@ func librarySummary(manifest library.Manifest, selected []model.Document, conver
 	if pdfs := publisherPDFs + generatedPDFs; pdfs > 0 || convert {
 		lines = append(lines, pdfSummary(present, publisherPDFs, generatedPDFs))
 	}
-	if removed > 0 {
-		lines = append(lines, removedHTMLSummary(present, removed))
+	if atRoot > 0 {
+		lines = append(lines, releaseFolderSummary(present, atRoot))
 	}
 	if len(missing) > 0 {
 		lines = append(lines, "Missing:")
@@ -211,12 +211,15 @@ func pdfSummary(present, publisher, converted int) string {
 		pdfs, present, plural(pdfs, "has", "have"), source)
 }
 
-// removedHTMLSummary says how many of the present guides keep only the PDF
-// converted from their web pages.
-func removedHTMLSummary(present, removed int) string {
-	if present == 1 {
-		return "Web pages: removed after conversion; the guide keeps only its PDF."
+// releaseFolderSummary says how many of the present guides are only a PDF
+// file in the release folder, without a folder of their own.
+func releaseFolderSummary(present, atRoot int) string {
+	switch {
+	case present == 1:
+		return "Guide folders: removed; the guide's PDF file is in the release folder."
+	case atRoot == present:
+		return fmt.Sprintf("Guide folders: removed; all %d PDF files are in the release folder.", present)
 	}
-	return fmt.Sprintf("Web pages: removed after conversion; %d %s %s only %s PDF.",
-		removed, plural(removed, "guide", "guides"), plural(removed, "keeps", "keep"), plural(removed, "its", "their"))
+	return fmt.Sprintf("Guide folders: removed for %d of the %d guides, whose PDF files are in the release folder; the others keep their folders.",
+		atRoot, present)
 }
