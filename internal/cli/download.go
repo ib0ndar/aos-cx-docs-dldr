@@ -8,9 +8,11 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"aos-cx-docs-dldr/internal/archive"
 	"aos-cx-docs-dldr/internal/cache"
+	"aos-cx-docs-dldr/internal/fetch"
 	"aos-cx-docs-dldr/internal/library"
 	"aos-cx-docs-dldr/internal/model"
 	"aos-cx-docs-dldr/internal/pdfgen"
@@ -94,6 +96,11 @@ func selectedDocuments(catalog model.Catalog, o options) ([]model.Document, erro
 	documents, diagnostics, err := source.ResolveDocuments(catalog, o.platform, o.version)
 	if err != nil {
 		return nil, err
+	}
+	for index, document := range documents {
+		if replacement, ok := o.replacements[document.URL]; ok {
+			documents[index] = replacement.Document
+		}
 	}
 	if len(documents) == 0 {
 		if len(diagnostics) > 0 {
@@ -203,6 +210,13 @@ func downloadGuidesObserved(
 	}()
 	run.CatalogueURL, run.CatalogueFetchedAt = catalog.SourceURL, catalog.FetchedAt
 	run.CatalogueWarnings = append([]string{}, catalog.Warnings...)
+	for _, document := range documents {
+		for _, replacement := range o.replacements {
+			if replacement.Document.URL == document.URL {
+				run.CatalogueWarnings = append(run.CatalogueWarnings, replacement.Note())
+			}
+		}
+	}
 	run.SetSkippedUnavailable(o.skippedUnavailable)
 	if len(run.SkippedUnavailable) > 0 {
 		names := make([]string, 0, len(run.SkippedUnavailable))
@@ -220,10 +234,16 @@ func downloadGuidesObserved(
 		}
 	}
 	cancelled := false
-	for index, document := range documents {
-		if ctx.Err() != nil {
-			cancelled = true
-			break
+	// A guide that fails only because the publisher stopped answering is not
+	// accepted at once: it is tried again after the other guides, and again
+	// later, when the publisher has had minutes to recover. Its first failure
+	// is recorded with the guide that finally publishes.
+	var stalled []stalledGuide
+	attemptGuide := func(index int, document model.Document, mayDefer bool, earlier *stalledGuide) (int, error) {
+		if earlier != nil {
+			if err := run.DiscardGuideOutput(document.ID); err != nil {
+				return 1, err
+			}
 		}
 		// The guide is written through guide, opened by the library without
 		// following symlinks; output names it in messages and the result.
@@ -346,6 +366,29 @@ func downloadGuidesObserved(
 		if err := guide.Close(); err != nil {
 			return 1, err
 		}
+		if mayDefer && result.Status != "complete" && result.Status != "degraded" &&
+			fetch.Stalled(archiveErr) && ctx.Err() == nil {
+			first := archiveErr
+			if earlier != nil {
+				first = earlier.err
+			}
+			stalled = append(stalled, stalledGuide{
+				index: index, document: document, result: result, err: first, failedAt: time.Now(),
+			})
+			message := fmt.Sprintf("Guide %s failed because the publisher stopped answering; "+
+				"trying it again after the other guides: %s", document.ID, archiveErr)
+			if progress != nil {
+				progress.Warning(message)
+			} else {
+				fmt.Fprintln(stderr, errPresentation.warning(message))
+			}
+			return 0, nil
+		}
+		if earlier != nil {
+			result.Warnings = append(result.Warnings, fmt.Sprintf(
+				"An earlier attempt failed because the publisher stopped answering; tried again after the other guides: %s",
+				earlier.err))
+		}
 		if err := run.Accept(result); err != nil {
 			return 1, err
 		}
@@ -376,7 +419,53 @@ func downloadGuidesObserved(
 		}
 		if ctx.Err() != nil || errors.Is(archiveErr, context.Canceled) {
 			cancelled = true
+		}
+		return 0, nil
+	}
+	for index, document := range documents {
+		if ctx.Err() != nil {
+			cancelled = true
 			break
+		}
+		if code, err := attemptGuide(index, document, true, nil); err != nil {
+			return code, err
+		}
+		if cancelled {
+			break
+		}
+	}
+	for round, wait := range stalledGuideWaits {
+		retry := stalled
+		stalled = nil
+		for _, item := range retry {
+			if !cancelled {
+				// The wait is reported at least once a minute, as every
+				// other wait for the publisher is.
+				for remaining := time.Until(item.failedAt.Add(wait)); remaining > 0 && ctx.Err() == nil; remaining = time.Until(item.failedAt.Add(wait)) {
+					message := fmt.Sprintf("Waiting %s for the publisher before trying guide %s again",
+						remaining.Round(time.Second), item.document.ID)
+					if progress != nil {
+						progress.Phase(message)
+					} else {
+						fmt.Fprintln(stderr, errPresentation.phase(message))
+					}
+					select {
+					case <-ctx.Done():
+					case <-time.After(min(remaining, stalledGuideReport)):
+					}
+				}
+				cancelled = ctx.Err() != nil
+			}
+			if cancelled {
+				// Record the failure the guide already had.
+				if err := run.Accept(item.result); err != nil {
+					return 1, err
+				}
+				continue
+			}
+			if code, err := attemptGuide(item.index, item.document, round+1 < len(stalledGuideWaits), &item); err != nil {
+				return code, err
+			}
 		}
 	}
 	if progress != nil {
@@ -604,3 +693,21 @@ func reportIncompleteManifest(
 		printDiagnostic(progress, stderr, presentation, "warning", manifestError)
 	}
 }
+
+// stalledGuide is a guide attempt that failed because the publisher stopped
+// answering, waiting to be tried again; err is the guide's first such failure.
+type stalledGuide struct {
+	index    int
+	document model.Document
+	result   model.ArchiveResult
+	err      error
+	failedAt time.Time
+}
+
+// stalledGuideWaits are the times after its failure at which a stalled guide
+// is tried again, if the other guides have not taken that long already. The
+// publisher has been seen to stop serving a file for over three minutes.
+var stalledGuideWaits = []time.Duration{3 * time.Minute, 8 * time.Minute}
+
+// stalledGuideReport is how often a wait for the publisher is reported.
+var stalledGuideReport = time.Minute

@@ -247,6 +247,16 @@ func (r *Run) GuideOutput(id string) (*os.Root, string, error) {
 	return guide, filepath.Join(r.Destination, filepath.FromSlash(work)), nil
 }
 
+// DiscardGuideOutput removes the work of a guide attempt that was not
+// accepted, so that GuideOutput starts the next attempt empty.
+func (r *Run) DiscardGuideOutput(id string) error {
+	name, err := storage.SafeComponent(id)
+	if err != nil {
+		return err
+	}
+	return storage.RemoveTree(r.root, path.Join(r.stage, ".work", name))
+}
+
 func (r *Run) Accept(result model.ArchiveResult) error {
 	name, err := storage.SafeComponent(result.Document.ID)
 	if err != nil {

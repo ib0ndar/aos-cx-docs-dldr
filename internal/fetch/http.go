@@ -152,11 +152,11 @@ func (c *Client) execute(ctx context.Context, req model.Request, consume func(mo
 	req.URL = raw
 	trace := newRetrievalTrace(raw)
 	callerCtx := ctx
-	overallCtx, overallCancel := context.WithTimeout(ctx, c.config.Timeout)
-	overallCtx = context.WithValue(overallCtx, retrievalTraceKey{}, trace)
+	overall := newDeadlineContext(ctx, c.config.Timeout)
+	overallCtx, overallCancel := context.Context(context.WithValue(overall, retrievalTraceKey{}, trace)), overall.stop
 	budget := &retryBudget{}
 	c.config.Attempts.beginApplicationRetrieval()
-	r, attemptCancel, attemptCtx, err := c.retrieve(callerCtx, overallCtx, req, false, budget, consume)
+	r, attemptCancel, attemptCtx, err := c.retrieve(callerCtx, overallCtx, overall, req, false, budget, consume)
 	if err != nil {
 		timeoutScope := retrievalTimeoutScope(callerCtx, overallCtx, attemptCtx, err)
 		overallCancel()
@@ -222,6 +222,7 @@ func (c *Client) retry(ctx context.Context, budget *retryBudget, cause error, he
 
 func (c *Client) retrieve(
 	callerCtx, overallCtx context.Context,
+	overall *deadlineContext,
 	req model.Request,
 	robots bool,
 	budget *retryBudget,
@@ -233,7 +234,8 @@ func (c *Client) retrieve(
 		}
 		budget.attempts++
 		c.config.Attempts.beginApplicationAttempt(budget.attempts > 1)
-		attemptCtx, attemptCancel := context.WithTimeout(overallCtx, c.config.AttemptTimeout)
+		attempt := newDeadlineContext(overallCtx, c.config.AttemptTimeout)
+		attemptCtx, attemptCancel := context.Context(attempt), context.CancelFunc(attempt.stop)
 		r, err := c.request(attemptCtx, req, robots)
 		if err == nil && !robots && r.Status != http.StatusNotModified && (r.Status < 200 || r.Status >= 300) {
 			err = errors.Join(err, r.Body.Close())
@@ -250,6 +252,7 @@ func (c *Client) retrieve(
 				traceFromContext(attemptCtx).update(StageRobots, r.URL)
 			} else {
 				traceFromContext(attemptCtx).update(StageBody, r.URL)
+				r.Body = traceFromContext(attemptCtx).countBody(r.Body, c.bodyProgress(req.URL, attempt, overall))
 			}
 			err = consume(r)
 			closeErr := r.Body.Close()
@@ -281,11 +284,15 @@ func (c *Client) retrieve(
 }
 
 type attemptTimeoutError struct {
-	stage RetrievalStage
-	cause error
+	stage     RetrievalStage
+	bodyBytes int64
+	cause     error
 }
 
 func (e *attemptTimeoutError) Error() string {
+	if e.stage == StageBody {
+		return fmt.Sprintf("per-attempt deadline exceeded at %s after %d bytes: %v", e.stage, e.bodyBytes, e.cause)
+	}
 	return fmt.Sprintf("per-attempt deadline exceeded at %s: %v", e.stage, e.cause)
 }
 func (e *attemptTimeoutError) Unwrap() error { return e.cause }
@@ -312,9 +319,40 @@ func normalizeAttemptFailure(caller, overall, attempt context.Context, err error
 			stage = trace.stage
 			trace.mu.Unlock()
 		}
-		return &attemptTimeoutError{stage: stage, cause: attempt.Err()}
+		failure := &attemptTimeoutError{stage: stage, cause: context.Cause(attempt)}
+		if trace := traceFromContext(attempt); trace != nil && stage == StageBody {
+			failure.bodyBytes = trace.bodyBytes.Load()
+		}
+		return failure
 	}
 	return err
+}
+
+// bodyProgress is called with a downloaded body's byte count as bytes arrive.
+// The attempt deadline then bounds each pause in the body rather than the
+// whole transfer, and a body arriving at minBodyRate or faster postpones the
+// overall deadline too: the publisher serves a file it first fetches from its
+// origin at about 10 KB/s, and sent 3 MB of the 10.16 8400 Command Line
+// Interface Guide PDF in each five-minute try. A body still arriving after a
+// minute is reported about once a minute.
+// slowBodyReport is how often a body still arriving is reported.
+var slowBodyReport = time.Minute
+
+func (c *Client) bodyProgress(raw string, attempt, overall *deadlineContext) func(int64) {
+	started := time.Now()
+	reported := started
+	return func(total int64) {
+		attempt.restart(c.config.AttemptTimeout)
+		elapsed := time.Since(started)
+		if total >= int64(elapsed.Seconds()*minBodyRate) {
+			overall.extend(c.config.AttemptTimeout)
+		}
+		if time.Since(reported) >= slowBodyReport {
+			reported = time.Now()
+			c.notify(fmt.Sprintf("the publisher is sending slowly; %d bytes after %s: %s",
+				total, elapsed.Round(time.Second), raw))
+		}
+	}
 }
 
 // networkStall reports a failure where the site stopped answering: the

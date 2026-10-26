@@ -4,6 +4,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/chromedp/chromedp"
 )
@@ -32,6 +33,12 @@ func createChromeLaunchDirectories(tempRoot string) error {
 // it. Chrome also shuts down when the pipe closes because this process died.
 // The environment is the sidecar allowlist, and the sandbox flag is always
 // explicit, so chromedp never adds --no-sandbox by itself for root.
+// chromeStartupTimeout bounds Chrome's answer to its first DevTools command.
+// chromedp's 20 seconds is too short when Chrome's files must first be read
+// back, as from a sync client such as OneDrive that evicted them to free disk
+// space, or are being scanned on first use.
+const chromeStartupTimeout = 90 * time.Second
+
 func chromeAllocatorOptions(chromePath, tempRoot string, logs io.Writer) []chromedp.ExecAllocatorOption {
 	return append(chromedp.DefaultExecAllocatorOptions[:],
 		chromedp.ExecPath(chromePath),
@@ -58,6 +65,7 @@ func chromeAllocatorOptions(chromePath, tempRoot string, logs io.Writer) []chrom
 		chromedp.Flag("crash-dumps-dir", filepath.Join(tempRoot, "crashes")),
 		chromedp.Flag("no-sandbox", chromeNoSandbox),
 		chromedp.RemoteDebuggingPipe,
+		chromedp.WSURLReadTimeout(chromeStartupTimeout),
 		chromedp.ExactEnv(sidecarEnvironment(filepath.Join(tempRoot, "home"), filepath.Join(tempRoot, "tmp"))...),
 		chromedp.CombinedOutput(logs),
 		chromedp.ModifyCmdFunc(configureProcessGroup),

@@ -649,11 +649,11 @@ func (a *htmlArchiver) inventory() error {
 		}
 		if a.plan.Document.Kind == "hpe" {
 			if err := validateHPEPage(resource, page.topic, doc); err != nil {
-				return err
+				return fmt.Errorf("%s: %w", page.topic.URL, err)
 			}
 		} else if a.plan.Document.Kind == "static" {
 			if err := validateStaticPage(doc); err != nil {
-				return err
+				return fmt.Errorf("%s: %w", page.topic.URL, err)
 			}
 		}
 		content := findContent(doc, a.plan.Document.Kind)
@@ -662,6 +662,11 @@ func (a *htmlArchiver) inventory() error {
 		}
 		if err := validateTopicContent(doc, content, resource.URL); err != nil {
 			return err
+		}
+		if emptyDITATopic(content) {
+			a.warnings = append(a.warnings, fmt.Sprintf(
+				"Publisher topic %q at %s has no content; it is archived as the publisher serves it",
+				page.title, page.topic.URL))
 		}
 		page.finalURL, page.contentType, page.sourceSHA256, page.sourceSize = resource.URL, resource.Headers.Get("Content-Type"), sourceHash(body), int64(len(body))
 		for _, alias := range []string{page.requestURL, resource.URL} {

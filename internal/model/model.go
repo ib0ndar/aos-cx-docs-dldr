@@ -42,7 +42,10 @@ type Guide struct {
 	ID       string                       `json:"id"`
 	Title    string                       `json:"title"`
 	Mappings map[string]map[string]string `json:"mappings"`
-	Error    string                       `json:"error,omitempty"`
+	// Overrides are document URLs the user named for a mapped guide, by
+	// release and platform, in place of the publisher's mapping.
+	Overrides map[string]map[string]string `json:"overrides,omitempty"`
+	Error     string                       `json:"error,omitempty"`
 }
 
 type Catalog struct {

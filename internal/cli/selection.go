@@ -502,6 +502,7 @@ func completeInteractiveSelection(
 				return nil, err
 			}
 			o.preflightFresh = scanner.state.preflightFresh
+			o.replacements = scanner.state.replacements
 		}
 		if err := completeDestination(ctx, o, prompts, false); err != nil {
 			return nil, err
@@ -986,6 +987,28 @@ func (w *selectionWizard) scanAvailability(
 			}
 			return result.err
 		}
+		if result.sourceStatus.Checked && !result.sourceStatus.Available {
+			replacement, sourceStatus, pdfStatus, found, err := w.probeReplacements(ctx, item.document, probeOptionalPDF)
+			if err != nil {
+				if ctxErr := ctx.Err(); ctxErr != nil {
+					return ctxErr
+				}
+				return err
+			}
+			if found {
+				if w.state.replacements == nil {
+					w.state.replacements = map[string]source.Replacement{}
+				}
+				w.state.replacements[item.document.URL] = replacement
+				if w.message != nil {
+					w.message(fmt.Sprintf("Mapped source unavailable for %s: %s; %s",
+						item.document.Title, result.sourceStatus.Reason, replacement.Note()))
+				}
+				result.sourceStatus, result.pdfStatus = sourceStatus, pdfStatus
+			}
+		} else {
+			delete(w.state.replacements, item.document.URL)
+		}
 		w.sourceStatus[item.document.URL] = result.sourceStatus
 		if result.sourceStatus.Checked && result.sourceStatus.Available &&
 			result.sourceStatus.ProbeURL != "" {
@@ -1015,6 +1038,39 @@ func (w *selectionWizard) scanAvailability(
 		}
 	}
 	return nil
+}
+
+// probeReplacements tries, for a mapped source that answered 404 or 410, the
+// candidates source.FindReplacements derives from the publisher's own data,
+// in order, and reports the first one the publisher serves.
+func (w *selectionWizard) probeReplacements(
+	ctx context.Context,
+	document model.Document,
+	probeOptionalPDF bool,
+) (source.Replacement, model.SourceAvailability, model.PDFAvailability, bool, error) {
+	for _, replacement := range source.FindReplacements(w.catalog, document) {
+		var sourceStatus model.SourceAvailability
+		var pdfStatus model.PDFAvailability
+		var err error
+		if source.IsReleasePDF(replacement.Document) {
+			sourceStatus, replacement.Title, err = source.ProbeReleasePDF(ctx, w.fetcher, replacement.Document)
+		} else {
+			sourceStatus, pdfStatus, err = source.ProbeDocumentAvailability(
+				ctx, w.fetcher, w.transport, replacement.Document, probeOptionalPDF,
+			)
+		}
+		if err != nil {
+			return source.Replacement{}, model.SourceAvailability{}, model.PDFAvailability{}, false, err
+		}
+		if sourceStatus.Checked && sourceStatus.Available {
+			return replacement, sourceStatus, pdfStatus, true, nil
+		}
+		if w.message != nil {
+			w.message(fmt.Sprintf("Candidate for unavailable %s on %s %s is not usable: %s (%s)",
+				document.Title, document.Platform, document.Version, sourceStatus.Reason, replacement.Document.URL))
+		}
+	}
+	return source.Replacement{}, model.SourceAvailability{}, model.PDFAvailability{}, false, nil
 }
 
 func (w *selectionWizard) scanPDFs(ctx context.Context, documents []model.Document) error {

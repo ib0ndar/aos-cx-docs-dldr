@@ -73,6 +73,73 @@ select#platform"); this change restores catalogue, listing and downloads.
   only when it misses no more topics. A branch whose own page is missing keeps
   its TOC data's links. The 10.18 Multicast and Network Analytics Engine
   guides failed this way.
+- Archive a topic the publisher publishes empty, a DITA topic without text
+  such as the 10.17 Event Log Message Reference Guide's TOC entry "***", as
+  served, with a warning, instead of failing the guide. An empty page that is
+  not a topic still fails, and topic validation errors now name the topic.
+- Plan an Oxygen guide from the first tile page the publisher serves: every
+  topic page renders the top level of the TOC. The 10.17 Security Guide's
+  first tile, About this document, is not published, which failed the guide;
+  it is now an unpublished topic of a degraded guide.
+- Give Chrome 90 seconds instead of 20 to answer its first command, and
+  launch it once more if it does not: when its files must first be read back,
+  as from OneDrive after it evicted them on a nearly full disk, the 10.17 VSX
+  Guide's PDF failed to start.
+- Look past a mapping the publisher does not serve, using only the
+  publisher's own data. When a guide's mapped source answers 404 or 410, try
+  in order: the document that the platforms sharing its document in the
+  nearest releases before and after all map to in this release; then, in
+  releases whose adapter routes the Command Line Interface Guide to
+  `AOS-CX/<release>/PDF/<target>.pdf`, the PDF at that route for the
+  platform's own target, accepted when the PDF's own title names the guide,
+  and for its peers' target, accepted only when the title also names the
+  release and the platform (checked again on the archived bytes). The first
+  one served is archived, with route origin `publisher-peer-mapping`,
+  `publisher-release-pdf` or `publisher-peer-release-pdf` and a catalogue
+  warning naming both routes in the release manifest. The publisher maps 8325
+  to `acopp_8100-83xx-9300-10000` for the 10.16 CoPP Guide; neither that nor
+  the other 83xx platforms' `copp_8100-83xx-9300-10000` HTML is served, only
+  `AOS-CX/10.16/PDF/copp_8100-83xx-9300-10000.pdf`, titled "AOS-CX
+  10.16.xxxx CoPP Guide (8100, 8320, 8325, 8360, 93xx, 100xx Switch Series)".
+  The 10.16 Introduction to the Web UI Guide for 4100i, 5420 and the 6000 to
+  6400 series is served only as `AOS-CX/10.16/PDF/web_ui_4100i-5420-6xxx.pdf`,
+  titled "AOS-CX Web UI Guide".
+- Add `--guide-source ID=URL` to archive a mapped guide from a document the
+  user names, on the publisher's documentation host or HPE Support Center,
+  when the publisher serves the guide where none of its data points: the
+  10.18 ACLs and Classifier Policies Guide for 4100i, 6000 and 6100 is mapped
+  to folders that answer 404 and published only as HPE Support Center
+  document `sd00007554en_us`. The document is planned and checked like any
+  other; its route origin is `user-supplied` and the release manifest's
+  catalogue warnings record the mapping it replaced.
+- Try a guide that failed only because the publisher stopped answering (every
+  attempt timed out, broke off or could not connect) again after the other
+  guides, at least 3 minutes after its failure, and once more 8 minutes after
+  that. The published guide records its earlier failure. The 10.13 8325
+  Command Line Interface Guide PDF stopped arriving for nearly four minutes,
+  three attempts in a row, and minutes later downloaded in a second.
+- Keep an Oxygen TOC entry that links to nothing as a title without a link,
+  with a warning, instead of failing the guide. The publisher's content
+  repository leaves such an entry, titled "This object is not available in
+  the repository.", for a topic reference it could not resolve, linked to
+  `javascript:void(0)` in the TOC data and to `""` in the rendered TOC; the
+  10.18 Diagnostics and Supportability Guide for 8400 has one. The link is
+  recognised, never run.
+- Stop cutting off downloads that are still arriving. The per-attempt
+  deadline (`--attempt-timeout`, 45 seconds) now bounds the wait for a
+  response and each pause in its body, not the whole transfer, and the
+  overall `--timeout` (300 seconds) is postponed while a body keeps arriving
+  at an average of 1 KiB/s or more; a body that only trickles in still ends
+  there. A body still arriving after a minute is reported once a minute. The
+  publisher serves a file it first fetches from its origin at 10 to 14 KB/s:
+  a 516 KB 10.13 Web UI Guide image took 36 seconds, every image of that
+  guide needed three attempts, and each five-minute try of the 10.16 8400
+  Command Line Interface Guide PDF ended after about 3 MB.
+- Report the wait before a stalled guide is tried again once a minute; a
+  single line followed by minutes of silence looked like a hang.
+- Report how many body bytes a failed retrieval received (`body_bytes=`, and
+  in each stall warning), so that a transfer that stopped can be told from a
+  slow one.
 - Read robots.txt as RFC 9309 specifies: any 4xx answer other than 429 means
   the file is unavailable and places no restrictions. Before, only 404 did,
   and every other answer stopped retrieval from that host. Amazon S3 answers

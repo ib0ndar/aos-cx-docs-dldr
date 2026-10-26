@@ -76,23 +76,29 @@ type oxygenBranch struct {
 	depth  int
 }
 
-// oxygenFirstTile returns the first tile link of an Oxygen WebHelp main page,
-// the topic the portal opens a guide on.
-func oxygenFirstTile(tree *html.Node) (string, bool) {
+// oxygenTiles returns the tile links of an Oxygen WebHelp main page in order.
+// The first is the topic the portal opens a guide on.
+func oxygenTiles(tree *html.Node) []string {
 	if len(nodes(tree, func(n *html.Node) bool { return hasClass(n, "wh_main_page") })) == 0 {
-		return "", false
+		return nil
 	}
+	var tiles []string
 	for _, tile := range nodes(tree, func(n *html.Node) bool { return hasClass(n, "wh_tile_text") }) {
 		for _, link := range nodes(tile, func(n *html.Node) bool { return n.Data == "a" }) {
 			if href, ok := attr(link, "href"); ok && label(href) {
-				return href, true
+				tiles = append(tiles, href)
+				break
 			}
 		}
 	}
-	return "", false
+	return tiles
 }
 
-func (p *planner) oxygen(index input, tree *html.Node, first string) (model.DocumentPlan, error) {
+// oxygen plans an Oxygen WebHelp guide. Every topic page renders the top level
+// of the TOC, so the seed is the first tile's page the publisher serves; a
+// tile page it answers with HTTP 404 or 410 stays in the TOC, and the archive
+// records it as unpublished.
+func (p *planner) oxygen(index input, tree *html.Node, tiles []string) (model.DocumentPlan, error) {
 	root, err := joinSource(index.url, "./", false)
 	if err != nil {
 		return model.DocumentPlan{}, err
@@ -101,17 +107,28 @@ func (p *planner) oxygen(index input, tree *html.Node, first string) (model.Docu
 	if err != nil {
 		return model.DocumentPlan{}, err
 	}
-	seedURL, err := joinSource(base, first, false)
-	if err != nil {
-		return model.DocumentPlan{}, err
-	}
-	if !inside(seedURL, root) {
-		return model.DocumentPlan{}, fmt.Errorf("Oxygen guide opens outside its publication: %s", seedURL)
-	}
 	o := &oxygenPlanner{planner: p, root: root, visited: map[string]bool{}, pages: map[string]oxygenPage{}}
-	seed, err := o.page(seedURL, "toc")
-	if err != nil {
-		return model.DocumentPlan{}, err
+	var seed oxygenPage
+	for _, tile := range tiles {
+		seedURL, err := joinSource(base, tile, false)
+		if err != nil {
+			return model.DocumentPlan{}, err
+		}
+		if !inside(seedURL, root) {
+			return model.DocumentPlan{}, fmt.Errorf("Oxygen guide opens outside its publication: %s", seedURL)
+		}
+		seed, err = o.page(seedURL, "toc")
+		if status, missing := permanentPublisherStatus(err); missing {
+			p.warning(fmt.Sprintf("Oxygen tile page %s returned HTTP %d; the TOC is read from the next tile's page", seedURL, status))
+			continue
+		}
+		if err != nil {
+			return model.DocumentPlan{}, err
+		}
+		break
+	}
+	if seed.tree == nil {
+		return model.DocumentPlan{}, errors.New("the publisher serves none of the Oxygen guide's tile pages")
 	}
 	if p.plan.Styles, err = styles(p.ctx, seed.tree, seed.base); err != nil {
 		return model.DocumentPlan{}, err
@@ -228,11 +245,14 @@ func oxygenItems(list *html.Node, base string) ([]oxygenItem, error) {
 			return nil, errors.New("Oxygen TOC entry must have one topic link")
 		}
 		href, _ := attr(links[0], "href")
-		target, err := joinSource(base, href, false)
-		if err != nil {
-			return nil, err
+		entry := model.TocEntry{Title: text(links[0])}
+		if !voidLink(href) {
+			target, err := joinSource(base, href, false)
+			if err != nil {
+				return nil, err
+			}
+			entry.URL = target
 		}
-		entry := model.TocEntry{Title: text(links[0]), URL: target}
 		if !label(entry.Title) {
 			return nil, errors.New("Oxygen TOC has empty title")
 		}
@@ -478,6 +498,11 @@ func (o *oxygenPlanner) entries(topics []oxygenTopic, depth int) ([]model.TocEnt
 		if err != nil {
 			return nil, err
 		}
+		if voidLink(topic.Href) {
+			o.warning(fmt.Sprintf("Publisher TOC entry %q links to nothing (%s); kept as a title without a link", title, topic.Href))
+			result = append(result, model.TocEntry{Title: title})
+			continue
+		}
 		target, err := joinSource(o.root, topic.Href, false)
 		if err != nil {
 			return nil, err
@@ -504,6 +529,12 @@ func oxygenTitle(markup string) (string, error) {
 // leave the publication as retained external navigation.
 func (o *oxygenPlanner) register(entries []model.TocEntry) error {
 	for _, entry := range entries {
+		if entry.URL == "" {
+			if err := o.register(entry.Children); err != nil {
+				return err
+			}
+			continue
+		}
 		if err := o.navigation(entry.URL, entry.Title, o.root); err != nil {
 			return err
 		}
@@ -595,6 +626,17 @@ func oxygenPages(entries []model.TocEntry, root string) []string {
 	}
 	walk(entries)
 	return result
+}
+
+// voidLink reports a TOC link that opens nothing. For a topic reference its
+// content repository could not resolve, titled "This object is not available
+// in the repository.", Oxygen writes href="javascript:void(0)" in the TOC data
+// and href="" in the rendered TOC; the 10.18 Diagnostics and Supportability
+// Guide for 8400 has one. The link is recognised, never run.
+func voidLink(href string) bool {
+	href = strings.TrimSpace(href)
+	scheme, _, found := strings.Cut(href, ":")
+	return href == "" || found && strings.EqualFold(scheme, "javascript")
 }
 
 func canonicalPage(raw string) string {

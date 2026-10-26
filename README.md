@@ -426,6 +426,7 @@ again.
 | `--release` | AOS-CX documentation release label, not the application version. |
 | `--guides` | Guide IDs to download, space separated. |
 | `--all` | Download every resolved mapped guide that is not definitively unavailable. |
+| `--guide-source` | `GUIDE_ID=URL`: download that guide from a publisher document you name; see [A guide is shown as unavailable](#a-guide-is-shown-as-unavailable). |
 | `--destination` | Base folder for output. Fixed automatically on Windows. |
 | `--zip` | Also produce a verified ZIP of the release folder. |
 | `--refresh` | Revalidate cached guide bytes; the catalogue is always refreshed. |
@@ -456,6 +457,33 @@ Run `--help` for timeouts, retries and size limits.
 The guide could not be resolved at its mapped publisher route for that release,
 so the tool does not guess another source or produce a partial copy.
 
+When the mapped route answers "not found", the tool still looks where the
+publisher's own data points, and says so while checking availability:
+
+- the copy that the platforms sharing this platform's copy of the guide in
+  the neighbouring releases all map to in this release;
+- for releases 10.13 to 10.16, the publisher's PDF of the guide in the
+  release's PDF folder (`AOS-CX/RELEASE/PDF/`), under this platform's mapped
+  name if the PDF's own title names the guide, or under its peers' name if
+  the title also names the release and this platform.
+
+The first copy the publisher serves is downloaded, and the release's
+`manifest.json` records both routes (`catalogue_warnings`, route origin
+`publisher-peer-mapping`, `publisher-release-pdf` or
+`publisher-peer-release-pdf`).
+
+If you know where the publisher does publish the guide, for example as an
+HPE Support Center document, name it for that download:
+
+```sh
+./aos-cx-docs-dldr --platform PLATFORM --release RELEASE --all --destination DIR \
+  --guide-source GUIDE_ID=URL
+```
+
+`URL` must be a document on `arubanetworking.hpe.com` or an HPE Support Center
+`docDisplay?docId=…` address; it is checked like any other source and recorded
+with route origin `user-supplied`.
+
 ### An existing library was rejected
 
 The tool writes only to current, recognized state that it created. Point
@@ -478,11 +506,16 @@ folders in place; the tool checks and resumes from them safely.
 
 ### Downloads pause with "requests to … paused"
 
-The publisher's site sometimes stops answering for a minute or two. The tool
-then stops sending it requests, waits (30 seconds, then 60 seconds by default)
-and tries again, so a large guide can take a few minutes longer. If a guide
-still fails, run the same command again; everything already downloaded is
-reused from the cache.
+The publisher's site sometimes stops answering for a minute or two, and serves
+some files slowly the first time they are requested. A download that keeps
+arriving at 1 KiB/s or more is not cut off, however long it takes, and one
+still arriving after a minute is reported once a minute. When the site stops
+answering, the tool stops sending it requests, waits (30 seconds, then 60
+seconds by default) and tries again, so a large guide can take a few minutes longer. A guide that
+still fails this way is tried again after the other guides, at least 3 minutes
+after it failed, and once more 8 minutes after that; its `manifest.json` entry
+records the earlier failure. If it still fails, run the same command again;
+everything already downloaded is reused from the cache.
 
 ### A guide is degraded
 
@@ -634,7 +667,9 @@ The tool is honest about what it cannot do rather than guessing:
 - Live catalogue operations cover the Product Documentation surface, not every
   AOS-CX portal surface or historical document.
 - Guides unavailable at their resolved mapped routes are reported, not replaced
-  with guessed alternatives.
+  with guessed alternatives. The only replacements come from the publisher's
+  own data, or from `--guide-source` (see
+  [A guide is shown as unavailable](#a-guide-is-shown-as-unavailable)).
 - Releases 10.17 and later are Oxygen WebHelp HTML, 10.13 to 10.16 are Flare
   HTML (the Command Line Interface Guide is a publisher PDF there), and older
   releases are archived publisher PDFs. Oxygen guides have no publisher PDF.

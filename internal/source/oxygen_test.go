@@ -396,3 +396,79 @@ func TestOxygenPlanKeepsTopicsWhosePageIsUnpublished(t *testing.T) {
 		}
 	}
 }
+
+func TestOxygenPlanSeedsFromTheFirstServedTile(t *testing.T) {
+	// The 10.17 Security Guide's first tile, About this document, is not
+	// published; every other topic page renders the same top-level TOC.
+	f := oxygenFixture()
+	about := oxygenRoot + "about/about.html"
+	f.responses[about] = model.Resource{URL: about, Status: http.StatusNotFound, Headers: http.Header{}, Body: io.NopCloser(strings.NewReader(""))}
+	plan, err := LoadPlan(context.Background(), f, oxygenDocument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outline := strings.Join(tocOutline(plan.TOC, 0), "\n")
+	if !strings.Contains(outline, "About about/about.html\n  ") || !strings.Contains(outline, "Chapter chapter/chapter.html") ||
+		!slices.ContainsFunc(plan.Topics, func(topic model.Topic) bool { return topic.URL == about }) ||
+		!slices.ContainsFunc(plan.Warnings, func(warning string) bool {
+			return strings.Contains(warning, "Oxygen tile page "+about+" returned HTTP 404")
+		}) {
+		t.Fatalf("plan did not seed from the next tile:\n%s\n%q", outline, plan.Warnings)
+	}
+
+	for name, edit := range map[string]func(*planFixture){
+		"no tile served": func(f *planFixture) {
+			for _, raw := range []string{about, oxygenRoot + "chapter/chapter.html"} {
+				f.responses[raw] = model.Resource{URL: raw, Status: http.StatusGone, Headers: http.Header{}, Body: io.NopCloser(strings.NewReader(""))}
+			}
+		},
+		"first tile fails": func(f *planFixture) {
+			f.responses[about] = model.Resource{URL: about, Status: http.StatusBadGateway, Headers: http.Header{}, Body: io.NopCloser(strings.NewReader(""))}
+		},
+	} {
+		f := oxygenFixture()
+		edit(f)
+		if _, err := LoadPlan(context.Background(), f, oxygenDocument()); err == nil {
+			t.Fatalf("%s: planned", name)
+		}
+	}
+}
+
+func TestOxygenPlanKeepsAnEntryThatLinksToNothing(t *testing.T) {
+	// The publisher's repository could not resolve one topic reference; its
+	// TOC data links it to "javascript:void(0)" and its rendered TOC to "".
+	f := oxygenFixture()
+	nav := oxygenRoot + "oxygen-webhelp/app/nav-links/json/"
+	const missing = "This object is not available in the repository."
+	f.set(nav+"T2b.js", oxygenNavLinks("T2b",
+		`{"title":"Grandchild","href":"chapter/grand.html","menu":{"hasChildren":false},"tocID":"T2b1","topics":[]},`+
+			`{"title":"`+missing+`","href":"javascript:void(0)","menu":{"hasChildren":false},"tocID":"T2b2","topics":[]}`),
+		"application/javascript")
+	f.set(oxygenRoot+"chapter/child.html", oxygenTopicPage("Child", "", "", oxygenChapterTOC(oxygenSectionItem+
+		oxygenTOCBranch("T2b", "child.html", "Child", oxygenTOCItem("T2b1", "leaf", "grand.html", "Grandchild")+
+			oxygenTOCItem("T2b2", "leaf", "", missing))+
+		oxygenInlineItem)), "text/html")
+	plan, err := LoadPlan(context.Background(), f, oxygenDocument())
+	if err != nil {
+		t.Fatal(err)
+	}
+	outline := strings.Join(tocOutline(plan.TOC, 0), "\n")
+	if !strings.Contains(outline, "    Grandchild chapter/grand.html\n    "+missing+" \n  Inline") {
+		t.Fatalf("entry that links to nothing was not kept without a link:\n%s", outline)
+	}
+	for _, topic := range plan.Topics {
+		if strings.Contains(topic.URL, "javascript") || topic.URL == "" {
+			t.Fatalf("entry that links to nothing became a topic: %+v", topic)
+		}
+	}
+	if !slices.ContainsFunc(plan.Warnings, func(w string) bool {
+		return strings.Contains(w, missing) && strings.Contains(w, "javascript:void(0)")
+	}) {
+		t.Fatalf("no warning names the entry: %q", plan.Warnings)
+	}
+	for _, call := range f.calls {
+		if strings.Contains(call, "javascript") {
+			t.Fatalf("requested %s", call)
+		}
+	}
+}

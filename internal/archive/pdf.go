@@ -205,6 +205,14 @@ func PublisherPDFInRoot(ctx context.Context, plan model.DocumentPlan, fetcher mo
 	if copyErr == nil {
 		copyErr = ValidatePublisherPDF(file, resource.Headers.Get("Content-Type"))
 	}
+	if copyErr == nil && source.IsReleasePDF(plan.Document) {
+		// Only its own title identifies a PDF found at the release's PDF
+		// route instead of the guide's mapped source.
+		var title string
+		if title, copyErr = pdfcheck.DocumentTitle(file, n); copyErr == nil {
+			copyErr = source.CheckPDFTitle(plan.Document, title)
+		}
+	}
 	digest := hex.EncodeToString(h.Sum(nil))
 	if copyErr == nil && evidence != nil {
 		if resource.URL != evidence.FinalURL {

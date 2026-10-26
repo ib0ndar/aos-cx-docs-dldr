@@ -36,8 +36,13 @@ type options struct {
 	retries, workers                     int
 	preflightFresh                       map[string]bool
 	sourceStatus                         map[string]model.SourceAvailability
-	skippedUnavailable                   []model.SkippedUnavailableGuide
-	allAvailableSnapshot                 bool
+	// replacements replaces mapped documents the publisher does not serve,
+	// keyed by the mapped document's URL; see source.FindReplacements.
+	replacements map[string]source.Replacement
+	// guideSources are --guide-source ID=URL values.
+	guideSources         []string
+	skippedUnavailable   []model.SkippedUnavailableGuide
+	allAvailableSnapshot bool
 }
 
 type Listing struct {
@@ -176,6 +181,14 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 				return fmt.Errorf("live catalogue refresh failed: %w; the native client has no stale-catalogue fallback", err)
 			}
 			reporter.Clear()
+			for _, value := range o.guideSources {
+				id, raw, _ := strings.Cut(value, "=")
+				note, err := source.OverrideGuideSource(&catalog, id, o.platform, o.version, raw)
+				if err != nil {
+					return err
+				}
+				catalog.Warnings = append(catalog.Warnings, note)
+			}
 			if !o.list {
 				fixed := selectionFixed{
 					Platform:         cmd.Flags().Changed("platform"),
@@ -222,7 +235,7 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 				listing.SourceAvailability = make(map[string]model.SourceAvailability, len(docs))
 				listing.PDFAvailability = make(map[string]model.PDFAvailability, len(docs))
 				scanner := selectionWizard{
-					state: o, fetcher: store, transport: transport,
+					catalog: catalog, state: o, fetcher: store, transport: transport,
 					sourceStatus: map[string]model.SourceAvailability{},
 					availability: map[string]model.PDFAvailability{},
 					observe:      reporter.Availability,
@@ -238,7 +251,10 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 					return err
 				}
 				reporter.Clear()
-				for _, document := range docs {
+				for index, document := range docs {
+					if replacement, found := scanner.state.replacements[document.URL]; found {
+						listing.Documents[index] = replacement.Document
+					}
 					if availability, found := scanner.sourceStatus[document.URL]; found {
 						listing.SourceAvailability[document.ID] = availability
 						if availability.Checked && !availability.Available {
@@ -290,6 +306,8 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 	flags.StringVar(&o.platform, "platform", "", "Exact platform label from the portal")
 	flags.StringVar(&o.version, "release", "", "Exact AOS-CX documentation release")
 	flags.StringArrayVar(&o.guides, "guides", nil, "Space-separated exact mapped guide IDs")
+	flags.StringArrayVar(&o.guideSources, "guide-source", nil,
+		"ID=URL: archive mapped guide ID from URL, a publisher document, instead of its mapping (repeatable)")
 	flags.StringVar(&o.destination, "destination", "", "Base output directory; platform/version are always appended")
 	flags.BoolVar(&o.refresh, "refresh", false, "Revalidate cached guide bytes; catalogue is always fresh")
 	flags.BoolVar(&o.preferPDF, "prefer-pdf", false, "Prefer a source-verified whole-document publisher PDF; retain complete HTML if unavailable")
@@ -304,8 +322,8 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 	flags.StringVar(&o.rawCache, "raw-cache", "", "Empty or marked aos-cx-docs-dldr raw-v2 cache directory; unrecognised caches are rejected")
 	flags.StringVar(&o.transport, "transport", "compatible", "Browser-free native transport: compatible (default) or http")
 	flags.Float64Var(&o.delay, "delay", 0.1, "Minimum per-origin request-start gap, seconds")
-	flags.Float64Var(&o.timeout, "timeout", 300, "Overall deadline for a retrieval including robots, redirects, attempts, body consumption and backoff, seconds")
-	flags.Float64Var(&o.attemptTimeout, "attempt-timeout", 45, "Deadline for each retrieval attempt, capped by the remaining overall timeout, seconds")
+	flags.Float64Var(&o.timeout, "timeout", 300, "Overall deadline for a retrieval including robots, redirects, attempts, body consumption and backoff, postponed while a body arrives at 1 KiB/s or more, seconds")
+	flags.Float64Var(&o.attemptTimeout, "attempt-timeout", 45, "Deadline for each retrieval attempt to receive its response, and for each pause in a response body, capped by the remaining overall timeout, seconds")
 	flags.IntVar(&o.retries, "retries", 2, "Retries after transient failures (0..10)")
 	flags.IntVar(&o.workers, "workers", 4, "Parallel workers for catalogue mappings, Oxygen TOC levels and planned topic prefetch")
 	flags.Float64Var(&o.maxMB, "max-resource-mb", 256, "Maximum decoded response size, MiB")
@@ -370,6 +388,14 @@ func (o options) validateFor(interactive bool) (fetch.Config, error) {
 	}
 	if !o.list && !interactive && (len(o.guides) == 0 && !o.all || o.destination == "" || o.platform == "" || o.version == "") {
 		return fetch.Config{}, errors.New("non-interactive downloads require --platform, --release, (--guides ID ... or --all), and --destination")
+	}
+	if len(o.guideSources) > 0 && (o.list || o.platform == "" || o.version == "") {
+		return fetch.Config{}, errors.New("--guide-source needs --platform and --release and cannot be combined with --list")
+	}
+	for _, value := range o.guideSources {
+		if id, raw, ok := strings.Cut(value, "="); !ok || strings.TrimSpace(id) != id || id == "" || raw == "" {
+			return fetch.Config{}, fmt.Errorf("--guide-source must be ID=URL, not %q", value)
+		}
 	}
 	if o.list && (o.platform == "") != (o.version == "") {
 		return fetch.Config{}, errors.New("provide both --platform and --release for per-guide availability")
@@ -452,6 +478,8 @@ func printListingStyled(out io.Writer, listing Listing, o options, presentation 
 			pdfStatus, pdfFound := listing.PDFAvailability[d.ID]
 			status = "[" + availabilityLabel(d, sourceStatus, pdfStatus) + "]"
 			switch {
+			case sourceFound && sourceStatus.Checked && sourceStatus.Available && source.IsReleasePDF(d):
+				status += "; publisher PDF retrieved and identified by its title; verified again on download"
 			case sourceFound && sourceStatus.Checked && sourceStatus.Available && d.Kind == "pdf":
 				status += "; mapped PDF source verified by body-free HEAD; full bytes verified on download"
 			case sourceFound && sourceStatus.Checked && sourceStatus.Available:

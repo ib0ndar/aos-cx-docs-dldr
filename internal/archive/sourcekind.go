@@ -299,10 +299,22 @@ func (a *htmlArchiver) readPage(page *pageInput, refresh bool) (model.Resource, 
 
 func validateStaticPage(doc *html.Node) error {
 	content := findContent(doc, "static")
-	if content == nil || strings.TrimSpace(nodeText(content)) == "" {
+	if content == nil || strings.TrimSpace(nodeText(content)) == "" && !emptyDITATopic(content) {
 		return errors.New("expected substantive static/Oxygen topic content")
 	}
 	return nil
+}
+
+// emptyDITATopic reports content that is a DITA topic, an element of class
+// topic/topic, without text or images. Publishers publish topics left empty in
+// the source, such as the 10.17 Event Log Message Reference Guide's TOC entry
+// "***"; such a page is archived as served, with a warning. A container
+// without a topic element, such as a shell, error or loading page, is not one.
+func emptyDITATopic(content *html.Node) bool {
+	topic := findNode(content, func(node *html.Node) bool {
+		return node.Type == html.ElementNode && slices.Contains(strings.Fields(attr(node, "class")), "topic/topic")
+	})
+	return topic != nil && normalizedNodeText(content) == "" && !hasTopicVisualContent(content)
 }
 
 func pageMetadata(doc *html.Node) (map[string]string, []string) {

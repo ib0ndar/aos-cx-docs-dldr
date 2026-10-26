@@ -45,6 +45,9 @@ Options:
                         (default 600; 0 never)
   --quit-on-stall       on a stall, send SIGQUIT to the command so that a Go
                         program writes all goroutine stacks to FILE
+  --quit-match TEXT     with --quit-on-stall, send it instead to every process
+                        in the tree whose executable name contains TEXT, such
+                        as a program that a driver script runs
 EOF
 }
 
@@ -57,6 +60,7 @@ interval=15
 stall=300
 checkpoint=600
 quit=0
+match=
 log=
 attach=0
 pid=
@@ -67,6 +71,7 @@ while [ $# -gt 0 ]; do
 	--stall) [ $# -ge 2 ] || die "--stall needs seconds"; stall=$2; shift 2 ;;
 	--checkpoint) [ $# -ge 2 ] || die "--checkpoint needs seconds"; checkpoint=$2; shift 2 ;;
 	--quit-on-stall) quit=1; shift ;;
+	--quit-match) [ $# -ge 2 ] || die "--quit-match needs text"; match=$2; shift 2 ;;
 	--attach) attach=1; shift ;;
 	--pid) [ $# -ge 2 ] || die "--pid needs a process ID"; pid=$2; shift 2 ;;
 	-h | --help) usage; exit 0 ;;
@@ -186,10 +191,16 @@ while :; do
 		if [ "$quit" = 1 ]; then
 			targets=$pid
 			[ "$wrapped" = 1 ] && targets=$(pgrep -P "$pid" | tr '\n' ' ')
+			if [ -n "$match" ]; then
+				targets=
+				for candidate in $(tree "$pid"); do
+					case $(ps -o comm= -p "$candidate" 2>/dev/null) in *"$match"*) targets="$targets $candidate" ;; esac
+				done
+			fi
 			echo "--- sent SIGQUIT to $targets; goroutines that wait in application code:"
 			kill -QUIT $targets 2>/dev/null
 			waited=0
-			while [ "$waited" -lt 15 ] && kill -0 "$pid" 2>/dev/null; do
+			while [ "$waited" -lt 15 ] && [ -n "$targets" ] && kill -0 $targets 2>/dev/null; do
 				sleep 1
 				waited=$((waited + 1))
 			done

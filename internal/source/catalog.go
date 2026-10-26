@@ -459,7 +459,14 @@ func ResolveDocuments(c model.Catalog, platform, version string) ([]model.Docume
 		if !mapped {
 			continue
 		}
+		override, overridden := g.Overrides[version][platform]
+		if overridden {
+			target = override
+		}
 		d, err := resolve(g, platform, version, target, c.RouteRoot)
+		if overridden {
+			d.RouteOrigin = RouteOriginUserSupplied
+		}
 		if err != nil {
 			diagnostics = append(diagnostics, g.Title+": "+err.Error())
 		} else {

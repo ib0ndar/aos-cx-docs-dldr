@@ -3,6 +3,7 @@ package fetch
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -265,4 +266,123 @@ func (b *leaseBlockingBackend) RoundTripWithDispatch(
 	}
 	<-request.Context().Done()
 	return nil, request.Context().Err()
+}
+
+func TestStalledBodyReportsReceivedBytes(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/robots.txt", "/gone":
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		io.WriteString(w, strings.Repeat("x", 1234))
+		w.(http.Flusher).Flush()
+		<-r.Context().Done()
+	}))
+	defer server.Close()
+	c := client(t, func(config *Config) {
+		config.Timeout, config.AttemptTimeout = 5*time.Second, 100*time.Millisecond
+	})
+	_, err := c.Download(context.Background(), model.Request{URL: server.URL + "/large.pdf"}, func(resource model.Resource) error {
+		_, err := io.Copy(io.Discard, resource.Body)
+		return err
+	})
+	diagnostic := requireRetrievalError(t, err, StageBody, 0)
+	if diagnostic.BodyBytes != 1234 || !strings.Contains(err.Error(), "stage=body body_bytes=1234 ") {
+		t.Fatalf("received body bytes not reported: %+v %v", diagnostic, err)
+	}
+	if !Stalled(err) || !Stalled(fmt.Errorf("guide: %w", err)) {
+		t.Fatalf("stopped body is not a stall: %v", err)
+	}
+	_, err = c.Download(context.Background(), model.Request{URL: server.URL + "/gone"}, func(resource model.Resource) error {
+		_, err := io.Copy(io.Discard, resource.Body)
+		return err
+	})
+	if err == nil || Stalled(err) || strings.Contains(err.Error(), "body_bytes=") {
+		t.Fatalf("404 reported as a stall or with body bytes: %v", err)
+	}
+}
+
+func TestSlowBodyIsNotCutOffWhileItArrives(t *testing.T) {
+	// chunk bytes every 60 ms, ten times: 600 ms in all, each gap well under
+	// the 200 ms attempt deadline and the whole over the 400 ms overall one.
+	serve := func(chunk int) *httptest.Server {
+		return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.URL.Path == "/robots.txt" {
+				w.WriteHeader(http.StatusNotFound)
+				return
+			}
+			w.WriteHeader(http.StatusOK)
+			for range 10 {
+				io.WriteString(w, strings.Repeat("y", chunk))
+				w.(http.Flusher).Flush()
+				select {
+				case <-r.Context().Done():
+					return
+				case <-time.After(60 * time.Millisecond):
+				}
+			}
+		}))
+	}
+	var notices []string
+	download := func(server *httptest.Server) (int64, error) {
+		var n int64
+		c := client(t, func(config *Config) {
+			config.Timeout, config.AttemptTimeout = 400*time.Millisecond, 200*time.Millisecond
+		})
+		c.notify = func(message string) { notices = append(notices, message) }
+		_, err := c.Download(context.Background(), model.Request{URL: server.URL + "/slow.png"}, func(resource model.Resource) error {
+			var err error
+			n, err = io.Copy(io.Discard, resource.Body)
+			return err
+		})
+		return n, err
+	}
+	// About 4 KB/s, over minBodyRate: the transfer outlasts the overall deadline.
+	steady := serve(250)
+	defer steady.Close()
+	if n, err := download(steady); err != nil || n != 2500 {
+		t.Fatalf("steady body: %d bytes, %v", n, err)
+	}
+	// About 160 B/s, under minBodyRate: the overall deadline still ends it.
+	trickle := serve(10)
+	defer trickle.Close()
+	_, err := download(trickle)
+	diagnostic := requireRetrievalError(t, err, StageBody, 0)
+	if diagnostic.TimeoutScope != "overall" || !errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("overall deadline did not bound the trickling body: %v", err)
+	}
+	if len(notices) != 0 {
+		t.Fatalf("transfers under a minute were reported as slow: %q", notices)
+	}
+}
+
+func TestSlowBodyIsReported(t *testing.T) {
+	saved := slowBodyReport
+	slowBodyReport = 100 * time.Millisecond
+	t.Cleanup(func() { slowBodyReport = saved })
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/robots.txt" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+		for range 5 {
+			io.WriteString(w, strings.Repeat("z", 100))
+			w.(http.Flusher).Flush()
+			time.Sleep(60 * time.Millisecond)
+		}
+	}))
+	defer server.Close()
+	var notices []string
+	c := client(t, nil)
+	c.notify = func(message string) { notices = append(notices, message) }
+	_, err := c.Download(context.Background(), model.Request{URL: server.URL + "/slow.pdf"}, func(resource model.Resource) error {
+		_, err := io.Copy(io.Discard, resource.Body)
+		return err
+	})
+	if err != nil || len(notices) == 0 || !strings.Contains(notices[0], "the publisher is sending slowly") ||
+		!strings.Contains(notices[0], server.URL+"/slow.pdf") {
+		t.Fatalf("slow body not reported: err=%v notices=%q", err, notices)
+	}
 }

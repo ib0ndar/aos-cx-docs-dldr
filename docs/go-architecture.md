@@ -69,7 +69,12 @@ profile falls back to the other or to browser automation.
 `model.Transport.Download` owns:
 
 - a 300-second default overall deadline;
-- a fresh 45-second attempt deadline capped by remaining overall time;
+- a 45-second attempt deadline, capped by remaining overall time, for the
+  response to arrive and then for each pause in a downloaded body: bytes that
+  keep arriving restart it, and a body averaging at least 1 KiB/s postpones
+  the overall deadline as well (`Client.bodyProgress`, `deadlineContext`), so
+  only a trickle or a pause ends a slow transfer; a body still arriving after
+  a minute is reported once a minute;
 - two retries after the first attempt;
 - after a stall (an attempt that runs out of time, a body that breaks off or
   a failed connection), a pause of that origin for every request and a retry
@@ -79,7 +84,12 @@ profile falls back to the other or to browser automation.
   `Retry-After`;
 - complete response consumption and sink replacement on retry;
 - canonical request/final URL, elapsed, attempt, retry, timeout-scope, stage,
-  status, cancellation, and deadline evidence.
+  body bytes received, status, cancellation, and deadline evidence.
+
+`fetch.Stalled` identifies a retrieval that failed this way after its
+retries. The download loop does not accept such a guide at once: it tries it
+again after the other guides, at least 3 and then 8 minutes after its failure,
+and accepts the last result with the earlier failure as a warning.
 
 Each origin's robots.txt is read once, as RFC 9309 specifies: rules from a
 200 answer apply; any other 4xx than 429, such as Amazon S3's 403 for a file
@@ -127,6 +137,29 @@ documentation root from it, and stops with an update-required error if they
 changed. Releases from 10.17 route to Oxygen at
 `AOS-CX/<release>.xxxx/HTML/<folder>/index.html`, releases after 10.12 to Flare
 (the `cli` guide to its PDF), and older releases to archived PDFs.
+
+A mapping the publisher does not serve is not guessed around. When the mapped
+source answers 404 or 410, availability checking tries the candidates
+`source.FindReplacements` derives from the publisher's own data, in order:
+the target that the platforms sharing the platform's document in the nearest
+mapped releases before and after all map to in this release; then, where the
+adapter routes `cli` to `AOS-CX/<release>/PDF/<target>.pdf`, that route for
+the platform's own and its peers' target. A PDF candidate counts only when its
+information dictionary's Title (`pdfcheck.DocumentTitle`, classic
+cross-reference tables only) names the guide (every distinctive title word,
+read in the singular) and, for the peers' target, the release and platform as
+whole words; the publisher's mapping and route already place the platform's
+own target. The archive checks the downloaded bytes again. The selection
+carries the first served candidate (`options.replacements`), its route origin
+is `publisher-peer-mapping`, `publisher-release-pdf` or
+`publisher-peer-release-pdf`, and the release manifest's catalogue warnings
+record both routes.
+
+`--guide-source ID=URL` replaces one mapped guide's route with a document the
+user names (`source.OverrideGuideSource`, `Guide.Overrides`): an absolute URL
+on the catalogue's documentation host or an HPE Support Center docDisplay
+address, planned and checked as usual, with route origin `user-supplied` and
+a catalogue warning naming the replaced mapping.
 
 `Topic.URL` retains public identity; `Topic.FetchURL` identifies the body
 endpoint. `TocEntry` retains hierarchy, duplicates, and fragments while topic

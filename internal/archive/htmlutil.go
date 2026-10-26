@@ -160,7 +160,8 @@ func parseTopic(ctx context.Context, body []byte, resource model.Resource, kind 
 func validateTopicContent(doc, content *html.Node, rawURL string) error {
 	text := normalizedNodeText(content)
 	hasVisualContent := hasTopicVisualContent(content)
-	if text == "" && !hasVisualContent {
+	emptyTopic := emptyDITATopic(content)
+	if text == "" && !hasVisualContent && !emptyTopic {
 		return fmt.Errorf("publisher returned empty static document content: %s", rawURL)
 	}
 	if findNode(content, func(node *html.Node) bool {
@@ -185,7 +186,7 @@ func validateTopicContent(doc, content *html.Node, rawURL string) error {
 			contextualErrorPattern.MatchString(contextualProse))) {
 		return fmt.Errorf("publisher returned an authentication, error, or loading page: %s", rawURL)
 	}
-	if hasJSShellScript(doc) && ((bodyText == "" && !hasVisualContent) ||
+	if hasJSShellScript(doc) && ((bodyText == "" && !hasVisualContent && !emptyTopic) ||
 		contextualLoadingPattern.MatchString(contextualProse)) {
 		return fmt.Errorf("publisher returned a JavaScript-only shell: %s", rawURL)
 	}

@@ -617,6 +617,45 @@ func renderChromeDocument(
 	output *os.File,
 	config Config,
 	expectedFooter *footerPlan,
+) (renderMetrics, error) {
+	return retryChromeStart(parent, output, func() (renderMetrics, error) {
+		return renderChromeOnce(parent, sidecar, inputPath, guideRoot, expectedTitle, output, config, expectedFooter)
+	})
+}
+
+// chromeStartError is a Chrome that was launched but did not answer its first
+// DevTools command. Nothing was rendered yet.
+type chromeStartError struct{ err error }
+
+func (e *chromeStartError) Error() string { return e.err.Error() }
+func (e *chromeStartError) Unwrap() error { return e.err }
+
+// retryChromeStart runs render once more when Chrome did not start: a second
+// launch finds Chrome's files already read back, for example after a sync
+// client evicted them to free disk space. The sidecar is verified again
+// before the second launch, and output is emptied.
+func retryChromeStart(ctx context.Context, output *os.File, render func() (renderMetrics, error)) (renderMetrics, error) {
+	metrics, err := render()
+	var start *chromeStartError
+	if err == nil || !errors.As(err, &start) || ctx.Err() != nil {
+		return metrics, err
+	}
+	if _, seekErr := output.Seek(0, io.SeekStart); seekErr != nil {
+		return metrics, errors.Join(err, seekErr)
+	}
+	if truncateErr := output.Truncate(0); truncateErr != nil {
+		return metrics, errors.Join(err, truncateErr)
+	}
+	return render()
+}
+
+func renderChromeOnce(
+	parent context.Context,
+	sidecar Sidecar,
+	inputPath, guideRoot, expectedTitle string,
+	output *os.File,
+	config Config,
+	expectedFooter *footerPlan,
 ) (metrics renderMetrics, err error) {
 	renderCtx, cancel := context.WithCancel(parent)
 	defer cancel()
@@ -683,7 +722,7 @@ func renderChromeDocument(
 		}()
 	})
 	if err := chromedp.Run(browserCtx, cdpfetch.Enable(), emulation.SetScriptExecutionDisabled(true)); err != nil {
-		return metrics, chromeError("start pinned Chrome", err, logs)
+		return metrics, &chromeStartError{chromeError("start pinned Chrome", err, logs)}
 	}
 	process := chromedp.FromContext(browserCtx).Browser.Process()
 	if process == nil {
