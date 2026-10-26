@@ -6,7 +6,7 @@ import (
 	"net/http"
 )
 
-const Version = "0.8"
+const Version = "0.9"
 const ExecutableName = "aos-cx-docs-dldr"
 const PortalURL = "https://arubanetworking.hpe.com/techdocs/ArubaDocPortal/content/new-portal/aoscx.html"
 

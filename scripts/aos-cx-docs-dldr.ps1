@@ -27,7 +27,7 @@ function aos-cx-docs-dldr {
     $userArgs = @($CliArgs | Where-Object { $null -ne $_ })
 
     $engine = if ($env:AOSCX_DOCS_ENGINE) { $env:AOSCX_DOCS_ENGINE } else { 'docker' }
-    $image  = if ($env:AOSCX_DOCS_IMAGE)  { $env:AOSCX_DOCS_IMAGE }  else { 'aos-cx-docs-dldr:0.8' }
+    $image  = if ($env:AOSCX_DOCS_IMAGE)  { $env:AOSCX_DOCS_IMAGE }  else { 'aos-cx-docs-dldr:0.9' }
     # USERPROFILE is always set on Windows; HOME covers PowerShell on other
     # systems, where this wrapper is also handy for testing. Join-Path is
     # nested rather than given three arguments so the script stays valid on

@@ -1,10 +1,23 @@
 # Release notes
 
-## Unreleased - new documentation portal
+## 0.9 - 2026-10-26
 
-The publisher replaced the Product Documentation portal on 2026-10-22. Version
-0.8 cannot read it (`--list` fails with "portal must contain one
-select#platform"); this change restores catalogue, listing and downloads.
+The publisher replaced the Product Documentation portal on 2026-10-22, and
+version 0.8 cannot read it (`--list` fails with "portal must contain one
+select#platform"). Version 0.9 reads the new portal, archives its Oxygen
+WebHelp guides, downloads guides the publisher maps or serves defectively, and
+adds the security hardening below. It was verified by downloading every guide,
+with PDFs, of 8325, 6100 and 8400 for releases 10.18, 10.17, 10.16 and 10.13,
+and of 8360 10.18.
+
+- Libraries record the application version that wrote them. A library made by
+  0.8, or by a development build of these changes, which still reported 0.8,
+  is left untouched: choose a new `--destination` and download again. The
+  download cache is kept and reused.
+- The Windows shortcut's default image is `aos-cx-docs-dldr:0.9`; load the 0.9
+  container archive and replace the shortcut file.
+
+### New documentation portal
 
 - Read the new portal's JSON registry and product configuration for platforms,
   releases and guides. Guide mappings keep their location and shape. The
@@ -170,7 +183,7 @@ select#platform"); this change restores catalogue, listing and downloads.
   conversion fail for a bundle kept in a synced folder; the file is read
   again, and its bytes must still match the pin.
 
-## Unreleased - security hardening
+### Security hardening
 
 Archived HTML:
 
@@ -231,7 +244,8 @@ Library:
 
 Packaging:
 
-- Build the container with Go 1.27.3 and a refreshed `debian:trixie-slim`, and
+- Build both packages with Go 1.27.3, the container on a refreshed
+  `debian:trixie-slim`, and
   update `golang.org/x/net` to v0.60.0; the published v0.8 binaries were built
   with Go 1.27.1, which carries standard-library advisories fixed since.
 - Remove every setuid/setgid bit from the image, and run it with

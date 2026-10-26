@@ -79,7 +79,7 @@ RUN mkdir -p /skel/library /skel/cache /skel/home/nonroot
 # debian:trixie-slim, resolved 2026-10-25.
 FROM debian:trixie-slim@sha256:62bd423aeee912639ca8ee681c2b762cb3e25137e0a92b20be455898a9f034ad
 
-ARG VERSION=0.8
+ARG VERSION=0.9
 LABEL org.opencontainers.image.title="aos-cx-docs-dldr" \
       org.opencontainers.image.version="${VERSION}" \
       org.opencontainers.image.description="Offline copies of public HPE Aruba Networking AOS-CX Product Documentation, with generated-PDF conversion" \
