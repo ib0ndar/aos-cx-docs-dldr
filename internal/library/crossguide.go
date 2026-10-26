@@ -35,18 +35,37 @@ type crossGuidePage struct {
 	path     string
 	body     []byte
 	rewrites int
+	// restored counts local links into another guide's former pages that
+	// went back online or, without a known address, lost their href.
+	restored int
 	warnings []string
 }
 
 type crossGuideIndex map[string]map[string]crossGuideTarget
+
+// crossGuideFormer describes the pages a guide published by an earlier run
+// may still link to locally. A guide whose HTML was kept links to the pages of
+// another guide; when that guide is replaced by a publisher PDF, keeps only
+// its generated PDF or is downloaded again without the page, the page is gone
+// and such links must go back online.
+type crossGuideFormer struct {
+	guides map[string]bool   // guide directories of the staged library
+	pages  map[string]bool   // release-relative paths of staged HTML pages
+	online map[string]string // public topic URL of each other page path on record
+}
 
 func (r *Run) localizeCrossGuideLinks(manifest *Manifest) error {
 	if err := r.checkOwnership(); err != nil {
 		return err
 	}
 	index := crossGuideIndex{}
+	former := crossGuideFormer{guides: map[string]bool{}, pages: map[string]bool{}, online: map[string]string{}}
+	for guide := range manifest.PDFGuides {
+		former.guides[guide] = true
+	}
 	aliases := 0
 	for guide, result := range manifest.HTMLGuides {
+		former.guides[guide] = true
 		if (result.Status != "complete" && result.Status != "degraded") || result.Format != "html" ||
 			result.HTML == nil || result.HTMLRemoved {
 			continue
@@ -55,6 +74,7 @@ func (r *Run) localizeCrossGuideLinks(manifest *Manifest) error {
 			return fmt.Errorf("verify HTML guide before cross-guide localization: %w", err)
 		}
 		for _, record := range result.HTML.Topics {
+			former.pages[path.Join(guide, record.Path)] = true
 			target := crossGuideTarget{
 				guide:             guide,
 				path:              record.Path,
@@ -78,6 +98,21 @@ func (r *Run) localizeCrossGuideLinks(manifest *Manifest) error {
 			}
 		}
 	}
+	// HTML records outlive their pages: a guide that keeps only its generated
+	// PDF keeps them, and the previous manifest holds those of a guide now
+	// replaced by a publisher PDF. Current records take precedence.
+	for _, guides := range []map[string]model.ArchiveResult{r.previous.HTMLGuides, manifest.HTMLGuides} {
+		for guide, result := range guides {
+			if result.HTML == nil {
+				continue
+			}
+			for _, record := range result.HTML.Topics {
+				if name := path.Join(guide, record.Path); !former.pages[name] {
+					former.online[name] = record.URL
+				}
+			}
+		}
+	}
 
 	var pages []crossGuidePage
 	for guide, result := range manifest.HTMLGuides {
@@ -86,7 +121,7 @@ func (r *Run) localizeCrossGuideLinks(manifest *Manifest) error {
 			continue
 		}
 		for _, record := range result.HTML.Topics {
-			page, changed, err := r.prepareCrossGuidePage(index, guide, record)
+			page, changed, err := r.prepareCrossGuidePage(index, former, guide, record)
 			if err != nil {
 				return err
 			}
@@ -102,7 +137,7 @@ func (r *Run) localizeCrossGuideLinks(manifest *Manifest) error {
 		if !ok {
 			result = cloneArchiveResult(manifest.HTMLGuides[page.guide])
 		}
-		if page.rewrites > 0 {
+		if page.body != nil {
 			if err := r.checkOwnership(); err != nil {
 				return err
 			}
@@ -132,7 +167,7 @@ func (r *Run) localizeCrossGuideLinks(manifest *Manifest) error {
 					result.MissingResources[index].GeneratedPageSHA256 = hash
 				}
 			}
-			result.HTML.Integrity.CheckedLinks += page.rewrites
+			result.HTML.Integrity.CheckedLinks = max(0, result.HTML.Integrity.CheckedLinks+page.rewrites-page.restored)
 		}
 		for _, warning := range page.warnings {
 			result.HTML.Warnings = appendUniqueBounded(result.HTML.Warnings, warning, maxCrossGuideDiagnostics)
@@ -156,7 +191,7 @@ func (r *Run) localizeCrossGuideLinks(manifest *Manifest) error {
 	return r.checkOwnership()
 }
 
-func (r *Run) prepareCrossGuidePage(index crossGuideIndex, guide string, record model.FileRecord) (crossGuidePage, bool, error) {
+func (r *Run) prepareCrossGuidePage(index crossGuideIndex, former crossGuideFormer, guide string, record model.FileRecord) (crossGuidePage, bool, error) {
 	result := crossGuidePage{guide: guide, path: record.Path}
 	name := path.Join(r.stage, guide, record.Path)
 	file, err := r.root.Open(name)
@@ -178,8 +213,15 @@ func (r *Run) prepareCrossGuidePage(index crossGuideIndex, guide string, record 
 	targetIDs := map[string]map[string]bool{}
 	var firstErr error
 	walkHTML(document, func(node *html.Node) {
-		if firstErr != nil || node.Type != html.ElementNode || node.Data != "a" ||
-			!hasHTMLClass(node, "archive-online") || excludedCrossGuideAnchor(node) {
+		if firstErr != nil || node.Type != html.ElementNode || node.Data != "a" {
+			return
+		}
+		// A link restored online may lead to another guide's page again.
+		if hasHTMLClass(node, "archive-online") {
+			if excludedCrossGuideAnchor(node) {
+				return
+			}
+		} else if !former.restore(node, guide, record.Path, &result) {
 			return
 		}
 		raw := strings.TrimSpace(htmlAttribute(node, "href"))
@@ -264,10 +306,10 @@ func (r *Run) prepareCrossGuidePage(index crossGuideIndex, guide string, record 
 	if firstErr != nil {
 		return result, false, firstErr
 	}
-	if result.rewrites == 0 && len(result.warnings) == 0 {
+	if result.rewrites == 0 && result.restored == 0 && len(result.warnings) == 0 {
 		return result, false, nil
 	}
-	if result.rewrites > 0 {
+	if result.rewrites > 0 || result.restored > 0 {
 		var rendered bytes.Buffer
 		if err := html.Render(&rendered, document); err != nil {
 			return result, false, err
@@ -275,6 +317,41 @@ func (r *Run) prepareCrossGuidePage(index crossGuideIndex, guide string, record 
 		result.body = rendered.Bytes()
 	}
 	return result, true, nil
+}
+
+// restore gives a local link into a former page of another guide the form
+// the archiver gives a link it does not keep offline, the topic's public URL
+// with the archive-online class, and reports whether it did. The public URL
+// identifies the topic, so the query the local link kept from the link's
+// original URL is not carried over. A link whose public URL is not on record
+// loses its href, as the archiver drops a link it cannot resolve.
+func (f crossGuideFormer) restore(node *html.Node, guide, page string, result *crossGuidePage) bool {
+	parsed, err := url.Parse(strings.TrimSpace(htmlAttribute(node, "href")))
+	if err != nil || parsed.Scheme != "" || parsed.Host != "" || parsed.Path == "" || path.IsAbs(parsed.Path) {
+		return false
+	}
+	target := path.Join(path.Dir(path.Join(guide, page)), parsed.Path)
+	targetGuide, targetPath, _ := strings.Cut(target, "/")
+	if targetGuide == guide || !f.guides[targetGuide] || !strings.HasPrefix(targetPath, "pages/") ||
+		f.pages[target] || excludedCrossGuideAnchor(node) {
+		return false
+	}
+	result.restored++
+	public, ok := f.online[target]
+	if !ok {
+		removeHTMLAttribute(node, "href")
+		result.warnings = appendUniqueBounded(result.warnings,
+			fmt.Sprintf("Cross-guide link removed from %s: %s is no longer an HTML page and its public URL is not on record",
+				page, target), maxCrossGuideDiagnostics)
+		return false
+	}
+	public, _, _ = strings.Cut(public, "#")
+	if parsed.Fragment != "" {
+		public += "#" + parsed.EscapedFragment()
+	}
+	setHTMLAttribute(node, "href", public)
+	addHTMLClass(node, "archive-online")
+	return true
 }
 
 func (r *Run) generatedPageIDs(name string) (map[string]bool, error) {
@@ -451,6 +528,12 @@ func removeHTMLAttribute(node *html.Node, key string) {
 
 func hasHTMLClass(node *html.Node, class string) bool {
 	return slices.Contains(strings.Fields(htmlAttribute(node, "class")), class)
+}
+
+func addHTMLClass(node *html.Node, class string) {
+	if !hasHTMLClass(node, class) {
+		setHTMLAttribute(node, "class", strings.Join(append(strings.Fields(htmlAttribute(node, "class")), class), " "))
+	}
 }
 
 func removeHTMLClass(node *html.Node, class string) {

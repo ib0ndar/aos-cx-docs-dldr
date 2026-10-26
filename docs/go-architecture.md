@@ -257,8 +257,14 @@ such evidence the entry keeps its link to the page and is reported as a
 warning.
 
 Active references are validated according to element/attribute semantics.
-Cross-guide links localize only to a unique accepted topic identity. HTML search
-covers titles and archived text; PDFs remain title-only.
+Cross-guide links localize only to a unique accepted topic identity. A guide
+kept from an earlier run can hold such local links to a page the staged
+library no longer has: its guide was replaced by a publisher PDF, kept only as
+its generated PDF, or downloaded again without it. Publication returns each
+one online, to the topic's public URL from the HTML records of the current or
+previous manifest, and localizes it again where a unique target remains. A
+link whose URL is in neither loses its href, with a warning. HTML search covers
+titles and archived text; PDFs remain title-only.
 
 Publication owns lock, staging, incomplete work, snapshots, history, and
 rollback. It rechecks lock inode/owner and journal inode/content before shared

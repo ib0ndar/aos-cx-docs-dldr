@@ -9,6 +9,11 @@
   HTML. The release manifest marks such guides `html_removed`; the release
   index links the PDF, which is searchable by title only. A 0.9 binary cannot
   open a library holding such a guide.
+- Links from a guide kept from an earlier download to a page the library no
+  longer has go back online, or to the topic's new page: for example when the
+  linked guide has since been replaced by a publisher PDF (`--prefer-pdf`) or
+  kept only as its generated PDF. They used to keep leading to the removed
+  pages.
 
 ## 0.9 - 2026-10-26
 

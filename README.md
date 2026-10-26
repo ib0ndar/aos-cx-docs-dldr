@@ -397,6 +397,8 @@ built from HTML get the browsable folder shown above.
 The release-level search covers titles and archived HTML text. Publisher PDFs
 remain title-only. Cross-guide links are localized only when the application
 can verify one accepted target; ambiguous or unverifiable links remain online.
+When a guide later loses a page, or all its HTML to a PDF, links to it from
+guides kept from earlier downloads go back online.
 
 Downloaded web responses are cached separately, outside your library, so
 repeating or resuming a download does not re-fetch everything. The cache is

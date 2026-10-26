@@ -15,6 +15,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -90,23 +91,9 @@ func acceptFixtureHTML(
 
 func hrefByText(t *testing.T, filename, text string) string {
 	t.Helper()
-	body, err := os.ReadFile(filename)
-	if err != nil {
-		t.Fatal(err)
-	}
-	document, err := html.Parse(bytes.NewReader(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	var href string
-	walkHTML(document, func(node *html.Node) {
-		if node.Type == html.ElementNode && node.Data == "a" &&
-			strings.TrimSpace(nodeTextForTest(node)) == text {
-			href = htmlAttribute(node, "href")
-		}
-	})
+	href := htmlAttribute(anchorByText(t, filename, text), "href")
 	if href == "" {
-		t.Fatalf("link %q missing from %s", text, filename)
+		t.Fatalf("link %q has no href in %s", text, filename)
 	}
 	return href
 }
@@ -459,5 +446,259 @@ func TestCancelledPublicationStillFinalizesAcceptedCrossGuideLinks(t *testing.T)
 	want := localCrossGuideHref("source", source.HTML.Topics[0], "target", target.HTML.Topics[0], "", "")
 	if got := hrefByText(t, sourcePage, "Target"); got != want {
 		t.Fatalf("cancelled publication omitted finalized cross-guide link: %q", got)
+	}
+}
+
+func anchorByText(t *testing.T, filename, text string) *html.Node {
+	t.Helper()
+	body, err := os.ReadFile(filename)
+	if err != nil {
+		t.Fatal(err)
+	}
+	document, err := html.Parse(bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var anchor *html.Node
+	walkHTML(document, func(node *html.Node) {
+		if node.Type == html.ElementNode && node.Data == "a" &&
+			strings.TrimSpace(nodeTextForTest(node)) == text {
+			anchor = node
+		}
+	})
+	if anchor == nil {
+		t.Fatalf("link %q missing from %s", text, filename)
+	}
+	return anchor
+}
+
+func renderSortedAttributes(t *testing.T, body []byte) string {
+	t.Helper()
+	document, err := html.Parse(bytes.NewReader(body))
+	if err != nil {
+		t.Fatal(err)
+	}
+	walkHTML(document, func(node *html.Node) {
+		slices.SortFunc(node.Attr, func(first, second html.Attribute) int {
+			return strings.Compare(first.Key, second.Key)
+		})
+	})
+	var rendered bytes.Buffer
+	if err := html.Render(&rendered, document); err != nil {
+		t.Fatal(err)
+	}
+	return rendered.String()
+}
+
+func TestRetainedGuideLinksGoOnlineWhenTheirTargetPageIsGone(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		keepsPages bool
+		replace    func(*testing.T, *Run)
+	}{
+		{"publisher PDF", false, func(t *testing.T, run *Run) { acceptPDF(t, run, "target", "replacement") }},
+		{"generated PDF only", false, func(t *testing.T, run *Run) {
+			run.ReplaceHTMLWithPDF = true
+			if err := run.Accept(archiveHTMLWithPDF(t, run, "target", "complete")); err != nil {
+				t.Fatal(err)
+			}
+		}},
+		{"HTML without the page", true, func(t *testing.T, run *Run) {
+			other := "https://example.test/guide/Content/other.htm"
+			acceptFixtureHTML(t, run,
+				model.Document{ID: "target", Title: "target Guide", Platform: "6300", Version: "10.10", Kind: "static", URL: other},
+				model.Topic{URL: other, Title: "Other"}, "", `<main><h1>Other</h1></main>`)
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			base := t.TempDir()
+			first, err := Open(base, "6300", "10.10")
+			if err != nil {
+				t.Fatal(err)
+			}
+			target := acceptHTML(t, first, "target")
+			targetURL := target.HTML.Topics[0].URL
+			sourceURL := "https://source.example.test/guide/source.html"
+			source := acceptFixtureHTML(t, first,
+				model.Document{ID: "source", Title: "Source Guide", Platform: "6300", Version: "10.10", Kind: "static", URL: sourceURL},
+				model.Topic{URL: sourceURL, Title: "Source"}, "",
+				`<main><h1>Source</h1><a href="`+targetURL+`#home">Target heading</a> <a href="`+targetURL+`">Target page</a></main>`)
+			archived, err := os.ReadFile(filepath.Join(first.Stage, "source", filepath.FromSlash(source.HTML.Topics[0].Path)))
+			if err != nil {
+				t.Fatal(err)
+			}
+			if _, err := first.Publish(false); err != nil {
+				t.Fatal(err)
+			}
+			if err := first.Close(); err != nil {
+				t.Fatal(err)
+			}
+			sourcePage := filepath.Join(first.Target, "source", filepath.FromSlash(source.HTML.Topics[0].Path))
+			for text, fragment := range map[string]string{"Target heading": "home", "Target page": ""} {
+				want := localCrossGuideHref("source", source.HTML.Topics[0], "target", target.HTML.Topics[0], "", fragment)
+				if got := hrefByText(t, sourcePage, text); got != want {
+					t.Fatalf("first run did not localize %s: %q, want %q", text, got, want)
+				}
+			}
+
+			second, err := Open(base, "6300", "10.10")
+			if err != nil {
+				t.Fatal(err)
+			}
+			tc.replace(t, second)
+			manifest, err := second.Publish(false)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := second.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if len(manifest.Attempts) != 1 || manifest.Attempts[0].ID != "target" {
+				t.Fatalf("source guide was not retained from the first run: %+v", manifest.Attempts)
+			}
+			if _, err := os.Stat(filepath.Join(second.Target, "target", "pages")); !tc.keepsPages && !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("replaced target guide still has pages: %v", err)
+			}
+			if _, err := os.Stat(filepath.Join(second.Target, "target", filepath.FromSlash(target.HTML.Topics[0].Path))); !errors.Is(err, os.ErrNotExist) {
+				t.Fatalf("linked target page still exists: %v", err)
+			}
+			for text, want := range map[string]string{"Target heading": targetURL + "#home", "Target page": targetURL} {
+				anchor := anchorByText(t, sourcePage, text)
+				if got := htmlAttribute(anchor, "href"); got != want || !hasHTMLClass(anchor, "archive-online") {
+					t.Errorf("%s = %q class %q, want online %q", text, got, htmlAttribute(anchor, "class"), want)
+				}
+			}
+			// Going back online undoes the localization: the page is the one
+			// the archiver wrote, as rewritten pages are rendered and with
+			// attributes in any order.
+			published := manifest.HTMLGuides["source"]
+			body, err := os.ReadFile(sourcePage)
+			if err != nil {
+				t.Fatal(err)
+			}
+			digest := sha256.Sum256(body)
+			if published.HTML.Topics[0].SHA256 != hex.EncodeToString(digest[:]) ||
+				published.HTML.Topics[0].Size != int64(len(body)) {
+				t.Fatal("restored cross-guide topic metadata is stale")
+			}
+			if got, want := renderSortedAttributes(t, body), renderSortedAttributes(t, archived); got != want {
+				t.Errorf("restored page differs from the archiver's page:\n%s\nwant:\n%s", got, want)
+			}
+			if published.HTML.Integrity.CheckedLinks != source.HTML.Integrity.CheckedLinks {
+				t.Errorf("checked local links = %d, want the archiver's %d",
+					published.HTML.Integrity.CheckedLinks, source.HTML.Integrity.CheckedLinks)
+			}
+			if len(published.Warnings) != 0 {
+				t.Errorf("restoring links online warned: %v", published.Warnings)
+			}
+
+			reopened, err := Open(base, "6300", "10.10")
+			if err != nil {
+				t.Fatalf("library with restored links failed verification: %v", err)
+			}
+			if err := reopened.Close(); err != nil {
+				t.Fatal(err)
+			}
+			if _, err := ExportZIP(context.Background(), second.Target); err != nil {
+				t.Fatalf("library with restored links does not export: %v", err)
+			}
+		})
+	}
+}
+
+func TestFormerCrossGuideLinkWithoutPublicURLLosesItsHref(t *testing.T) {
+	former := crossGuideFormer{
+		guides: map[string]bool{"source": true, "target": true, "kept": true},
+		pages:  map[string]bool{"source/pages/a.html": true, "kept/pages/k.html": true},
+		online: map[string]string{},
+	}
+	document, err := html.Parse(strings.NewReader(`<main>
+<a href="../../target/pages/gone.html#mark">Gone</a>
+<a href="../../kept/pages/k.html">Kept</a>
+<a href="b.html">Same guide</a>
+<a href="../../unknown/pages/x.html">Unknown guide</a>
+<div class="archive-nav"><a href="../../target/pages/nav.html">Navigation</a></div>
+</main>`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	page := crossGuidePage{guide: "source", path: "pages/a.html"}
+	anchors, online := map[string]*html.Node{}, map[string]bool{}
+	walkHTML(document, func(node *html.Node) {
+		if node.Type == html.ElementNode && node.Data == "a" {
+			anchors[nodeTextForTest(node)] = node
+			online[nodeTextForTest(node)] = former.restore(node, "source", "pages/a.html", &page)
+		}
+	})
+	if page.restored != 1 || len(page.warnings) != 1 ||
+		!strings.Contains(page.warnings[0], "target/pages/gone.html is no longer an HTML page") {
+		t.Fatalf("restored %d, warnings %v", page.restored, page.warnings)
+	}
+	for text, href := range map[string]string{
+		"Kept": "../../kept/pages/k.html", "Same guide": "b.html",
+		"Unknown guide": "../../unknown/pages/x.html", "Navigation": "../../target/pages/nav.html",
+	} {
+		if got := htmlAttribute(anchors[text], "href"); online[text] || got != href {
+			t.Errorf("%s changed: online %v, href %q", text, online[text], got)
+		}
+	}
+	if gone := anchors["Gone"]; online["Gone"] || htmlAttribute(gone, "href") != "" || hasHTMLClass(gone, "archive-online") {
+		t.Fatalf("link without a public URL kept an address: %v", gone.Attr)
+	}
+}
+
+func TestRetainedGuideLinkFollowsItsTopicToANewPage(t *testing.T) {
+	base := t.TempDir()
+	first, err := Open(base, "6300", "10.10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := acceptHTML(t, first, "target")
+	targetURL := target.HTML.Topics[0].URL
+	sourceURL := "https://source.example.test/guide/source.html"
+	source := acceptFixtureHTML(t, first,
+		model.Document{ID: "source", Title: "Source Guide", Platform: "6300", Version: "10.10", Kind: "static", URL: sourceURL},
+		model.Topic{URL: sourceURL, Title: "Source"}, "",
+		`<main><a href="`+targetURL+`#home">Target heading</a></main>`)
+	if _, err := first.Publish(false); err != nil {
+		t.Fatal(err)
+	}
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	second, err := Open(base, "6300", "10.10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// The same topic under a new title is archived under a new page name.
+	moved := acceptFixtureHTML(t, second,
+		model.Document{ID: "target", Title: "target Guide", Platform: "6300", Version: "10.10", Kind: "flare", URL: targetURL},
+		model.Topic{URL: targetURL, Title: "Moved"}, "",
+		`<main id="mc-main-content"><h1 id="home">Moved</h1></main>`)
+	if moved.HTML.Topics[0].Path == target.HTML.Topics[0].Path {
+		t.Fatalf("fixture kept the page name %s", moved.HTML.Topics[0].Path)
+	}
+	manifest, err := second.Publish(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := second.Close(); err != nil {
+		t.Fatal(err)
+	}
+	sourcePage := filepath.Join(second.Target, "source", filepath.FromSlash(source.HTML.Topics[0].Path))
+	want := localCrossGuideHref("source", source.HTML.Topics[0], "target", moved.HTML.Topics[0], "", "home")
+	if got := hrefByText(t, sourcePage, "Target heading"); got != want {
+		t.Fatalf("link = %q, want %q", got, want)
+	}
+	if got := manifest.HTMLGuides["source"].HTML.Integrity.CheckedLinks; got != source.HTML.Integrity.CheckedLinks+1 {
+		t.Fatalf("checked local links = %d, want %d", got, source.HTML.Integrity.CheckedLinks+1)
+	}
+	reopened, err := Open(base, "6300", "10.10")
+	if err != nil {
+		t.Fatalf("library with a relocalized link failed verification: %v", err)
+	}
+	if err := reopened.Close(); err != nil {
+		t.Fatal(err)
 	}
 }
