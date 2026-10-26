@@ -44,19 +44,27 @@ type indexCopy struct {
 }
 
 func describeIndex(manifest Manifest) indexCopy {
-	htmlCount, pdfCount := 0, 0
+	// generatedCount counts HTML guides the library keeps only as their
+	// generated PDF.
+	htmlCount, pdfCount, generatedCount := 0, 0, 0
 	for _, guide := range manifest.Guides {
-		switch guide.Format {
-		case "html":
+		switch {
+		case guide.Format == "html" && guide.HTMLRemoved:
+			generatedCount++
+		case guide.Format == "html":
 			htmlCount++
-		case "pdf":
+		case guide.Format == "pdf":
 			pdfCount++
 		}
 	}
 	switch {
-	case htmlCount > 0 && pdfCount > 0:
+	case htmlCount > 0 && pdfCount+generatedCount > 0:
+		description := "Downloaded HTML guides and original publisher PDFs are available offline."
+		if generatedCount > 0 {
+			description = "Downloaded HTML guides and PDFs are available offline."
+		}
 		return indexCopy{
-			Description:       "Downloaded HTML guides and original publisher PDFs are available offline.",
+			Description:       description,
 			SearchLabel:       "Search downloaded guides, topics, and HTML text",
 			SearchPlaceholder: "Guide, topic, or archived HTML text",
 			SearchEmpty:       "No matching downloaded guide, topic, or HTML text.",
@@ -71,9 +79,16 @@ func describeIndex(manifest Manifest) indexCopy {
 			SearchEmpty:       "No matching downloaded HTML guide, topic, or text.",
 			LibraryLabel:      "native HTML library",
 		}
-	case pdfCount > 0:
+	case pdfCount+generatedCount > 0:
+		description := "Original publisher PDFs are saved without conversion."
+		switch {
+		case pdfCount > 0 && generatedCount > 0:
+			description = "Original publisher PDFs and PDFs generated from downloaded HTML guides are saved offline."
+		case generatedCount > 0:
+			description = "PDFs generated from downloaded HTML guides are saved offline."
+		}
 		return indexCopy{
-			Description:       "Original publisher PDFs are saved without conversion.",
+			Description:       description,
 			SearchLabel:       "Search downloaded PDF titles",
 			SearchPlaceholder: "Guide title",
 			SearchEmpty:       "No matching downloaded PDF titles.",
@@ -140,6 +155,10 @@ func (r *Run) writeIndexAt(directory string, manifest Manifest, history []Histor
 			pdf := manifest.PDFGuides[guide.Path].PDF
 			link = (&url.URL{Path: path.Join(guide.Path, pdf.Path)}).EscapedPath()
 			text = ""
+		} else if guide.HTMLRemoved {
+			generated := manifest.HTMLGuides[guide.Path].HTML.GeneratedPDF
+			link = (&url.URL{Path: path.Join(guide.Path, generated.Path)}).EscapedPath()
+			text = ""
 		} else if generated := manifest.HTMLGuides[guide.Path].HTML.GeneratedPDF; generated != nil &&
 			generated.Status == "complete" {
 			pdfURL := (&url.URL{Path: path.Join(guide.Path, generated.Path)}).EscapedPath()
@@ -154,7 +173,7 @@ func (r *Run) writeIndexAt(directory string, manifest Manifest, history []Histor
 		}
 		entries = append(entries, indexEntry{Title: guide.Title, Status: guide.Status, URL: link})
 		search = append(search, searchEntry{Guide: guide.Title, Title: guide.Title, URL: link, Text: text})
-		if guide.Format == "html" {
+		if guide.Format == "html" && !guide.HTMLRemoved {
 			records, err := r.guideSearchEntries(directory, guide, manifest.HTMLGuides[guide.Path])
 			if err != nil {
 				return err

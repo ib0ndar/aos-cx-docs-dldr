@@ -3,12 +3,14 @@
 package cli
 
 import (
+	"archive/zip"
 	"bytes"
 	"context"
 	"encoding/json"
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"aos-cx-docs-dldr/internal/library"
@@ -116,5 +118,56 @@ func TestPinnedChromeCLIPublishesDegradedPlaceholderPDFAndZIP(t *testing.T) {
 	}
 	if output.ZIP == "" {
 		t.Fatal("degraded ZIP path is empty")
+	}
+}
+
+func TestPinnedChromeCLIReplacesHTMLWithPDF(t *testing.T) {
+	chrome := os.Getenv(pdfgen.ChromePathEnvironment)
+	if chrome == "" {
+		t.Skip(pdfgen.ChromePathEnvironment + " is not set")
+	}
+	qpdf := os.Getenv(pdfgen.QPDFPathEnvironment)
+	if qpdf == "" {
+		t.Skip(pdfgen.QPDFPathEnvironment + " is not set")
+	}
+	server := generatedPDFServer(t)
+	defer server.Close()
+	args := append(
+		generatedPDFArgs(t, server, filepath.Join(t.TempDir(), "library"), chrome),
+		"--qpdf-path", qpdf, "--zip", "--replace-html-with-pdf",
+	)
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), args, &stdout, &stderr, newNativeClient); code != 0 {
+		t.Fatalf("PDF replacement CLI exit=%d stdout=%s stderr=%s", code, &stdout, &stderr)
+	}
+	var output DownloadOutput
+	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+		t.Fatal(err)
+	}
+	guide := output.Manifest.HTMLGuides["job"]
+	generated := guide.HTML.GeneratedPDF
+	if output.Manifest.Status != "complete" || !guide.HTMLRemoved || generated == nil ||
+		generated.Status != "complete" || len(output.Manifest.Guides) != 1 || !output.Manifest.Guides[0].HTMLRemoved {
+		t.Fatalf("PDF did not replace the HTML: %+v", output.Manifest)
+	}
+	entries, err := os.ReadDir(filepath.Join(output.Library, "job"))
+	if err != nil || len(entries) != 1 || entries[0].Name() != generated.Path {
+		t.Fatalf("guide whose HTML was replaced holds %v: %v", entries, err)
+	}
+	search, _ := os.ReadFile(filepath.Join(output.Library, "search-index.js"))
+	if strings.Contains(string(search), "Offline generated PDF fixture") {
+		t.Fatal("search still holds the text of removed HTML")
+	}
+	reader, err := zip.OpenReader(output.ZIP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer reader.Close()
+	if !containsZIPMember(reader.File, filepath.ToSlash(filepath.Join("10.16", "job", generated.Path))) ||
+		containsZIPMember(reader.File, "10.16/job/index.html") {
+		t.Fatal("ZIP does not hold exactly the PDF of the replaced guide")
+	}
+	if _, err := library.ExportZIP(context.Background(), output.Library); err != nil {
+		t.Fatalf("published library with a replaced guide does not verify: %v", err)
 	}
 }

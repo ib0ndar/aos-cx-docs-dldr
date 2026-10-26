@@ -107,6 +107,17 @@ func acceptHTMLWithNotices(t *testing.T, r *Run, id string, notices []model.Noti
 
 func acceptHTMLWithDiagnostics(t *testing.T, r *Run, id string, notices []model.Notice, recoveries []model.StylesheetRecovery) model.ArchiveResult {
 	t.Helper()
+	result := archiveHTMLGuide(t, r, id, notices, recoveries)
+	if err := r.Accept(result); err != nil {
+		t.Fatal(err)
+	}
+	return result
+}
+
+// archiveHTMLGuide archives a one-topic HTML guide in its work directory
+// without accepting it.
+func archiveHTMLGuide(t *testing.T, r *Run, id string, notices []model.Notice, recoveries []model.StylesheetRecovery) model.ArchiveResult {
+	t.Helper()
 	url := "https://example.test/guide/Content/home.htm"
 	doc := model.Document{
 		ID: id, Title: id + " Guide", Platform: "6300", Version: "10.10", Kind: "flare",
@@ -126,9 +137,6 @@ func acceptHTMLWithDiagnostics(t *testing.T, r *Run, id string, notices []model.
 	result.StylesheetRecoveries = cloneStylesheetRecoveries(recoveries)
 	result.HTML.StylesheetRecoveries = cloneStylesheetRecoveries(recoveries)
 	if err := storage.WriteJSON(r.root, path.Join(r.stage, ".work", id, "manifest.json"), result.HTML); err != nil {
-		t.Fatal(err)
-	}
-	if err := r.Accept(result); err != nil {
 		t.Fatal(err)
 	}
 	return result

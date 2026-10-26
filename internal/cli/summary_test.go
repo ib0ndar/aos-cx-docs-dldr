@@ -48,7 +48,7 @@ type summaryGuide = struct {
 func TestSummarySaysEveryGuideIsPresentAndComplete(t *testing.T) {
 	m := summaryManifest(summaryGuide{"cli", "pdf", "complete", false}, summaryGuide{"acls", "html", "complete", true},
 		summaryGuide{"vsx", "html", "complete", true})
-	got := strings.Join(librarySummary(m, selectedGuides("cli", "acls", "vsx"), true), "\n")
+	got := strings.Join(librarySummary(m, selectedGuides("cli", "acls", "vsx"), true, false), "\n")
 	want := "Guides: all 3 selected guides are present and complete.\n" +
 		"PDF files: all 3 guides have one: 1 downloaded from the publisher, 2 converted from their downloaded web pages."
 	if got != want {
@@ -66,7 +66,7 @@ func TestSummaryNamesWhatADegradedGuideLacks(t *testing.T) {
 	m.Attempts[2].MissingResources = []model.MissingResource{
 		{PlaceholderID: "a", HTTPStatus: 404}, {PlaceholderID: "b", HTTPStatus: 404}, {PlaceholderID: "c", HTTPStatus: 410},
 	}
-	got := strings.Join(librarySummary(m, selectedGuides("multicast", "nae", "qos", "vsx"), true), "\n")
+	got := strings.Join(librarySummary(m, selectedGuides("multicast", "nae", "qos", "vsx"), true, false), "\n")
 	want := "Guides: all 4 selected guides are present: 1 complete, 3 degraded (the publisher does not serve all of their content).\n" +
 		"PDF files: all 4 guides have one, converted from their downloaded web pages.\n" +
 		"Missing:\n" +
@@ -90,7 +90,7 @@ func TestSummaryNamesGuidesThatAreMissing(t *testing.T) {
 	m.Attempts = append(m.Attempts, library.Attempt{ID: "copp", Title: "COPP Guide", Status: "failed", Errors: []string{"plan failed"}})
 	m.SkippedUnavailable = []model.SkippedUnavailableGuide{{ID: "webUI", Title: "Web UI Guide", Reason: "mapped source HTTP 404",
 		MappedSourceURL: "https://publisher.example/webui/index.html"}}
-	got := strings.Join(librarySummary(m, selectedGuides("acls", "cli", "vsx", "copp"), true), "\n")
+	got := strings.Join(librarySummary(m, selectedGuides("acls", "cli", "vsx", "copp"), true, false), "\n")
 	want := "Guides: 3 of 5 selected guides are present (3 complete); 2 missing.\n" +
 		"The library also holds 1 guide from earlier downloads.\n" +
 		"PDF files: 2 of the 3 guides have one, converted from their downloaded web pages; the guides without one are listed under Missing.\n" +
@@ -106,7 +106,7 @@ func TestSummaryNamesGuidesThatAreMissing(t *testing.T) {
 
 func TestSummaryLeavesPDFsOutWhenNoneWereAskedFor(t *testing.T) {
 	m := summaryManifest(summaryGuide{"acls", "html", "complete", false})
-	got := strings.Join(librarySummary(m, selectedGuides("acls"), false), "\n")
+	got := strings.Join(librarySummary(m, selectedGuides("acls"), false, false), "\n")
 	if got != "Guides: the selected guide is present and complete." {
 		t.Fatalf("summary: %q", got)
 	}
@@ -128,5 +128,26 @@ func TestPDFSummarySaysWhereEachPDFCameFrom(t *testing.T) {
 		if got := pdfSummary(tc.present, tc.publisher, tc.converted); got != tc.want {
 			t.Errorf("pdfSummary(%d, %d, %d) = %q\nwant %q", tc.present, tc.publisher, tc.converted, got, tc.want)
 		}
+	}
+}
+
+func TestSummarySaysWhichGuidesKeepOnlyTheirPDF(t *testing.T) {
+	m := summaryManifest(summaryGuide{"cli", "pdf", "complete", false}, summaryGuide{"acls", "html", "complete", true},
+		summaryGuide{"vsx", "html", "complete", false})
+	m.Guides[1].HTMLRemoved = true
+	acls := m.HTMLGuides["acls"]
+	acls.HTMLRemoved = true
+	m.HTMLGuides["acls"] = acls
+	m.HTMLGuides["vsx"].HTML.GeneratedPDF = &model.GeneratedPDFRecord{Status: "failed", Error: "renderer stopped"}
+	m.Attempts[2].Status = "incomplete"
+	got := strings.Join(librarySummary(m, selectedGuides("cli", "acls", "vsx"), true, true), "\n")
+	want := "Guides: all 3 selected guides are present and complete.\n" +
+		"PDF files: 2 of the 3 guides have one: 1 downloaded from the publisher, 1 converted from its downloaded web pages; " +
+		"the guides without one are listed under Missing.\n" +
+		"Web pages: removed after conversion; 1 guide keeps only its PDF.\n" +
+		"Missing:\n" +
+		"  VSX Guide: no PDF, so its web pages are kept; creating it failed: renderer stopped"
+	if got != want {
+		t.Fatalf("summary:\n%s\nwant:\n%s", got, want)
 	}
 }

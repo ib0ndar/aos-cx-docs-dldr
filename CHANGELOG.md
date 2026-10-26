@@ -1,5 +1,15 @@
 # Release notes
 
+## Unreleased
+
+- Add `--replace-html-with-pdf` and a third answer to the guided "Generate
+  PDF companions" question, "Yes - generate PDFs with pinned Chrome and remove
+  the HTML". The guide's HTML is converted with pinned Chrome, both are
+  verified, and then only the PDF is kept. A guide whose PDF fails keeps its
+  HTML. The release manifest marks such guides `html_removed`; the release
+  index links the PDF, which is searchable by title only. A 0.9 binary cannot
+  open a library holding such a guide.
+
 ## 0.9 - 2026-10-26
 
 The publisher replaced the Product Documentation portal on 2026-10-22, and

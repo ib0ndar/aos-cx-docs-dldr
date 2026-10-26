@@ -632,6 +632,7 @@ func (w *selectionWizard) steps() ([]wizardStep, error) {
 		steps = append(steps, stepConversion)
 	} else if !w.fixed.ConvertHTMLToPDF {
 		w.state.convertHTMLToPDF = false
+		w.state.replaceHTMLWithPDF = false
 		delete(w.selectDraft, stepConversion)
 	}
 	exists, err := w.existingLibrary()
@@ -815,6 +816,7 @@ func (w *selectionWizard) ask(ctx context.Context, step wizardStep, allowBack bo
 		value, err := w.prompts.Select(ctx, promptTitle, []selectionChoice{
 			{Label: "No - keep the complete browsable HTML only", Value: "html-only"},
 			{Label: "Yes - also generate PDFs with pinned Chrome", Value: "convert"},
+			{Label: "Yes - generate PDFs with pinned Chrome and remove the HTML", Value: "replace"},
 		}, config)
 		if errors.Is(err, errPromptBack) {
 			w.selectDraft[step] = value
@@ -824,7 +826,8 @@ func (w *selectionWizard) ask(ctx context.Context, step wizardStep, allowBack bo
 			return false, err
 		}
 		w.selectDraft[step] = value
-		w.state.convertHTMLToPDF = value == "convert"
+		w.state.convertHTMLToPDF = value == "convert" || value == "replace"
+		w.state.replaceHTMLWithPDF = value == "replace"
 	case stepExisting:
 		config.Initial = firstNonempty(w.selectDraft[step], "resume")
 		value, err := w.prompts.Select(ctx, "An existing library was found", []selectionChoice{
@@ -878,6 +881,7 @@ func (w *selectionWizard) revalidateGuides() {
 	}
 	if !w.fixed.ConvertHTMLToPDF {
 		w.state.convertHTMLToPDF = false
+		w.state.replaceHTMLWithPDF = false
 		delete(w.selectDraft, stepConversion)
 	}
 	if w.fixed.Guides {

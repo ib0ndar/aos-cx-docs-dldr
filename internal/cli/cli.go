@@ -28,6 +28,7 @@ type options struct {
 	refresh, all                         bool
 	preferPDF, noPreferPDF               bool
 	convertHTMLToPDF, noConvertHTMLToPDF bool
+	replaceHTMLWithPDF                   bool
 	chromePath, qpdfPath                 string
 	portal, rawCache                     string
 	transport                            string
@@ -131,6 +132,13 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 			if noConvertChanged {
 				o.convertHTMLToPDF = false
 			}
+			replaceChanged := cmd.Flags().Changed("replace-html-with-pdf")
+			if o.replaceHTMLWithPDF && (convertChanged || noConvertChanged) && !o.convertHTMLToPDF {
+				return errors.New("--replace-html-with-pdf and --no-convert-html-to-pdf are mutually exclusive")
+			}
+			if o.replaceHTMLWithPDF {
+				o.convertHTMLToPDF = true
+			}
 			config, err := o.validateFor(prompts != nil)
 			if err != nil {
 				return err
@@ -198,7 +206,7 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 					Destination:      cmd.Flags().Changed("destination"),
 					Refresh:          cmd.Flags().Changed("refresh"),
 					PreferPDF:        preferChanged || noPreferChanged,
-					ConvertHTMLToPDF: convertChanged || noConvertChanged,
+					ConvertHTMLToPDF: convertChanged || noConvertChanged || replaceChanged,
 				}
 				guided := o.platform == "" || o.version == "" ||
 					(len(o.guides) == 0 && !o.all) || o.destination == ""
@@ -314,6 +322,7 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 	flags.BoolVar(&o.noPreferPDF, "no-prefer-pdf", false, "Prefer complete HTML when available (the default)")
 	flags.BoolVar(&o.convertHTMLToPDF, "convert-html-to-pdf", false, "Create a companion PDF from complete archived HTML using the pinned Chrome sidecar")
 	flags.BoolVar(&o.noConvertHTMLToPDF, "no-convert-html-to-pdf", false, "Do not create a PDF from archived HTML (the default)")
+	flags.BoolVar(&o.replaceHTMLWithPDF, "replace-html-with-pdf", false, "Create a PDF from complete archived HTML with the pinned Chrome sidecar and keep only the PDF; a guide whose PDF fails keeps its HTML")
 	flags.StringVar(&o.chromePath, "chrome-path", "", "Exact pinned Chrome for Testing headless-shell executable")
 	flags.StringVar(&o.qpdfPath, "qpdf-path", "", "Exact pinned qpdf outline-postprocessor executable")
 	flags.BoolVar(&o.zip, "zip", false, "Export the verified published version library as an adjacent ZIP")

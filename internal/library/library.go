@@ -57,6 +57,9 @@ type Run struct {
 	rename                                      func(string, string) error
 	versionPolicy                               nativeVersionPolicy
 	migrationHook                               func(string) error
+	// ReplaceHTMLWithPDF keeps only the generated PDF of each accepted HTML
+	// guide whose PDF is complete. A guide whose PDF failed keeps its HTML.
+	ReplaceHTMLWithPDF bool
 }
 
 func (r *Run) SetSkippedUnavailable(values []model.SkippedUnavailableGuide) {
@@ -265,7 +268,7 @@ func (r *Run) Accept(result model.ArchiveResult) error {
 	work := path.Join(r.stage, ".work", name)
 	if result.OutputDir != filepath.Join(r.Destination, filepath.FromSlash(work)) ||
 		result.Document.Platform != r.platform || result.Document.Version != r.version ||
-		(result.Format != "pdf" && result.Format != "html") {
+		(result.Format != "pdf" && result.Format != "html") || result.HTMLRemoved {
 		return errors.New("archive result is outside this library transaction")
 	}
 	generatedFailed := result.Format == "html" && result.HTML != nil &&
@@ -294,6 +297,16 @@ func (r *Run) Accept(result model.ArchiveResult) error {
 		}
 	}
 	if accept {
+		if err := r.verifyGuide(work, result); err != nil {
+			return err
+		}
+	}
+	if accept && !retained && r.ReplaceHTMLWithPDF && result.Format == "html" &&
+		result.HTML != nil && result.HTML.GeneratedPDF != nil && result.HTML.GeneratedPDF.Status == "complete" {
+		if err := r.removeHTML(work, result.HTML.GeneratedPDF.Path); err != nil {
+			return err
+		}
+		result.HTMLRemoved = true
 		if err := r.verifyGuide(work, result); err != nil {
 			return err
 		}
@@ -340,9 +353,33 @@ func (r *Run) verifyGuide(directory string, result model.ArchiveResult) error {
 	return r.verifyPDFGuide(directory, result)
 }
 
+// removeHTML removes everything in a verified HTML guide directory except its
+// generated PDF, keep.
+func (r *Run) removeHTML(directory, keep string) error {
+	dir, err := r.root.Open(directory)
+	if err != nil {
+		return err
+	}
+	entries, readErr := dir.ReadDir(-1)
+	closeErr := dir.Close()
+	if err := errors.Join(readErr, closeErr); err != nil {
+		return err
+	}
+	for _, entry := range entries {
+		if entry.Name() == keep {
+			continue
+		}
+		if err := storage.RemoveTree(r.root, path.Join(directory, entry.Name())); err != nil {
+			return fmt.Errorf("remove HTML replaced by its PDF: %w", err)
+		}
+	}
+	return nil
+}
+
 func (r *Run) verifyPDFGuide(directory string, result model.ArchiveResult) error {
 	pdf := result.PDF
 	if result.Status != "complete" || result.Format != "pdf" || result.Document.Kind != "pdf" || pdf == nil ||
+		result.HTMLRemoved ||
 		pdf.Status != "complete" || pdf.SHA256 == "" || pdf.SourceSHA256 != pdf.SHA256 || pdf.Size < 32 ||
 		pdf.Size > 16<<30 {
 		return fmt.Errorf("invalid complete publisher PDF metadata: %s", directory)
@@ -421,21 +458,33 @@ func (r *Run) verifyHTMLGuide(directory string, result model.ArchiveResult) erro
 		!reflect.DeepEqual(result.UnpublishedTopics, manifest.UnpublishedTopics) {
 		return fmt.Errorf("invalid publishable HTML archive metadata: %s", directory)
 	}
+	// A guide whose HTML was removed holds only its generated PDF; the HTML
+	// records describe what the PDF was made from and were verified, file
+	// by file, before the HTML was removed.
+	removed := result.HTMLRemoved
+	if removed && (manifest.GeneratedPDF == nil || manifest.GeneratedPDF.Status != "complete") {
+		return fmt.Errorf("HTML guide without its HTML has no complete generated PDF: %s", directory)
+	}
 	if err := storage.Check(r.root, directory); err != nil {
 		return err
 	}
-	var disk model.HTMLArchive
-	if err := storage.ReadJSON(r.root, path.Join(directory, "manifest.json"), &disk); err != nil {
-		return err
+	if !removed {
+		var disk model.HTMLArchive
+		if err := storage.ReadJSON(r.root, path.Join(directory, "manifest.json"), &disk); err != nil {
+			return err
+		}
+		if !reflect.DeepEqual(disk, *manifest) {
+			return fmt.Errorf("HTML guide manifest does not match accepted metadata: %s", directory)
+		}
 	}
-	if !reflect.DeepEqual(disk, *manifest) {
-		return fmt.Errorf("HTML guide manifest does not match accepted metadata: %s", directory)
-	}
-	if err := r.verifyMissingResources(directory, manifest); err != nil {
+	if err := r.verifyMissingResources(directory, manifest, !removed); err != nil {
 		return err
 	}
 	allowed := map[string]bool{
 		"index.html": true, "toc.html": true, "search.json": true, "search-index.js": true, "search.js": true, "manifest.json": true,
+	}
+	if removed {
+		allowed = map[string]bool{}
 	}
 	if generated := manifest.GeneratedPDF; generated != nil {
 		if !storage.PDFFilenameAccepted(result.Document.Platform, result.Document.Version, result.Document.Title, generated.Path) {
@@ -538,19 +587,26 @@ func (r *Run) verifyHTMLGuide(directory string, result model.ArchiveResult) erro
 			return fmt.Errorf("unsafe or colliding HTML guide path %s", record.Path)
 		}
 		folded[strings.ToLower(record.Path)] = true
+		if removed {
+			continue
+		}
 		allowed[record.Path] = true
 		hash, size, err := storage.Hash(r.root, path.Join(directory, record.Path), 1<<30)
 		if err != nil || hash != record.SHA256 || size != record.Size {
 			return fmt.Errorf("HTML guide file integrity mismatch at %s: %v", record.Path, err)
 		}
 	}
-	for generated, expected := range map[string]string{
+	generatedFiles := map[string]string{
 		"index.html":      manifest.Integrity.IndexSHA256,
 		"toc.html":        manifest.Integrity.TOCSHA256,
 		"search.json":     manifest.Integrity.SearchSHA256,
 		"search-index.js": manifest.Integrity.SearchIndexSHA256,
 		"search.js":       manifest.Integrity.SearchJSSHA256,
-	} {
+	}
+	if removed {
+		generatedFiles = nil
+	}
+	for generated, expected := range generatedFiles {
 		hash, _, err := storage.Hash(r.root, path.Join(directory, generated), 64<<20)
 		if err != nil || expected == "" || hash != expected {
 			return fmt.Errorf("HTML generated-file integrity mismatch at %s: %v", generated, err)
@@ -571,7 +627,9 @@ func (r *Run) verifyHTMLGuide(directory string, result model.ArchiveResult) erro
 	return nil
 }
 
-func (r *Run) verifyMissingResources(directory string, manifest *model.HTMLArchive) error {
+// verifyMissingResources checks a guide's missing-resource and unpublished-
+// topic records, and, when pages is set, the placeholders in its pages.
+func (r *Run) verifyMissingResources(directory string, manifest *model.HTMLArchive, pages bool) error {
 	if manifest.Status == "complete" && len(manifest.MissingResources) != 0 {
 		return fmt.Errorf("complete HTML guide has image placeholders: %s", directory)
 	}
@@ -625,6 +683,9 @@ func (r *Run) verifyMissingResources(directory string, manifest *model.HTMLArchi
 			(strings.HasPrefix(missing.FailureClass, "http-") &&
 				missing.HTTPStatus != httpStatusFromFailureClass(missing.FailureClass)) {
 			return fmt.Errorf("invalid missing-resource provenance at %s", directory)
+		}
+		if !pages {
+			continue
 		}
 		file, err := r.root.Open(path.Join(directory, missing.GeneratedPagePath))
 		if err != nil {
@@ -884,7 +945,7 @@ func (r *Run) readLibraryTree(directory string) (Manifest, error) {
 		}
 		if !ok || summaries[guide.Path] || guide.ID != result.Document.ID || guide.Title != result.Document.Title ||
 			guide.Status != result.Status || guide.Format != result.Format || guide.SourceURL != result.Document.URL ||
-			guide.RouteOrigin != result.Document.RouteOrigin {
+			guide.RouteOrigin != result.Document.RouteOrigin || guide.HTMLRemoved != result.HTMLRemoved {
 			return manifest, fmt.Errorf("inconsistent central guide summary in %s", directory)
 		}
 		summaries[guide.Path] = true
@@ -1207,7 +1268,7 @@ func (r *Run) Publish(cancelled bool) (Manifest, error) {
 			Status: result.Status, SourceURL: result.Document.URL, RouteOrigin: result.Document.RouteOrigin,
 			TopicCount: topicCount, AssetCount: assetCount,
 			PlaceholderCount: model.ImagePlaceholderCount(result.MissingResources),
-			UnpublishedCount: len(result.UnpublishedTopics)})
+			UnpublishedCount: len(result.UnpublishedTopics), HTMLRemoved: result.HTMLRemoved})
 	}
 	manifest.Status = versionStatus(manifest.Errors, manifest.Attempts, manifest.Guides)
 	if err := r.localizeCrossGuideLinks(&manifest); err != nil {

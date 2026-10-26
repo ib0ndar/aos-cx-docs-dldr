@@ -188,7 +188,9 @@ func (p *wizardPrompts) reply(title string, choices []selectionChoice, config pr
 
 func (p *wizardPrompts) Select(_ context.Context, title string, choices []selectionChoice, config promptConfig) (string, error) {
 	if strings.HasPrefix(title, "Generate PDF companions for ") &&
-		(len(p.replies) == 0 || (p.replies[0].value != "convert" && p.replies[0].value != "html-only")) {
+		(len(p.replies) == 0 || !slices.ContainsFunc(choices, func(choice selectionChoice) bool {
+			return choice.Value == p.replies[0].value
+		})) {
 		p.calls = append(p.calls, wizardCall{
 			title: title, config: config, choices: append([]selectionChoice{}, choices...),
 		})
@@ -1011,6 +1013,86 @@ func TestWizardConversionBackRestoresDestination(t *testing.T) {
 	if conversionCalls != 2 || !o.convertHTMLToPDF || o.destination != finalDestination ||
 		prompts.calls[4].config.Initial != firstDestination {
 		t.Fatalf("conversion Back did not restore destination: options=%+v calls=%+v", o, prompts.calls)
+	}
+}
+
+func TestWizardReplaceHTMLWithPDFChoice(t *testing.T) {
+	const public = "https://support.hpe.com/hpesc/public/docDisplay?docId=doc-replace"
+	catalog := model.Catalog{
+		Platforms: []string{"6300"}, Versions: []string{"10.18"},
+		Guides: []model.Guide{{
+			ID: "hpe", Title: "HPE Guide",
+			Mappings: map[string]map[string]string{"10.18": {"6300": public}},
+		}},
+	}
+	export := "https://support.hpe.com/hpesc/public/api/document/doc-replace/exportpdf?exportType=all"
+	for _, tc := range []struct {
+		name             string
+		replies          []string
+		convert, replace bool
+	}{
+		{"replace", []string{"replace"}, true, true},
+		{"companion", []string{"convert"}, true, false},
+		{"HTML only", []string{"html-only"}, false, false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			replies := []wizardReply{{value: "some"}, {values: []string{"hpe"}}, {value: t.TempDir()}}
+			for _, reply := range tc.replies {
+				replies = append(replies, wizardReply{value: reply})
+			}
+			prompts := &wizardPrompts{replies: replies}
+			transport := &selectionProbeTransport{err: &fetch.StatusError{URL: export, Status: http.StatusNotFound}}
+			o := options{platform: "6300", version: "10.18"}
+			if _, err := completeInteractiveSelection(
+				context.Background(), catalog, &o, prompts, func(string) {},
+				selectionFixed{Platform: true, Version: true}, true,
+				availabilityBackend{fetcher: hpeAvailabilityFetcher("doc-replace"), transport: transport},
+			); err != nil {
+				t.Fatal(err)
+			}
+			if o.convertHTMLToPDF != tc.convert || o.replaceHTMLWithPDF != tc.replace {
+				t.Fatalf("conversion choice gave convert=%v replace=%v", o.convertHTMLToPDF, o.replaceHTMLWithPDF)
+			}
+			call := prompts.calls[len(prompts.calls)-1]
+			var labels []string
+			for _, choice := range call.choices {
+				labels = append(labels, choice.Label+"="+choice.Value)
+			}
+			if strings.Join(labels, "|") != "No - keep the complete browsable HTML only=html-only|"+
+				"Yes - also generate PDFs with pinned Chrome=convert|"+
+				"Yes - generate PDFs with pinned Chrome and remove the HTML=replace" {
+				t.Fatalf("conversion choices=%v", labels)
+			}
+		})
+	}
+}
+
+func TestWizardFixedReplaceHTMLWithPDFSkipsConversionPrompt(t *testing.T) {
+	const public = "https://support.hpe.com/hpesc/public/docDisplay?docId=doc-fixed-replace"
+	catalog := model.Catalog{
+		Platforms: []string{"6300"}, Versions: []string{"10.18"},
+		Guides: []model.Guide{{
+			ID: "hpe", Title: "HPE Guide",
+			Mappings: map[string]map[string]string{"10.18": {"6300": public}},
+		}},
+	}
+	prompts := &wizardPrompts{replies: []wizardReply{
+		{value: "some"}, {values: []string{"hpe"}}, {value: t.TempDir()},
+	}}
+	export := "https://support.hpe.com/hpesc/public/api/document/doc-fixed-replace/exportpdf?exportType=all"
+	transport := &selectionProbeTransport{err: &fetch.StatusError{URL: export, Status: http.StatusNotFound}}
+	o := options{platform: "6300", version: "10.18", convertHTMLToPDF: true, replaceHTMLWithPDF: true}
+	if _, err := completeInteractiveSelection(
+		context.Background(), catalog, &o, prompts, func(string) {},
+		selectionFixed{Platform: true, Version: true, ConvertHTMLToPDF: true}, true,
+		availabilityBackend{fetcher: hpeAvailabilityFetcher("doc-fixed-replace"), transport: transport},
+	); err != nil {
+		t.Fatal(err)
+	}
+	if !o.convertHTMLToPDF || !o.replaceHTMLWithPDF || slices.ContainsFunc(callTitles(prompts.calls), func(title string) bool {
+		return strings.HasPrefix(title, "Generate PDF companions for ")
+	}) {
+		t.Fatalf("fixed --replace-html-with-pdf was asked again or lost: options=%+v calls=%v", o, callTitles(prompts.calls))
 	}
 }
 

@@ -209,6 +209,7 @@ func downloadGuidesObserved(
 		}
 	}()
 	run.CatalogueURL, run.CatalogueFetchedAt = catalog.SourceURL, catalog.FetchedAt
+	run.ReplaceHTMLWithPDF = o.replaceHTMLWithPDF
 	run.CatalogueWarnings = append([]string{}, catalog.Warnings...)
 	for _, document := range documents {
 		for _, replacement := range o.replacements {
@@ -278,7 +279,11 @@ func downloadGuidesObserved(
 				return archived, err
 			}
 			if progress != nil {
-				progress.Guide(index+1, len(documents), document.Title, "rendering companion PDF with pinned Chrome")
+				stage := "rendering companion PDF with pinned Chrome"
+				if o.replaceHTMLWithPDF {
+					stage = "rendering PDF with pinned Chrome to replace the HTML"
+				}
+				progress.Guide(index+1, len(documents), document.Title, stage)
 			}
 			pdfConfig := pdfgen.DefaultConfig(o.chromePath)
 			pdfConfig.QPDFPath = o.qpdfPath
@@ -397,7 +402,10 @@ func downloadGuidesObserved(
 			result.HTML.GeneratedPDF.Status == "failed"
 		if archiveErr != nil {
 			message := fmt.Sprintf("Guide %s failed: %s", document.ID, archiveErr)
-			if generatedPDFFailed {
+			switch {
+			case generatedPDFFailed && o.replaceHTMLWithPDF:
+				message = fmt.Sprintf("Guide %s HTML %s; the PDF to replace it failed: %s", document.ID, result.Status, archiveErr)
+			case generatedPDFFailed:
 				message = fmt.Sprintf("Guide %s HTML %s; companion PDF failed: %s", document.ID, result.Status, archiveErr)
 			}
 			if progress != nil {
@@ -509,7 +517,7 @@ func downloadGuidesObserved(
 		_, err = fmt.Fprintf(out, "%s %s\n%s %s\n",
 			outPresentation.heading("Library:"), outPresentation.plain(run.Target),
 			outPresentation.heading("Status:"), status)
-		for _, line := range librarySummary(manifest, documents, o.convertHTMLToPDF) {
+		for _, line := range librarySummary(manifest, documents, o.convertHTMLToPDF, o.replaceHTMLWithPDF) {
 			if err == nil {
 				_, err = fmt.Fprintln(out, outPresentation.plain(line))
 			}

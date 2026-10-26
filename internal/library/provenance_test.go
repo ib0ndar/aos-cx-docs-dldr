@@ -104,6 +104,16 @@ func addGeneratedPDFCompanion(t *testing.T, run *Run, id string) {
 	if err := os.WriteFile(filepath.Join(run.Stage, id, name), body, 0o640); err != nil {
 		t.Fatal(err)
 	}
+	result.HTML.GeneratedPDF = generatedPDFRecord(t, name, body)
+	run.guides[id] = result
+	if err := storage.WriteJSON(run.root, filepath.ToSlash(filepath.Join(run.stage, id, "manifest.json")), result.HTML); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// generatedPDFRecord is the complete generated-PDF record of body, named name.
+func generatedPDFRecord(t *testing.T, name string, body []byte) *model.GeneratedPDFRecord {
+	t.Helper()
 	sum := sha256.Sum256(body)
 	summary, err := pdfcheck.InspectGenerated(bytes.NewReader(body), int64(len(body)), pdfcheck.GeneratedExpectations{
 		MaxPages:       1,
@@ -112,7 +122,7 @@ func addGeneratedPDFCompanion(t *testing.T, run *Run, id string) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := &model.GeneratedPDFRecord{
+	return &model.GeneratedPDFRecord{
 		Path:                              name,
 		Status:                            "complete",
 		CreatedAt:                         time.Now().UTC().Format(time.RFC3339Nano),
@@ -166,11 +176,6 @@ func addGeneratedPDFCompanion(t *testing.T, run *Run, id string) {
 			OutlineValidated:           true,
 			StructuralValidated:        true,
 		},
-	}
-	result.HTML.GeneratedPDF = record
-	run.guides[id] = result
-	if err := storage.WriteJSON(run.root, filepath.ToSlash(filepath.Join(run.stage, id, "manifest.json")), result.HTML); err != nil {
-		t.Fatal(err)
 	}
 }
 

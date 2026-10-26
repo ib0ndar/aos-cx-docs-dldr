@@ -47,7 +47,8 @@ func (r *Run) localizeCrossGuideLinks(manifest *Manifest) error {
 	index := crossGuideIndex{}
 	aliases := 0
 	for guide, result := range manifest.HTMLGuides {
-		if (result.Status != "complete" && result.Status != "degraded") || result.Format != "html" || result.HTML == nil {
+		if (result.Status != "complete" && result.Status != "degraded") || result.Format != "html" ||
+			result.HTML == nil || result.HTMLRemoved {
 			continue
 		}
 		if err := r.verifyGuide(path.Join(r.stage, guide), result); err != nil {
@@ -80,7 +81,8 @@ func (r *Run) localizeCrossGuideLinks(manifest *Manifest) error {
 
 	var pages []crossGuidePage
 	for guide, result := range manifest.HTMLGuides {
-		if (result.Status != "complete" && result.Status != "degraded") || result.Format != "html" || result.HTML == nil {
+		if (result.Status != "complete" && result.Status != "degraded") || result.Format != "html" ||
+			result.HTML == nil || result.HTMLRemoved {
 			continue
 		}
 		for _, record := range result.HTML.Topics {

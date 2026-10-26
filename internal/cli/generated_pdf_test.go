@@ -174,3 +174,46 @@ func TestGeneratedPDFFlagsAreMutuallyExclusive(t *testing.T) {
 		t.Fatalf("invalid generated PDF flags were accepted: code=%d stderr=%s", code, &stderr)
 	}
 }
+
+func TestReplaceHTMLWithPDFRejectsNoConversion(t *testing.T) {
+	for _, args := range [][]string{
+		{"--replace-html-with-pdf", "--no-convert-html-to-pdf"},
+		{"--replace-html-with-pdf", "--convert-html-to-pdf=false"},
+	} {
+		var stdout, stderr bytes.Buffer
+		code := run(context.Background(), args, &stdout, &stderr, func(string, fetch.Config, func(string)) (*fetch.Client, error) {
+			t.Fatal("contradictory conversion flags reached transport construction")
+			return nil, nil
+		})
+		if code != 1 || !strings.Contains(stderr.String(), "--replace-html-with-pdf and --no-convert-html-to-pdf are mutually exclusive") {
+			t.Fatalf("%v accepted: code=%d stderr=%s", args, code, &stderr)
+		}
+	}
+}
+
+func TestReplaceHTMLWithPDFFailureKeepsCompleteHTML(t *testing.T) {
+	server := generatedPDFServer(t)
+	defer server.Close()
+	base := filepath.Join(t.TempDir(), "library")
+	args := generatedPDFArgs(t, server, base, filepath.Join(t.TempDir(), "missing-chrome"))
+	args = append(args, "--replace-html-with-pdf")
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), args, &stdout, &stderr, newNativeClient); code != 2 {
+		t.Fatalf("failed replacement exit=%d stdout=%s stderr=%s", code, &stdout, &stderr)
+	}
+	if !strings.Contains(stderr.String(), "Guide job HTML complete; the PDF to replace it failed") {
+		t.Fatalf("failed replacement was not reported: %s", &stderr)
+	}
+	var output DownloadOutput
+	if err := json.Unmarshal(stdout.Bytes(), &output); err != nil {
+		t.Fatal(err)
+	}
+	guide := output.Manifest.HTMLGuides["job"]
+	if guide.HTMLRemoved || guide.Status != "complete" || guide.HTML.GeneratedPDF == nil ||
+		guide.HTML.GeneratedPDF.Status != "failed" {
+		t.Fatalf("failed replacement removed the HTML: %+v", output.Manifest)
+	}
+	if _, err := os.Stat(filepath.Join(output.Library, "job", "index.html")); err != nil {
+		t.Fatalf("failed replacement removed the HTML: %v", err)
+	}
+}

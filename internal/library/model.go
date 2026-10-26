@@ -36,6 +36,7 @@ type Guide struct {
 	AssetCount       int    `json:"asset_count"`
 	PlaceholderCount int    `json:"image_placeholder_count,omitempty"`
 	UnpublishedCount int    `json:"unpublished_topic_count,omitempty"`
+	HTMLRemoved      bool   `json:"html_removed,omitempty"`
 }
 
 type Manifest struct {

@@ -16,8 +16,9 @@ const maxSummaryTitles = 3
 // librarySummary describes a published library after a download: whether the
 // selected guides are all there, how many have a PDF, and, guide by guide,
 // what is missing and why. selected are the guides this run downloaded, in
-// order; the manifest's skipped guides were selected too.
-func librarySummary(manifest library.Manifest, selected []model.Document, convert bool) []string {
+// order; the manifest's skipped guides were selected too. replace says the
+// run kept only the PDF of each guide converted from HTML.
+func librarySummary(manifest library.Manifest, selected []model.Document, convert, replace bool) []string {
 	published := map[string]library.Guide{}
 	for _, guide := range manifest.Guides {
 		published[guide.ID] = guide
@@ -27,7 +28,7 @@ func librarySummary(manifest library.Manifest, selected []model.Document, conver
 		attempts[attempt.ID] = attempt
 	}
 	total := len(selected) + len(manifest.SkippedUnavailable)
-	present, complete, degraded, publisherPDFs, generatedPDFs := 0, 0, 0, 0, 0
+	present, complete, degraded, publisherPDFs, generatedPDFs, removed := 0, 0, 0, 0, 0, 0
 	var missing []string
 	for _, document := range selected {
 		guide, ok := published[document.ID]
@@ -46,6 +47,12 @@ func librarySummary(manifest library.Manifest, selected []model.Document, conver
 				publisherPDFs++
 			case generatedPDF(manifest, guide.Path):
 				generatedPDFs++
+				if guide.HTMLRemoved {
+					removed++
+				}
+			case replace:
+				missing = append(missing, fmt.Sprintf("%s: no PDF, so its web pages are kept; %s",
+					title, pdfFailure(manifest, guide.Path, attempt)))
 			case convert:
 				missing = append(missing, fmt.Sprintf("%s: no PDF; %s", title, pdfFailure(manifest, guide.Path, attempt)))
 			}
@@ -94,6 +101,9 @@ func librarySummary(manifest library.Manifest, selected []model.Document, conver
 	}
 	if pdfs := publisherPDFs + generatedPDFs; pdfs > 0 || convert {
 		lines = append(lines, pdfSummary(present, publisherPDFs, generatedPDFs))
+	}
+	if removed > 0 {
+		lines = append(lines, removedHTMLSummary(present, removed))
 	}
 	if len(missing) > 0 {
 		lines = append(lines, "Missing:")
@@ -199,4 +209,14 @@ func pdfSummary(present, publisher, converted int) string {
 	}
 	return fmt.Sprintf("PDF files: %d of the %d guides %s one%s; the guides without one are listed under Missing.",
 		pdfs, present, plural(pdfs, "has", "have"), source)
+}
+
+// removedHTMLSummary says how many of the present guides keep only the PDF
+// converted from their web pages.
+func removedHTMLSummary(present, removed int) string {
+	if present == 1 {
+		return "Web pages: removed after conversion; the guide keeps only its PDF."
+	}
+	return fmt.Sprintf("Web pages: removed after conversion; %d %s %s only %s PDF.",
+		removed, plural(removed, "guide", "guides"), plural(removed, "keeps", "keep"), plural(removed, "its", "their"))
 }

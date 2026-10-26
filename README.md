@@ -347,6 +347,14 @@ not create a PDF. Append `--prefer-pdf` to a download command to select it.
 using the packaged renderer. Append it to a download command; the HTML remains
 the canonical offline copy.
 
+`--replace-html-with-pdf` creates the same PDF and then removes the guide's
+HTML, so the guide folder holds only the PDF. The HTML is removed only after
+the PDF and the HTML it was made from pass verification; a guide whose PDF
+fails keeps its HTML and is reported as incomplete. Such guides are
+searchable by title only, and links to them from other guides stay online.
+The guided selection offers the same choice as "generate PDFs with pinned
+Chrome and remove the HTML".
+
 ### Stop and resume
 
 Press Ctrl-C. Accepted guides and prior complete guides are published, verified
@@ -432,6 +440,7 @@ again.
 | `--refresh` | Revalidate cached guide bytes; the catalogue is always refreshed. |
 | `--prefer-pdf` / `--no-prefer-pdf` | Prefer a verified publisher PDF, or complete HTML. |
 | `--convert-html-to-pdf` / `--no-convert-html-to-pdf` | Create a companion PDF from HTML, or keep the default HTML-only behavior. |
+| `--replace-html-with-pdf` | Create a PDF from HTML and keep only the PDF; a guide whose PDF fails keeps its HTML. |
 | `--workers` | How many downloads run at once. Default 4. |
 | `--raw-cache` | Use a different cache folder. |
 | `--transport compatible\|http` | Browser-free request mode. Leave at the compatible default. |

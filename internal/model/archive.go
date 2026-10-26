@@ -303,6 +303,10 @@ type ArchiveResult struct {
 	StylesheetRecoveries []StylesheetRecovery `json:"stylesheet_recoveries"`
 	MissingResources     []MissingResource    `json:"missing_resources,omitempty"`
 	UnpublishedTopics    []UnpublishedTopic   `json:"unpublished_topics,omitempty"`
+	// HTMLRemoved records that the library keeps only the generated PDF of
+	// this HTML guide. HTML still describes the archive the PDF was made
+	// from, which was verified before its files were removed.
+	HTMLRemoved bool `json:"html_removed,omitempty"`
 }
 
 type FileRecord struct {
