@@ -268,3 +268,26 @@ func TestGuideSourceArchivesTheNamedPublisherDocument(t *testing.T) {
 		t.Errorf("--list with --guide-source: exit=%d stderr=%s", code, &stderr)
 	}
 }
+
+func TestDownloadSummarySaysWhichGuidesArePresentAndWhatIsMissing(t *testing.T) {
+	server := peerMappingFixtureServer(t)
+	root := t.TempDir()
+	args := []string{
+		"--transport", "http", "--platform", "8325", "--release", "10.18",
+		"--all", "--destination", filepath.Join(root, "library"),
+		"--raw-cache", filepath.Join(root, "raw-v2"),
+		"--portal-url", server.URL + "/portal/aoscx.html",
+		"--delay", "0", "--retries", "0", "--workers", "1",
+	}
+	var stdout, stderr bytes.Buffer
+	if code := run(context.Background(), args, &stdout, &stderr, newNativeClient); code != 0 {
+		t.Fatalf("exit=%d stdout=%s stderr=%s", code, &stdout, &stderr)
+	}
+	want := "Status: complete\n" +
+		"Guides: 1 of 2 selected guides is present (1 complete); 1 missing.\n" +
+		"Missing:\n" +
+		"  VSX Guide: not available from the publisher (mapped source HTTP 404 at " + server.URL + "/avsx/index.html)\n"
+	if !strings.Contains(stdout.String(), want) {
+		t.Fatalf("summary missing from output:\n%s\nwant:\n%s", &stdout, want)
+	}
+}

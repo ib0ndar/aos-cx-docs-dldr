@@ -509,6 +509,11 @@ func downloadGuidesObserved(
 		_, err = fmt.Fprintf(out, "%s %s\n%s %s\n",
 			outPresentation.heading("Library:"), outPresentation.plain(run.Target),
 			outPresentation.heading("Status:"), status)
+		for _, line := range librarySummary(manifest, documents, o.convertHTMLToPDF) {
+			if err == nil {
+				_, err = fmt.Fprintln(out, outPresentation.plain(line))
+			}
+		}
 		if err == nil && zipPath != "" {
 			_, err = fmt.Fprintf(out, "%s %s\n",
 				outPresentation.heading("ZIP:"), outPresentation.plain(zipPath))
