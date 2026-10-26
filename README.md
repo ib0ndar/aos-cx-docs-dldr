@@ -520,13 +520,14 @@ everything already downloaded is reused from the cache.
 ### A guide is degraded
 
 At the end of a download, below `Status:`, the tool says whether every
-selected guide is present, how many have a PDF, and, under `Missing:`, what
-each affected guide lacks and why, for example:
+selected guide is present, whether each has a PDF file (downloaded from the
+publisher or converted from the guide's downloaded web pages), and, under
+`Missing:`, what each affected guide lacks and why, for example:
 
 ```text
 Status: degraded
 Guides: all 27 selected guides are present: 25 complete, 2 degraded (the publisher does not serve all of their content).
-PDFs: 27 of the 27 present guides have one (27 generated from the archived HTML).
+PDF files: all 27 guides have one, converted from their downloaded web pages.
 Missing:
   Multicast Guide: 1 topic the publisher does not serve: "Use Case 3: …" (HTTP 404); the contents entry links to the publisher's page
 ```

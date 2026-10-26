@@ -50,7 +50,7 @@ func TestSummarySaysEveryGuideIsPresentAndComplete(t *testing.T) {
 		summaryGuide{"vsx", "html", "complete", true})
 	got := strings.Join(librarySummary(m, selectedGuides("cli", "acls", "vsx"), true), "\n")
 	want := "Guides: all 3 selected guides are present and complete.\n" +
-		"PDFs: 3 of the 3 present guides have one (1 from the publisher, 2 generated from the archived HTML)."
+		"PDF files: all 3 guides have one: 1 downloaded from the publisher, 2 converted from their downloaded web pages."
 	if got != want {
 		t.Fatalf("summary:\n%s\nwant:\n%s", got, want)
 	}
@@ -68,7 +68,7 @@ func TestSummaryNamesWhatADegradedGuideLacks(t *testing.T) {
 	}
 	got := strings.Join(librarySummary(m, selectedGuides("multicast", "nae", "qos", "vsx"), true), "\n")
 	want := "Guides: all 4 selected guides are present: 1 complete, 3 degraded (the publisher does not serve all of their content).\n" +
-		"PDFs: 4 of the 4 present guides have one (4 generated from the archived HTML).\n" +
+		"PDF files: all 4 guides have one, converted from their downloaded web pages.\n" +
 		"Missing:\n" +
 		`  MULTICAST Guide: 1 topic the publisher does not serve: "Use Case 3" (HTTP 404); the contents entry links to the publisher's page` + "\n" +
 		`  NAE Guide: 4 topics the publisher does not serve: "One" (HTTP 404), "Two" (HTTP 404), "Three" (HTTP 410), 1 more; the contents entry links to the publisher's page` + "\n" +
@@ -93,7 +93,7 @@ func TestSummaryNamesGuidesThatAreMissing(t *testing.T) {
 	got := strings.Join(librarySummary(m, selectedGuides("acls", "cli", "vsx", "copp"), true), "\n")
 	want := "Guides: 3 of 5 selected guides are present (3 complete); 2 missing.\n" +
 		"The library also holds 1 guide from earlier downloads.\n" +
-		"PDFs: 2 of the 3 present guides have one (2 generated from the archived HTML).\n" +
+		"PDF files: 2 of the 3 guides have one, converted from their downloaded web pages; the guides without one are listed under Missing.\n" +
 		"Missing:\n" +
 		"  CLI Guide: this download failed, so the previous copy is kept: retrieval failed: HTTP 503\n" +
 		"  VSX Guide: no PDF; creating it failed: Chrome did not start\n" +
@@ -109,5 +109,24 @@ func TestSummaryLeavesPDFsOutWhenNoneWereAskedFor(t *testing.T) {
 	got := strings.Join(librarySummary(m, selectedGuides("acls"), false), "\n")
 	if got != "Guides: the selected guide is present and complete." {
 		t.Fatalf("summary: %q", got)
+	}
+}
+
+func TestPDFSummarySaysWhereEachPDFCameFrom(t *testing.T) {
+	for _, tc := range []struct {
+		present, publisher, converted int
+		want                          string
+	}{
+		{27, 0, 27, "PDF files: all 27 guides have one, converted from their downloaded web pages."},
+		{3, 3, 0, "PDF files: all 3 guides have one, downloaded from the publisher."},
+		{26, 1, 25, "PDF files: all 26 guides have one: 1 downloaded from the publisher, 25 converted from their downloaded web pages."},
+		{1, 0, 1, "PDF file: the guide has one, converted from its downloaded web pages."},
+		{1, 1, 0, "PDF file: the guide has one, downloaded from the publisher."},
+		{4, 0, 0, "PDF files: none of the 4 guides has one; see Missing."},
+		{5, 1, 3, "PDF files: 4 of the 5 guides have one: 1 downloaded from the publisher, 3 converted from their downloaded web pages; the guides without one are listed under Missing."},
+	} {
+		if got := pdfSummary(tc.present, tc.publisher, tc.converted); got != tc.want {
+			t.Errorf("pdfSummary(%d, %d, %d) = %q\nwant %q", tc.present, tc.publisher, tc.converted, got, tc.want)
+		}
 	}
 }

@@ -141,8 +141,9 @@ select#platform"); this change restores catalogue, listing and downloads.
   in each stall warning), so that a transfer that stopped can be told from a
   slow one.
 - End a download with a summary below `Status:`: whether every selected
-  guide is present and how many are complete or degraded, how many have a
-  PDF, and, under `Missing:`, what each affected guide lacks and why: topics
+  guide is present and how many are complete or degraded, whether each has a
+  PDF file (downloaded from the publisher or converted from its downloaded web
+  pages), and, under `Missing:`, what each affected guide lacks and why: topics
   and images the publisher does not serve, by title and HTTP status; a PDF
   that could not be created; a guide that failed, and whether its previous
   copy is kept; a guide skipped as unavailable. `Status: degraded` alone did

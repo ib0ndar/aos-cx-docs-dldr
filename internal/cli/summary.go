@@ -93,19 +93,7 @@ func librarySummary(manifest library.Manifest, selected []model.Document, conver
 			others, plural(others, "guide", "guides")))
 	}
 	if pdfs := publisherPDFs + generatedPDFs; pdfs > 0 || convert {
-		var kinds []string
-		if publisherPDFs > 0 {
-			kinds = append(kinds, fmt.Sprintf("%d from the publisher", publisherPDFs))
-		}
-		if generatedPDFs > 0 {
-			kinds = append(kinds, fmt.Sprintf("%d generated from the archived HTML", generatedPDFs))
-		}
-		line := fmt.Sprintf("PDFs: %d of the %d present %s %s one", pdfs, present,
-			plural(present, "guide", "guides"), plural(pdfs, "has", "have"))
-		if len(kinds) > 0 {
-			line += " (" + strings.Join(kinds, ", ") + ")"
-		}
-		lines = append(lines, line+".")
+		lines = append(lines, pdfSummary(present, publisherPDFs, generatedPDFs))
 	}
 	if len(missing) > 0 {
 		lines = append(lines, "Missing:")
@@ -184,4 +172,31 @@ func shorten(message string) string {
 		return string(runes[:limit]) + "…"
 	}
 	return message
+}
+
+// pdfSummary says how many of the present guides have a PDF file and where
+// each came from: downloaded from the publisher, or converted from the
+// guide's downloaded web pages.
+func pdfSummary(present, publisher, converted int) string {
+	pdfs := publisher + converted
+	var source string
+	switch {
+	case publisher > 0 && converted > 0:
+		source = fmt.Sprintf(": %d downloaded from the publisher, %d converted from %s downloaded web pages",
+			publisher, converted, plural(converted, "its", "their"))
+	case publisher > 0:
+		source = ", downloaded from the publisher"
+	case converted > 0:
+		source = ", converted from " + plural(pdfs, "its", "their") + " downloaded web pages"
+	}
+	switch {
+	case pdfs == 0:
+		return fmt.Sprintf("PDF files: none of the %d %s has one; see Missing.", present, plural(present, "guide", "guides"))
+	case present == 1:
+		return "PDF file: the guide has one" + source + "."
+	case pdfs == present:
+		return fmt.Sprintf("PDF files: all %d guides have one%s.", present, source)
+	}
+	return fmt.Sprintf("PDF files: %d of the %d guides %s one%s; the guides without one are listed under Missing.",
+		pdfs, present, plural(pdfs, "has", "have"), source)
 }
