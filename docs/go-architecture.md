@@ -213,6 +213,9 @@ Inside the `src` descriptor of an `@font-face` rule only (stylesheets,
 text falls back to the next family in each `font-family` stack, as it does
 online. Each rule is recorded in `stylesheet_recoveries`
 (`unavailable-font-face-sources`) with a warning, and the guide stays complete.
+The warning says which families are still archived from another source (HPE
+Metric, from HPE's font bucket, when an Oxygen guide's own `../fonts/` copies
+answer 404) and which fall back because their rules were removed.
 Timeouts, 5xx, connection errors, robots disallow rules, the destination
 policy, size limits, invalid bodies, non-font resources and fonts used outside
 `@font-face src` still make the guide incomplete. Font recoveries are not

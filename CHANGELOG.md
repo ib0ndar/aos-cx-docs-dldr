@@ -140,6 +140,11 @@ select#platform"); this change restores catalogue, listing and downloads.
 - Report how many body bytes a failed retrieval received (`body_bytes=`, and
   in each stall warning), so that a transfer that stopped can be told from a
   slow one.
+- Say, in the warning about unavailable `@font-face` sources, when every
+  affected rule keeps another source and the font is archived from it; the
+  font-family fallback is mentioned only for rules that were removed. The
+  Oxygen guides' warning about HPE Metric, archived from HPE's font bucket
+  while their own `../fonts/` copies answer 404, read as if the font were lost.
 - Read robots.txt as RFC 9309 specifies: any 4xx answer other than 429 means
   the file is unavailable and places no restrictions. Before, only 404 did,
   and every other answer stopped retrieval from that host. Amazon S3 answers

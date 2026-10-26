@@ -311,7 +311,9 @@ func TestUnavailablePublisherFontSourcesAreDroppedAndRecorded(t *testing.T) {
 	warned := slices.ContainsFunc(result.Warnings, func(warning string) bool {
 		return strings.Contains(warning, fontRecoveryStylesheet) &&
 			strings.Contains(warning, "HTTP 403 (1), HTTP 404 (1), HTTP 410 (1)") &&
-			strings.Contains(warning, "removed 1 of 2 affected rules")
+			strings.Contains(warning, "removed 1 of 2 affected rules") &&
+			strings.Contains(warning, "text in Metric falls back to the next font") &&
+			strings.Contains(warning, "The other rule keeps another source, and Mixed is archived from it.")
 	})
 	if !warned {
 		t.Fatalf("stylesheet recovery was not reported as a warning: %q", result.Warnings)
@@ -460,6 +462,46 @@ func TestUnavailableFontStatusRequiresAPermanentRefusal(t *testing.T) {
 			status, final, ok := unavailableFontStatus(test.err)
 			if ok != test.want || ok && (status != test.status || final != test.final) {
 				t.Fatalf("unavailableFontStatus(%v) = %d, %q, %t", test.err, status, final, ok)
+			}
+		})
+	}
+}
+
+func TestFontFaceRecoveryWarningSaysWhetherTheFontIsArchived(t *testing.T) {
+	gone := func(name string) []model.BrokenStylesheetReference {
+		return []model.BrokenStylesheetReference{{URL: "https://publisher.example/fonts/" + name, HTTPStatus: 404}}
+	}
+	metric := func(weight string, removed bool) fontFaceRecovery {
+		return fontFaceRecovery{Family: "Metric", Dropped: gone("Metric-" + weight + ".woff2"), Removed: removed}
+	}
+	for _, tc := range []struct {
+		name       string
+		recoveries []fontFaceRecovery
+		want       string
+	}{
+		{"one rule keeps a source", []fontFaceRecovery{metric("Light", false)},
+			"HTTP 404 (1). Dropped them; the affected rule keeps another source, and Metric is archived from it."},
+		{"every rule keeps a source", []fontFaceRecovery{metric("Light", false), metric("Regular", false), metric("Black", false)},
+			"HTTP 404 (3). Dropped them; all 3 affected rules keep another source, and Metric is archived from those."},
+		{"some rules lose every source", []fontFaceRecovery{metric("Light", true), metric("Regular", false), metric("Black", false),
+			{Family: "Glyphs", Dropped: gone("glyphs.woff2"), Removed: true}},
+			"HTTP 404 (4). Dropped them and removed 2 of 4 affected rules that had no source left; text in Glyphs, Metric falls " +
+				"back to the next font in each font-family stack. The other 2 rules keep another source, and Metric is archived from those."},
+		{"every rule loses every source", []fontFaceRecovery{metric("Light", true), metric("Regular", true)},
+			"HTTP 404 (2). Dropped them and removed 2 of 2 affected rules that had no source left; text in Metric falls back to " +
+				"the next font in each font-family stack."},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			var warnings []string
+			var recoveries []model.StylesheetRecovery
+			m := &assetManager{warnings: &warnings, recoveries: &recoveries}
+			m.recordFontFaceRecoveries("https://publisher.example/fonts.css", tc.recoveries)
+			prefix := "Publisher CSS in https://publisher.example/fonts.css declares unavailable @font-face sources for "
+			if len(warnings) != 1 || !strings.HasPrefix(warnings[0], prefix) || !strings.HasSuffix(warnings[0], tc.want) {
+				t.Fatalf("warning = %q\nwant suffix %q", warnings, tc.want)
+			}
+			if fallback := strings.Contains(warnings[0], "falls back"); fallback != strings.Contains(tc.want, "falls back") {
+				t.Fatalf("fallback mentioned = %v: %q", fallback, warnings[0])
 			}
 		})
 	}

@@ -73,7 +73,7 @@ func (m *assetManager) recordFontFaceRecoveries(stylesheet string, recoveries []
 	if len(recoveries) == 0 {
 		return
 	}
-	var families []string
+	var families, lost, kept []string
 	statuses := map[string]int{}
 	removed := 0
 	for _, recovery := range recoveries {
@@ -93,20 +93,51 @@ func (m *assetManager) recordFontFaceRecoveries(stylesheet string, recoveries []
 		}
 		if recovery.Removed {
 			removed++
+			lost = appendFamily(lost, recovery.Family)
+		} else {
+			kept = appendFamily(kept, recovery.Family)
 		}
-		if recovery.Family != "" && !slices.Contains(families, recovery.Family) {
-			families = append(families, recovery.Family)
-		}
+		families = appendFamily(families, recovery.Family)
 		for _, source := range recovery.Dropped {
 			statuses[fmt.Sprintf("HTTP %d", source.HTTPStatus)]++
 		}
 	}
-	slices.Sort(families)
-	named := "an unnamed family"
-	if len(families) > 0 {
-		named = strings.Join(families, ", ")
+	message := fmt.Sprintf("Publisher CSS in %s declares unavailable @font-face sources for %s: %s. ",
+		stylesheet, familyList(families), summarizeCSSCounts(statuses))
+	// The publisher often lists a source it does not serve before one it
+	// does, as the Oxygen guides' fonts.css lists ../fonts/Metric-*.woff2
+	// before HPE's font bucket: then the font is archived as published.
+	switch {
+	case removed == 0 && len(recoveries) == 1:
+		message += fmt.Sprintf("Dropped them; the affected rule keeps another source, and %s is archived from it.", familyList(kept))
+	case removed == 0:
+		message += fmt.Sprintf("Dropped them; all %d affected rules keep another source, and %s is archived from those.",
+			len(recoveries), familyList(kept))
+	default:
+		message += fmt.Sprintf("Dropped them and removed %d of %d affected rules that had no source left; "+
+			"text in %s falls back to the next font in each font-family stack.", removed, len(recoveries), familyList(lost))
+		if other := len(recoveries) - removed; other == 1 {
+			message += fmt.Sprintf(" The other rule keeps another source, and %s is archived from it.", familyList(kept))
+		} else if other > 1 {
+			message += fmt.Sprintf(" The other %d rules keep another source, and %s is archived from those.", other, familyList(kept))
+		}
 	}
-	*m.warnings = append(*m.warnings, fmt.Sprintf(
-		"Publisher CSS in %s declares unavailable @font-face sources for %s: %s. Dropped them and removed %d of %d affected rules that had no source left; text falls back to the next font in each font-family stack.",
-		stylesheet, named, summarizeCSSCounts(statuses), removed, len(recoveries)))
+	*m.warnings = append(*m.warnings, message)
+}
+
+// appendFamily adds a named font family to a list once.
+func appendFamily(families []string, family string) []string {
+	if family == "" || slices.Contains(families, family) {
+		return families
+	}
+	return append(families, family)
+}
+
+// familyList names font families in order, or "an unnamed family".
+func familyList(families []string) string {
+	if len(families) == 0 {
+		return "an unnamed family"
+	}
+	sorted := slices.Sorted(slices.Values(families))
+	return strings.Join(sorted, ", ")
 }
