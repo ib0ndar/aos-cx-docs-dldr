@@ -1,5 +1,29 @@
 # Release notes
 
+## Unreleased
+
+- A browser download quarantines every file of the unsigned bundle, and
+  Gatekeeper asks about each one separately. Allowing `aos-cx-docs-dldr` in
+  Privacy & Security used to leave nine more files, the bundled Chrome and
+  qpdf programs and libraries, each stopping a conversion with a "Not Opened"
+  dialog. Now, before a download that creates PDFs, the application checks its
+  bundled Chrome and qpdf against the SHA-256 values built into it and removes
+  the quarantine from their programs and libraries itself, saying how many
+  files it released.
+- It changes only those pinned files, and only when they match. Files that
+  fail the check are left for conversion to report, and PDF tools named by
+  `--chrome-path`, `--qpdf-path`, `AOSCX_DOCS_CHROME_PATH` or
+  `AOSCX_DOCS_QPDF_PATH` are never changed.
+- If quarantine remains, for example in a bundle owned by another account or
+  on PDF tools named by those options, the run stops before downloading
+  anything and prints the exact `xattr -dr com.apple.quarantine` command for
+  the affected folders, with `sudo` when needed.
+- The documented `xattr -dr com.apple.quarantine` command for the whole
+  bundle could not release qpdf's four read-only files (`Permission denied`),
+  because macOS changes no file's attributes without write permission. The
+  application now releases them itself, giving each read-only file write
+  permission for the removal only and then its exact mode back.
+
 ## 0.10 - 2026-10-28
 
 Version 0.10 can keep each guide as only a PDF: it converts the guide's HTML

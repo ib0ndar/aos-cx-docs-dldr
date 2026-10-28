@@ -139,12 +139,22 @@ Install the complete directory, for example:
 $HOME/Applications/aos-cx-docs-dldr/0.10/
 ```
 
-Do not move only the executable. Browser quarantine can apply to individual
-sidecar executables and libraries, including Chrome/Vulkan and qpdf, so approving
-only the main program may produce further dialogs suggesting moving components
-to Trash. The recursive command above removes only `com.apple.quarantine` from
-the whole verified bundle and avoids separate quarantine approvals. It neither
-signs/notarizes the software nor creates a permanent Gatekeeper exception.
+Do not move only the executable. Browser quarantine applies to every sidecar
+executable and library, including Chrome/Vulkan and qpdf. The recursive command
+above removes only `com.apple.quarantine` from the whole verified bundle and
+avoids every approval. It neither signs/notarizes the software nor creates a
+permanent Gatekeeper exception. qpdf's executable and libraries ship read-only,
+as in the Homebrew bottles, and macOS changes no file's attributes without
+write permission, so the command reports `Permission denied` for those four
+files; the application releases them itself before its first conversion.
+
+Approving only the main program through **Open Anyway** is also enough. Before
+a download that creates PDFs, the application verifies its bundled Chrome and
+qpdf against the pins built into it and removes the quarantine from their
+pinned executables and libraries itself, making a read-only file it owns
+writable for the removal only. If it cannot, for example in a bundle owned by
+another account, it stops before downloading and prints the exact `xattr`
+command for the affected sidecar directories, with `sudo` when needed.
 
 For a bundle already moved to the example installation directory, use:
 
@@ -154,12 +164,10 @@ xattr -dr com.apple.quarantine "$HOME/Applications/aos-cx-docs-dldr/0.10"
 
 No `sudo` is normally needed for a user-owned bundle. Apply the command only to
 the exact verified bundle, not a parent directory containing unrelated files.
-Repeat after verifying a newly downloaded replacement. Individual approval in
-**System Settings > Privacy & Security > Open Anyway** is an alternative, but
-may be needed for multiple components. Never disable Gatekeeper globally. If a
-block persists or explicitly reports malware, investigate the exact message;
-removing quarantine does not repair invalid signatures, damaged files, or
-malware detections.
+Repeat after verifying a newly downloaded replacement. Never disable
+Gatekeeper globally. If a block persists or explicitly reports malware,
+investigate the exact message; removing quarantine does not repair invalid
+signatures, damaged files, or malware detections.
 
 ## Update, rollback, and uninstall
 

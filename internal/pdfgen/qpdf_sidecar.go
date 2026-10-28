@@ -61,6 +61,10 @@ func resolveQPDFSidecar(options QPDFSidecarOptions) (QPDFSidecar, error) {
 	if err != nil {
 		return QPDFSidecar{}, err
 	}
+	return resolveQPDFSidecarFor(platform, options)
+}
+
+func resolveQPDFSidecarFor(platform sidecarPlatform, options QPDFSidecarOptions) (QPDFSidecar, error) {
 	lookup := options.LookupEnv
 	if lookup == nil {
 		lookup = os.Getenv

@@ -111,13 +111,24 @@ aos-cx-docs-dldr-VERSION-macos-arm64/
 
 ### Allow the verified bundle before first launch
 
-The bundle is unsigned and unnotarized. Browser downloads can carry a macOS
-quarantine attribute into the extracted files. Approving only the main program
-can leave Chrome, Vulkan libraries, qpdf, or other bundled libraries blocked
-separately, sometimes with a dialog suggesting moving the file to Trash.
+The bundle is unsigned and unnotarized. Browser downloads give every extracted
+file the macOS quarantine attribute, and Gatekeeper then asks about each
+quarantined program and library separately, sometimes with a dialog suggesting
+moving the file to Trash. Choose one of two ways to allow the bundle, after
+**both checksum checks above pass** and only if you trust this release.
 
-After **both checksum checks above pass**, and if you trust this release, run
-the following while still inside the extracted bundle directory:
+**Approve the application once.** Run `./aos-cx-docs-dldr --version` from the
+extracted bundle directory. When macOS refuses it, choose **Open Anyway** for
+`aos-cx-docs-dldr` in **System Settings > Privacy & Security** and run it
+again. No other approval is needed: before a download that creates PDFs, the
+application checks every file of its bundled Chrome and qpdf against the
+SHA-256 values built into it, then removes the quarantine from their programs
+and libraries itself and says how many files it released. It never changes a
+file that fails that check, PDF tools named by `--chrome-path`, `--qpdf-path`
+or their environment variables, or anything else on disk.
+
+**Or remove the quarantine from the whole bundle** before the first launch, so
+macOS asks nothing. Run this while still inside the extracted bundle directory:
 
 ```sh
 xattr -dr com.apple.quarantine "$PWD"
@@ -125,10 +136,12 @@ xattr -dr com.apple.quarantine "$PWD"
 ```
 
 `-d` removes only the named quarantine attribute; `-r` applies recursively to
-the entire bundle, including its sidecars and libraries. This avoids approving
-each quarantined component individually. It does not sign or notarize the
-software, create a permanent exception, or disable Gatekeeper globally. No
-`sudo` is normally needed for a bundle extracted into your own folder.
+the entire bundle, including its sidecars and libraries. It does not sign or
+notarize the software, create a permanent exception, or disable Gatekeeper
+globally. No `sudo` is normally needed for a bundle extracted into your own
+folder. It reports `Permission denied` for qpdf's four read-only files, because
+macOS changes no file's attributes without write permission; the application
+releases those itself before its first PDF conversion.
 
 Move the **whole folder** somewhere permanent, for example
 `$HOME/Applications/aos-cx-docs-dldr/VERSION/`. Moving only the executable will break
@@ -140,11 +153,15 @@ xattr -dr com.apple.quarantine "$HOME/Applications/aos-cx-docs-dldr/${APP_VERSIO
 
 Apply this only to the verified bundle, never to your Downloads folder, home
 directory, or the whole disk. Repeat for a newly downloaded replacement bundle
-after verifying its checksums. Individual approval through **System Settings >
-Privacy & Security > Open Anyway** remains an alternative, but may need to be
-repeated for bundled components. If macOS still blocks a file, or explicitly
-reports malware, stop and investigate the exact message; quarantine removal
-does not fix damaged files, invalid signatures, or malware detections.
+after verifying its checksums.
+
+If the application cannot remove the quarantine from its PDF tools itself, for
+example from a bundle another account installed, it stops before downloading
+anything and prints the exact command for those folders, such as
+`sudo xattr -dr com.apple.quarantine '/Applications/aos-cx-docs-dldr/VERSION/sidecars/qpdf-mac-arm64'`.
+Run it and start the download again. If macOS still blocks a file, or
+explicitly reports malware, stop and investigate the exact message; quarantine
+removal does not fix damaged files, invalid signatures, or malware detections.
 
 ### First run on macOS
 
@@ -592,6 +609,13 @@ Verify the checksums and follow the narrow bundle approval in
 [Install on macOS](#install-on-macos). If macOS reports damaged files, an
 invalid signature, or malware rather than quarantine, stop and investigate the
 exact message.
+
+### A download stops with "macOS keeps the download quarantine"
+
+The application could not remove the quarantine from its bundled Chrome and
+qpdf, or they were named by `--chrome-path` or `--qpdf-path`, which it never
+changes. Nothing was downloaded. Run the `xattr` command the message prints,
+which names exactly those PDF tool folders, then start the download again.
 
 ### Nothing downloads and it mentions robots or a proxy
 

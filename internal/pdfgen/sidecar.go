@@ -54,6 +54,10 @@ func resolveSidecar(options SidecarOptions) (Sidecar, error) {
 	if err != nil {
 		return Sidecar{}, err
 	}
+	return resolveSidecarFor(platform, options)
+}
+
+func resolveSidecarFor(platform sidecarPlatform, options SidecarOptions) (Sidecar, error) {
 	lookup := options.LookupEnv
 	if lookup == nil {
 		lookup = os.Getenv

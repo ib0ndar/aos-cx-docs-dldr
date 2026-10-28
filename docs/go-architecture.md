@@ -315,6 +315,23 @@ Each file is accepted only from a read it was unchanged across. A read across
 which only ctime moved, as when OneDrive or iCloud Drive writes extended
 attributes of a file it uploads, is repeated, up to three reads.
 
+On macOS a browser download quarantines every extracted file, and Gatekeeper
+stops each quarantined executable and library separately when it is run or
+loaded. When a run will convert HTML, the CLI calls
+`pdfgen.ClearSidecarQuarantine` after selection and before any guide is
+downloaded. It resolves and verifies both sidecars as conversion does and, for
+sidecars bundled beside the executable, removes `com.apple.quarantine` from
+their pinned executables and libraries only. Each file is opened without
+following links and released only if its identity still matches the snapshot
+verification hashed. macOS changes no file's attributes without write
+permission and qpdf ships read-only, so a read-only file the user owns gets
+owner write permission through the open descriptor for the removal only, then
+its exact mode back. Sidecars named by flag or environment are never changed,
+and a sidecar that is missing or fails verification is left for conversion to
+report. Any quarantine that remains stops the run with the exact
+`xattr -dr com.apple.quarantine` command for the affected sidecar directories.
+Elsewhere the call does nothing.
+
 The package uses only executable-relative verified sidecars. Runtime never
 downloads, searches `PATH`, uses Homebrew, attaches to a personal browser, or
 falls back. Source-verified publisher PDFs bypass conversion. Complete HTML

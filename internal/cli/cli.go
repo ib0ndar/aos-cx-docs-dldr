@@ -16,6 +16,7 @@ import (
 	"aos-cx-docs-dldr/internal/fetch"
 	"aos-cx-docs-dldr/internal/library"
 	"aos-cx-docs-dldr/internal/model"
+	"aos-cx-docs-dldr/internal/pdfgen"
 	"aos-cx-docs-dldr/internal/source"
 	"github.com/spf13/cobra"
 )
@@ -225,6 +226,23 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 				}
 				if err := closePromptDriver(prompts); err != nil {
 					return fmt.Errorf("close interactive prompts: %w", err)
+				}
+				if o.convertHTMLToPDF {
+					// Gatekeeper would otherwise stop each quarantined Chrome
+					// and qpdf file of a downloaded bundle mid-conversion.
+					clearance, err := pdfgen.ClearSidecarQuarantine(o.chromePath, o.qpdfPath)
+					if err != nil {
+						return err
+					}
+					switch count := len(clearance.Files); count {
+					case 0:
+					case 1:
+						reporter.Notice("Removed the macOS download quarantine from 1 verified file of the bundled PDF tools")
+					default:
+						reporter.Notice(fmt.Sprintf(
+							"Removed the macOS download quarantine from %d verified files of the bundled PDF tools", count,
+						))
+					}
 				}
 				fetcher := model.Fetcher(store)
 				if len(o.preflightFresh) > 0 {
