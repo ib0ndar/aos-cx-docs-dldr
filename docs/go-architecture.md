@@ -1,4 +1,4 @@
-# aos-cx-docs-dldr 0.10 architecture
+# aos-cx-docs-dldr 1.0.0 architecture
 
 ## System boundary
 
@@ -7,7 +7,7 @@ defined by `model.ExecutableName`; the Go entry point is `cmd/aos-cx-docs-dldr`.
 The application/module identity is `aos-cx-docs-dldr`. Old-name state is foreign
 and rejected read-only; the rename does not migrate libraries or caches.
 
-`aos-cx-docs-dldr` 0.10 is a native Go CLI with two deliverables, both complete
+`aos-cx-docs-dldr` 1.0.0 is a native Go CLI with two deliverables, both complete
 builds with generated-PDF conversion: a native macOS arm64 bundle and a
 linux/amd64 container (see [the container guide](container.md)). It refreshes
 the public
@@ -45,7 +45,7 @@ age.
 
 | Package | Role |
 | --- | --- |
-| `internal/model` | Stable shared data contracts and `Version = 0.10`. |
+| `internal/model` | Stable shared data contracts and `Version = 1.0.0`. |
 | `internal/cli` | Cobra flags, guided terminal flow, progress, availability, and orchestration. |
 | `internal/source` | Portal catalogue and route-adapter check, mapping resolution, Flare/HPE/Oxygen/static planners, source PDF discovery. |
 | `internal/fetch` | Compatible and standard HTTP transports, robots, leases, retries, deadlines, diagnostics. |
@@ -63,7 +63,7 @@ age.
 
 The default `compatible` profile uses pinned req 3.61.0/uTLS 1.8.2 Chrome120
 TLS behavior, header order, and HTTP/2 settings with identity
-`aos-cx-docs-dldr/0.10`. `--transport http` selects standard native HTTP. Neither
+`aos-cx-docs-dldr/1.0.0`. `--transport http` selects standard native HTTP. Neither
 profile falls back to the other or to browser automation.
 
 `model.Transport.Download` owns:
@@ -280,7 +280,9 @@ refused.
 
 The application reads and writes exactly one library version, `model.Version`.
 There is no upgrade path and no CLI, environment, or configuration selector for
-one.
+one. Application versions are numeric `major.minor.patch` from 1.0.0; the
+two-component versions of 0.10 and earlier still parse, so libraries recording
+them are refused as another version rather than as malformed state.
 
 Preflight validates state before creating a lock. A library recording any other
 application version is rejected, and its bytes are left untouched with
@@ -379,7 +381,7 @@ the application and build-only release helper from current source with
 `CGO_ENABLED=0`, `GOOS=darwin`, `GOARCH=arm64`, `GOPROXY=off`,
 `GOSUMDB=off`, `GOTOOLCHAIN=local`, and no workspace or user Go flags.
 
-The bundle and ZIP root are `aos-cx-docs-dldr-0.10-macos-arm64`. Schema-1 package
+The bundle and ZIP root are `aos-cx-docs-dldr-1.0.0-macos-arm64`. Schema-1 package
 manifest and provenance, SPDX 2.3 SBOM, complete checksums, retained notices,
 moved-layout conversion smoke, and fresh-extraction conversion smoke are
 required. Application license is `Apache-2.0`, with `LICENSE` shipped in both

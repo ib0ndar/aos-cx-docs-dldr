@@ -9,14 +9,23 @@ import (
 	"aos-cx-docs-dldr/internal/model"
 )
 
+// applicationVersion is a numeric major.minor.patch application version.
+// Versions up to 0.10 had two components; they parse with patch 0 so that
+// libraries recording them are recognised, and refused, as other versions.
 type applicationVersion struct {
 	major int
 	minor int
+	patch int
 }
 
 func applicationVersionBefore(first, second applicationVersion) bool {
-	return first.major < second.major ||
-		(first.major == second.major && first.minor < second.minor)
+	if first.major != second.major {
+		return first.major < second.major
+	}
+	if first.minor != second.minor {
+		return first.minor < second.minor
+	}
+	return first.patch < second.patch
 }
 
 // nativeVersionPolicy names the single application version this build writes
@@ -29,20 +38,24 @@ type nativeVersionPolicy struct {
 	accepted map[string]bool
 }
 
+// parseApplicationVersion accepts a three-component version or a former
+// two-component one.
 func parseApplicationVersion(value string) (applicationVersion, error) {
 	parts := strings.Split(value, ".")
-	if len(parts) != 2 || parts[0] == "" || parts[1] == "" {
-		return applicationVersion{}, errors.New("application version must use two numeric components")
+	if len(parts) != 2 && len(parts) != 3 {
+		return applicationVersion{}, errors.New("application version must use three numeric components")
 	}
-	major, err := strconv.Atoi(parts[0])
-	if err != nil || major < 0 || strconv.Itoa(major) != parts[0] {
-		return applicationVersion{}, errors.New("invalid application version major component")
+	var components [3]int
+	for index, part := range parts {
+		number, err := strconv.Atoi(part)
+		if err != nil || number < 0 || strconv.Itoa(number) != part {
+			return applicationVersion{}, fmt.Errorf(
+				"invalid application version %s component", [...]string{"major", "minor", "patch"}[index],
+			)
+		}
+		components[index] = number
 	}
-	minor, err := strconv.Atoi(parts[1])
-	if err != nil || minor < 0 || strconv.Itoa(minor) != parts[1] {
-		return applicationVersion{}, errors.New("invalid application version minor component")
-	}
-	return applicationVersion{major: major, minor: minor}, nil
+	return applicationVersion{major: components[0], minor: components[1], patch: components[2]}, nil
 }
 
 func defaultNativeVersionPolicy() (nativeVersionPolicy, error) {
@@ -52,6 +65,9 @@ func defaultNativeVersionPolicy() (nativeVersionPolicy, error) {
 func makeNativeVersionPolicy(output string) (nativeVersionPolicy, error) {
 	if _, err := parseApplicationVersion(output); err != nil {
 		return nativeVersionPolicy{}, fmt.Errorf("invalid native output version: %w", err)
+	}
+	if strings.Count(output, ".") != 2 {
+		return nativeVersionPolicy{}, errors.New("invalid native output version: application version must use three numeric components")
 	}
 	return nativeVersionPolicy{output: output, accepted: map[string]bool{output: true}}, nil
 }

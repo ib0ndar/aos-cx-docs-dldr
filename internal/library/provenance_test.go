@@ -195,7 +195,7 @@ func pointer[T any](value T) *T {
 	return &value
 }
 
-// futureApplicationVersion returns a two-component version strictly newer than
+// futureApplicationVersion returns a three-component version strictly newer than
 // the current application, so "future state is rejected" fixtures stay
 // meaningful across version bumps.
 func futureApplicationVersion(t *testing.T) string {
@@ -204,7 +204,7 @@ func futureApplicationVersion(t *testing.T) string {
 	if err != nil {
 		t.Fatal(err)
 	}
-	future := fmt.Sprintf("%d.%d", current.major+1, 0)
+	future := fmt.Sprintf("%d.0.0", current.major+1)
 	if future == model.Version {
 		t.Fatalf("future-version fixture %q is actually current", future)
 	}

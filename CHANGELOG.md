@@ -1,6 +1,23 @@
 # Release notes
 
-## Unreleased
+## 1.0.0 - 2026-10-28
+
+Version 1.0.0 moves to three-part version numbers and needs a single
+Gatekeeper approval on macOS, also for PDF creation.
+
+- Application versions are now `major.minor.patch`: this version is 1.0.0 and
+  its release tag `v1.0.0`. `--version` prints `aos-cx-docs-dldr 1.0.0`.
+- Libraries record the application version that wrote them. A library made by
+  0.10 or earlier, or by a development build of these changes, which still
+  reported 0.10, is left untouched: choose a new `--destination` and download
+  again. The download cache is kept and reused.
+- The Windows shortcut's default image is `aos-cx-docs-dldr:1.0.0`; load the
+  1.0.0 container archive and replace the shortcut file.
+- The Windows shortcut passes `-V` to the application. PowerShell used to take
+  it as its own `-Verbose` switch, so `aos-cx-docs-dldr -V` ran the application
+  with no arguments and failed; `--version` was not affected.
+
+### macOS: one approval
 
 - A browser download quarantines every file of the unsigned bundle, and
   Gatekeeper asks about each one separately. Allowing `aos-cx-docs-dldr` in
@@ -23,9 +40,6 @@
   because macOS changes no file's attributes without write permission. The
   application now releases them itself, giving each read-only file write
   permission for the removal only and then its exact mode back.
-- The Windows shortcut passes `-V` to the application. PowerShell used to take
-  it as its own `-Verbose` switch, so `aos-cx-docs-dldr -V` ran the application
-  with no arguments and failed; `--version` was not affected.
 
 ## 0.10 - 2026-10-28
 
