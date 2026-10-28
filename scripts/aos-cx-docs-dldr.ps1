@@ -18,13 +18,12 @@
 # See docs/container.md for the full workflow and its limitations.
 
 function aos-cx-docs-dldr {
-    [CmdletBinding()]
-    param([Parameter(ValueFromRemainingArguments = $true)] $CliArgs)
-
-    # ValueFromRemainingArguments yields $null when the caller passes nothing,
-    # and splatting $null into a native command is not reliable. Normalise to an
-    # array so the no-argument guided flow works.
-    $userArgs = @($CliArgs | Where-Object { $null -ne $_ })
+    # A plain function on purpose: [CmdletBinding()] or a [Parameter()]
+    # attribute would add PowerShell's common parameters, which bind any
+    # unambiguous prefix, so -V became -Verbose and never reached the CLI.
+    # $args holds every argument as typed; @() keeps the no-argument guided
+    # flow an empty array, which splats reliably into a native command.
+    $userArgs = @($args)
 
     $engine = if ($env:AOSCX_DOCS_ENGINE) { $env:AOSCX_DOCS_ENGINE } else { 'docker' }
     $image  = if ($env:AOSCX_DOCS_IMAGE)  { $env:AOSCX_DOCS_IMAGE }  else { 'aos-cx-docs-dldr:0.10' }

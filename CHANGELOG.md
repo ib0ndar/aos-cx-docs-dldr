@@ -23,6 +23,9 @@
   because macOS changes no file's attributes without write permission. The
   application now releases them itself, giving each read-only file write
   permission for the removal only and then its exact mode back.
+- The Windows shortcut passes `-V` to the application. PowerShell used to take
+  it as its own `-Verbose` switch, so `aos-cx-docs-dldr -V` ran the application
+  with no arguments and failed; `--version` was not affected.
 
 ## 0.10 - 2026-10-28
 
