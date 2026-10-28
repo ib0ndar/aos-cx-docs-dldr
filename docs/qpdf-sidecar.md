@@ -65,7 +65,7 @@ GOPROXY=off GOSUMDB=off ./scripts/package-macos-arm64.sh \
   --source-checksums /path/to/verified-sidecar-input/SHA256SUMS \
   --chrome-source /path/to/verified-sidecar-input/sidecars/chrome-headless-shell-mac-arm64 \
   --qpdf-source /path/to/verified-sidecar-input/sidecars/qpdf-mac-arm64 \
-  /path/to/output/aos-cx-docs-dldr-0.9-macos-arm64-release
+  /path/to/output/aos-cx-docs-dldr-0.10-macos-arm64-release
 ```
 
 The low-level `stage-qpdf-sidecar.sh` accepts only an already verified local

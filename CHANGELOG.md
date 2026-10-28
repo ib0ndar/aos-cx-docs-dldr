@@ -1,24 +1,40 @@
 # Release notes
 
-## Unreleased
+## 0.10 - 2026-10-28
+
+Version 0.10 can keep each guide as only a PDF: it converts the guide's HTML
+with pinned Chrome, verifies both, and removes the HTML. Once every guide of a
+release is a PDF, the release folder holds nothing but the PDFs.
+
+- Libraries record the application version that wrote them. A library made by
+  0.9, or by a development build of these changes, which still reported 0.9,
+  is left untouched: choose a new `--destination` and download again. The
+  download cache is kept and reused.
+- The Windows shortcut's default image is `aos-cx-docs-dldr:0.10`; load the
+  0.10 container archive and replace the shortcut file.
+
+### PDF-only downloads
 
 - Add `--replace-html-with-pdf` and a third answer to the guided "Generate
   PDF companions" question, "Yes - generate PDFs with pinned Chrome and remove
   the HTML". The guide's HTML is converted with pinned Chrome, both are
-  verified, and then only the PDF is kept, in the release folder next to
-  `index.html`; the guide's folder is removed. Publisher PDFs are kept there
-  too, so the release folder has no guide folders. A guide whose PDF fails
-  keeps its HTML in its folder. The release manifest marks these guides
-  `at_release_root`; the release index links the PDFs, which are searchable by
-  title only. A 0.9 binary cannot open a library holding such a guide.
-- With `--replace-html-with-pdf`, once every guide is a PDF and nothing failed
-  or was cancelled, the release folder holds only the PDFs: the release
-  `index.html`, search files, `manifest.json` and `history.json` are removed,
-  with the snapshots of earlier copies of the release. The tool then no
-  longer recognizes the folder; downloading the release there again needs the
-  folder moved or deleted first. The `--json` output carries the details and
-  `"pdf_only": true`, and a ZIP holds only the PDFs. A run that leaves a guide
-  incomplete keeps the records, so that a rerun can finish it.
+  verified, and then only the PDF is kept, in the release folder; the guide's
+  folder is removed. Publisher PDFs are kept there too, so the release folder
+  has no guide folders. A guide whose PDF fails keeps its HTML in its folder.
+  The release manifest marks these guides `at_release_root`.
+- Once every guide is a PDF and nothing failed or was cancelled, the release
+  folder holds only the PDFs: the release `index.html`, search files,
+  `manifest.json` and `history.json` are removed, with the snapshots of
+  earlier copies of the release. The tool then no longer recognizes the
+  folder; downloading the release there again needs the folder moved or
+  deleted first. The `--json` output carries the details and
+  `"pdf_only": true`, and a ZIP holds only the PDFs.
+- A run that leaves a guide incomplete, or is cancelled, keeps the release
+  index and records, so that running it again can finish it. Until then the
+  index links the PDFs, which are searchable by title only.
+
+### Links
+
 - Links from a guide kept from an earlier download to a page the library no
   longer has go back online, or to the topic's new page: for example when the
   linked guide has since been replaced by a publisher PDF (`--prefer-pdf`) or
