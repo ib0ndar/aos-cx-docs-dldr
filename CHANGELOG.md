@@ -11,6 +11,14 @@
   keeps its HTML in its folder. The release manifest marks these guides
   `at_release_root`; the release index links the PDFs, which are searchable by
   title only. A 0.9 binary cannot open a library holding such a guide.
+- With `--replace-html-with-pdf`, once every guide is a PDF and nothing failed
+  or was cancelled, the release folder holds only the PDFs: the release
+  `index.html`, search files, `manifest.json` and `history.json` are removed,
+  with the snapshots of earlier copies of the release. The tool then no
+  longer recognizes the folder; downloading the release there again needs the
+  folder moved or deleted first. The `--json` output carries the details and
+  `"pdf_only": true`, and a ZIP holds only the PDFs. A run that leaves a guide
+  incomplete keeps the records, so that a rerun can finish it.
 - Links from a guide kept from an earlier download to a page the library no
   longer has go back online, or to the topic's new page: for example when the
   linked guide has since been replaced by a publisher PDF (`--prefer-pdf`) or

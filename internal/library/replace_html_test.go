@@ -201,22 +201,97 @@ func TestReplaceHTMLWithPDFKeepsOnlyThePDFsInTheReleaseFolder(t *testing.T) {
 	}
 }
 
-func TestReplaceHTMLWithPDFOnlyLibrary(t *testing.T) {
+func TestReplaceHTMLWithPDFLeavesOnlyThePDFs(t *testing.T) {
+	base := t.TempDir()
+	// An earlier library of the release, whose copy the next run snapshots.
+	earlier, err := Open(base, "6300", "10.10")
+	if err != nil {
+		t.Fatal(err)
+	}
+	acceptHTML(t, earlier, "acls")
+	publishAndClose(t, earlier)
+
+	r := openReplacing(t, base)
+	converted := archiveHTMLWithPDF(t, r, "acls", "complete")
+	if err := r.Accept(converted); err != nil {
+		t.Fatal(err)
+	}
+	publisher := acceptPDF(t, r, "cli", "CLI")
+	manifest, err := r.Publish(false)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []string{converted.HTML.GeneratedPDF.Path, publisher.PDF.Path}
+	slices.Sort(want)
+	if names := directoryNames(t, r.Target); !slices.Equal(names, want) || !r.KeptOnlyPDFs() ||
+		manifest.Status != "complete" || !manifest.HTMLGuides["acls"].AtReleaseRoot {
+		t.Fatalf("release folder holds %v, want only %v (kept only PDFs %v, %+v)", names, want, r.KeptOnlyPDFs(), manifest)
+	}
+	if names := directoryNames(t, filepath.Join(base, "6300", ".staging")); len(names) != 0 {
+		t.Fatalf("work folders were left behind: %v", names)
+	}
+	if _, err := os.Lstat(filepath.Join(base, "6300", ".snapshots", "10.10")); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("snapshots of the earlier copy were left behind: %v", err)
+	}
+	zipPath, err := r.ExportZIP(context.Background())
+	if err != nil {
+		t.Fatalf("release folder of only PDFs does not export: %v", err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reader, err := zip.OpenReader(zipPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var members []string
+	for _, file := range reader.File {
+		members = append(members, file.Name)
+	}
+	reader.Close()
+	if !slices.Equal(members, []string{"10.10/" + want[0], "10.10/" + want[1]}) {
+		t.Fatalf("ZIP holds %v, want only the PDFs", members)
+	}
+
+	// The folder keeps no records, so no later run can tell it from foreign
+	// files: it is refused, and left as it is.
+	if err := Preflight(base, "6300", "10.10"); err == nil || !strings.Contains(err.Error(), "holds only PDFs") {
+		t.Fatalf("release folder of only PDFs passed preflight: %v", err)
+	}
+	if reopened, err := Open(base, "6300", "10.10"); err == nil {
+		reopened.Close()
+		t.Fatal("release folder of only PDFs was opened")
+	} else if !strings.Contains(err.Error(), "holds only PDFs") {
+		t.Fatalf("release folder of only PDFs was refused for another reason: %v", err)
+	}
+	if _, err := ExportZIP(context.Background(), r.Target); err == nil {
+		t.Fatal("release folder of only PDFs was exported without its records")
+	}
+	if names := directoryNames(t, r.Target); !slices.Equal(names, want) {
+		t.Fatalf("refused folder changed: %v", names)
+	}
+}
+
+func TestUnfinishedPDFOnlyRunKeepsTheRecords(t *testing.T) {
 	base := t.TempDir()
 	r := openReplacing(t, base)
 	converted := archiveHTMLWithPDF(t, r, "acls", "complete")
 	if err := r.Accept(converted); err != nil {
 		t.Fatal(err)
 	}
-	publishAndClose(t, r)
+	manifest, err := r.Publish(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := r.Close(); err != nil {
+		t.Fatal(err)
+	}
 	want := []string{converted.HTML.GeneratedPDF.Path, "history.json", "index.html", "manifest.json",
 		"search-index.js", "search.js"}
 	slices.Sort(want)
-	if names := directoryNames(t, r.Target); !slices.Equal(names, want) {
-		t.Fatalf("release folder holds %v, want %v", names, want)
-	}
-	if names := directoryNames(t, filepath.Join(base, "6300", ".staging")); len(names) != 0 {
-		t.Fatalf("work folders were left behind: %v", names)
+	if names := directoryNames(t, r.Target); !slices.Equal(names, want) || r.KeptOnlyPDFs() ||
+		manifest.Status != "incomplete" {
+		t.Fatalf("cancelled run left %v, want %v (kept only PDFs %v)", names, want, r.KeptOnlyPDFs())
 	}
 	index, err := os.ReadFile(filepath.Join(r.Target, "index.html"))
 	if err != nil {
@@ -225,6 +300,15 @@ func TestReplaceHTMLWithPDFOnlyLibrary(t *testing.T) {
 	if !strings.Contains(string(index), "PDFs generated from downloaded HTML guides are saved offline.") ||
 		!strings.Contains(string(index), "Search downloaded PDF titles") {
 		t.Fatalf("PDF-only library index describes HTML guides:\n%s", index)
+	}
+	// A later run finishes it, and then only the PDF is left.
+	again := openReplacing(t, base)
+	if err := again.Accept(archiveHTMLWithPDF(t, again, "acls", "complete")); err != nil {
+		t.Fatal(err)
+	}
+	publishAndClose(t, again)
+	if names := directoryNames(t, again.Target); !slices.Equal(names, []string{converted.HTML.GeneratedPDF.Path}) {
+		t.Fatalf("finished run left %v", names)
 	}
 }
 
@@ -251,6 +335,8 @@ func TestReleaseFolderPDFIsRetainedWhenALaterPDFFails(t *testing.T) {
 	if err := first.Accept(converted); err != nil {
 		t.Fatal(err)
 	}
+	// A guide that keeps its HTML keeps the library's records too.
+	acceptHTML(t, first, "vsx")
 	publishAndClose(t, first)
 
 	second := openReplacing(t, base)
@@ -274,6 +360,8 @@ func TestGuideMovesBetweenReleaseFolderAndItsFolder(t *testing.T) {
 	if err := first.Accept(converted); err != nil {
 		t.Fatal(err)
 	}
+	// A guide that keeps its HTML keeps the library's records too.
+	acceptHTML(t, first, "vsx")
 	publishAndClose(t, first)
 
 	// Downloaded again without --replace-html-with-pdf, the guide is HTML in

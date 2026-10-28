@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strings"
 
 	"aos-cx-docs-dldr/internal/model"
 	"aos-cx-docs-dldr/internal/storage"
@@ -130,6 +131,9 @@ func preflightRootWithPolicy(
 	}
 	var identity libraryIdentity
 	if err := readBoundedJSON(root, path.Join(target, "manifest.json"), &identity); err != nil {
+		if errors.Is(err, os.ErrNotExist) && holdsOnlyPDFs(root, target) {
+			return pdfOnlyFolderError(filepath.Join(base, filepath.FromSlash(target)))
+		}
 		return incompatibleLibraryError(filepath.Join(base, filepath.FromSlash(target)), "manifest is missing, malformed, or unreadable")
 	}
 	if identity.Application != Application || identity.NativeSchemaVersion != LibraryNativeSchema {
@@ -157,6 +161,30 @@ func preflightRootWithPolicy(
 	}
 
 	return nil
+}
+
+// holdsOnlyPDFs reports whether directory holds PDF files and nothing else
+// but Finder metadata, as a release folder does once a download has left only
+// its PDFs there.
+func holdsOnlyPDFs(root *os.Root, directory string) bool {
+	dir, err := root.Open(directory)
+	if err != nil {
+		return false
+	}
+	entries, readErr := dir.ReadDir(-1)
+	if errors.Join(readErr, dir.Close()) != nil {
+		return false
+	}
+	entries, err = withoutFinderMetadata(root, directory, entries)
+	if err != nil || len(entries) == 0 {
+		return false
+	}
+	for _, entry := range entries {
+		if !entry.Type().IsRegular() || !strings.EqualFold(path.Ext(entry.Name()), ".pdf") {
+			return false
+		}
+	}
+	return true
 }
 
 func readBoundedJSON(root *os.Root, name string, value any) error {
@@ -231,6 +259,13 @@ func incompatibleLibraryError(target, reason string) error {
 	return fmt.Errorf(
 		"incompatible library target at %s: %s; the existing state is preserved; this application reads and writes only version %s libraries; choose a new base with --destination and redownload",
 		target, reason, model.Version,
+	)
+}
+
+func pdfOnlyFolderError(target string) error {
+	return fmt.Errorf(
+		"%s holds only PDFs, from a download that kept no library records, so it cannot be updated; move or delete that folder, or choose a new base with --destination",
+		target,
 	)
 }
 

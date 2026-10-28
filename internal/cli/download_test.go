@@ -667,7 +667,7 @@ func TestIncompleteResultWithoutReturnedErrorPrintsBoundedReasons(t *testing.T) 
 			"publisher omitted anchor three", "publisher warning four",
 		},
 	}
-	reportGuideDiagnostics(progress, &stderr, presentation, "acl", result, nil)
+	reportGuideDiagnostics(progress, &stderr, presentation, "acl", result, nil, false)
 	progress.GuideResult(1, 1, "Guide", result.Status, 105, 4, 0, 0)
 	manifest := library.Manifest{
 		Status: "incomplete",
@@ -676,7 +676,7 @@ func TestIncompleteResultWithoutReturnedErrorPrintsBoundedReasons(t *testing.T) 
 			"Unfinished work retained at /owned/.incomplete/attempt",
 		},
 	}
-	reportIncompleteManifest(progress, &stderr, presentation, "/owned/8320/10.18.xxxx", manifest)
+	reportIncompleteManifest(progress, &stderr, presentation, "/owned/8320/10.18.xxxx", manifest, false)
 	progress.Finish("incomplete", "Published incomplete library")
 
 	text := stderr.String()
@@ -760,7 +760,7 @@ func TestCompleteGuidePrintsOneTypedPublisherNoticeSummary(t *testing.T) {
 			TableStyleFamilies: []string{"TableStyle-Parameter-Description"},
 			AffectedTopics:     []string{"https://publisher.example.test/guide/topic.htm"},
 		}},
-	}, nil)
+	}, nil, false)
 
 	want := "Guide acls: 28 publisher notices (2 external links retained; 12 navigation styles omitted; 14 CSS cleanup); see published manifest."
 	text := stderr.String()
@@ -813,13 +813,37 @@ func TestPublisherNoticeSummariesArePlainAndPerGuide(t *testing.T) {
 				Kind:    model.NoticeSourcePolicy,
 				Message: "publisher-controlled detail \x1b[31m must stay in the manifest",
 			}},
-		}, nil)
+		}, nil, false)
 	}
 	text := stderr.String()
 	if strings.Contains(text, "\x1b") ||
 		strings.Count(text, "publisher notice (1 source policy)") != 2 ||
 		strings.Contains(text, "publisher-controlled detail") {
 		t.Fatalf("redirected per-guide notice summaries were noisy or unsafe:\n%q", text)
+	}
+}
+
+func TestPDFOnlyDiagnosticsPointToTheJSONOutput(t *testing.T) {
+	var stderr bytes.Buffer
+	presentation := newHumanPresentationWith(&stderr, false)
+	reportGuideDiagnostics(nil, &stderr, presentation, "acls", model.ArchiveResult{
+		Status:   "complete",
+		Notices:  []model.Notice{{Kind: model.NoticeCSSCleanup, Message: "Removed 3 unused CSS rules"}},
+		Warnings: []string{"one", "two", "three", "four"},
+	}, nil, true)
+	reportIncompleteManifest(nil, &stderr, presentation, "/owned/8320/10.18", library.Manifest{Status: "degraded"}, true)
+	text := stderr.String()
+	for _, want := range []string{
+		"Guide acls: 1 publisher notice (1 CSS cleanup); the --json output lists them.",
+		"Guide acls: 1 more publisher/source warnings; the --json output lists them.",
+		"Full diagnostics: in the --json output only; the release folder keeps only the PDFs.",
+	} {
+		if !strings.Contains(text, want) {
+			t.Fatalf("PDF-only diagnostics omitted %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "manifest") {
+		t.Fatalf("PDF-only diagnostics point to a manifest the release folder does not keep:\n%s", text)
 	}
 }
 

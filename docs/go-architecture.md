@@ -337,6 +337,18 @@ comparison. A guide whose PDF failed is accepted with its HTML in its folder.
 A guide without HTML is title-searchable only, links to it from other guides
 stay online, and cross-guide localization skips it.
 
+When a run with this option publishes a library whose guides are all marked
+`at_release_root` and whose status is not `incomplete`, it leaves only the
+PDFs: after the journal is removed, publication deletes the release index,
+search files, `history.json` and `manifest.json` from the release folder, and
+the release's `.snapshots/<release>/`, which only that history refers to. The
+records are written, verified and published first, so an interrupted
+publication recovers as any other. The run reports the folder as PDF-only, and
+`--zip` verifies it against the manifest held in memory. Without records the
+folder is not a library: preflight refuses a release folder holding only PDF
+files with move-or-delete guidance, and the standalone ZIP export refuses it.
+An incomplete run keeps its records so that a rerun can finish it.
+
 MuPDF is used only by `cmd/aoscx-pdf-acceptance` with explicit identity input.
 It is absent from the runtime package and SBOM.
 

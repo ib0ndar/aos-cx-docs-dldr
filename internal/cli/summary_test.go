@@ -48,7 +48,7 @@ type summaryGuide = struct {
 func TestSummarySaysEveryGuideIsPresentAndComplete(t *testing.T) {
 	m := summaryManifest(summaryGuide{"cli", "pdf", "complete", false}, summaryGuide{"acls", "html", "complete", true},
 		summaryGuide{"vsx", "html", "complete", true})
-	got := strings.Join(librarySummary(m, selectedGuides("cli", "acls", "vsx"), true, false), "\n")
+	got := strings.Join(librarySummary(m, selectedGuides("cli", "acls", "vsx"), true, false, false), "\n")
 	want := "Guides: all 3 selected guides are present and complete.\n" +
 		"PDF files: all 3 guides have one: 1 downloaded from the publisher, 2 converted from their downloaded web pages."
 	if got != want {
@@ -66,7 +66,7 @@ func TestSummaryNamesWhatADegradedGuideLacks(t *testing.T) {
 	m.Attempts[2].MissingResources = []model.MissingResource{
 		{PlaceholderID: "a", HTTPStatus: 404}, {PlaceholderID: "b", HTTPStatus: 404}, {PlaceholderID: "c", HTTPStatus: 410},
 	}
-	got := strings.Join(librarySummary(m, selectedGuides("multicast", "nae", "qos", "vsx"), true, false), "\n")
+	got := strings.Join(librarySummary(m, selectedGuides("multicast", "nae", "qos", "vsx"), true, false, false), "\n")
 	want := "Guides: all 4 selected guides are present: 1 complete, 3 degraded (the publisher does not serve all of their content).\n" +
 		"PDF files: all 4 guides have one, converted from their downloaded web pages.\n" +
 		"Missing:\n" +
@@ -90,7 +90,7 @@ func TestSummaryNamesGuidesThatAreMissing(t *testing.T) {
 	m.Attempts = append(m.Attempts, library.Attempt{ID: "copp", Title: "COPP Guide", Status: "failed", Errors: []string{"plan failed"}})
 	m.SkippedUnavailable = []model.SkippedUnavailableGuide{{ID: "webUI", Title: "Web UI Guide", Reason: "mapped source HTTP 404",
 		MappedSourceURL: "https://publisher.example/webui/index.html"}}
-	got := strings.Join(librarySummary(m, selectedGuides("acls", "cli", "vsx", "copp"), true, false), "\n")
+	got := strings.Join(librarySummary(m, selectedGuides("acls", "cli", "vsx", "copp"), true, false, false), "\n")
 	want := "Guides: 3 of 5 selected guides are present (3 complete); 2 missing.\n" +
 		"The library also holds 1 guide from earlier downloads.\n" +
 		"PDF files: 2 of the 3 guides have one, converted from their downloaded web pages; the guides without one are listed under Missing.\n" +
@@ -106,7 +106,7 @@ func TestSummaryNamesGuidesThatAreMissing(t *testing.T) {
 
 func TestSummaryLeavesPDFsOutWhenNoneWereAskedFor(t *testing.T) {
 	m := summaryManifest(summaryGuide{"acls", "html", "complete", false})
-	got := strings.Join(librarySummary(m, selectedGuides("acls"), false, false), "\n")
+	got := strings.Join(librarySummary(m, selectedGuides("acls"), false, false, false), "\n")
 	if got != "Guides: the selected guide is present and complete." {
 		t.Fatalf("summary: %q", got)
 	}
@@ -137,7 +137,7 @@ func TestSummarySaysWhichGuidesAreOnlyAPDFInTheReleaseFolder(t *testing.T) {
 	m.Guides[0].AtReleaseRoot, m.Guides[1].AtReleaseRoot = true, true
 	m.HTMLGuides["vsx"].HTML.GeneratedPDF = &model.GeneratedPDFRecord{Status: "failed", Error: "renderer stopped"}
 	m.Attempts[2].Status = "incomplete"
-	got := strings.Join(librarySummary(m, selectedGuides("cli", "acls", "vsx"), true, true), "\n")
+	got := strings.Join(librarySummary(m, selectedGuides("cli", "acls", "vsx"), true, true, false), "\n")
 	want := "Guides: all 3 selected guides are present and complete.\n" +
 		"PDF files: 2 of the 3 guides have one: 1 downloaded from the publisher, 1 converted from its downloaded web pages; " +
 		"the guides without one are listed under Missing.\n" +
@@ -149,8 +149,13 @@ func TestSummarySaysWhichGuidesAreOnlyAPDFInTheReleaseFolder(t *testing.T) {
 	}
 	m = summaryManifest(summaryGuide{"acls", "html", "complete", true}, summaryGuide{"vsx", "html", "complete", true})
 	m.Guides[0].AtReleaseRoot, m.Guides[1].AtReleaseRoot = true, true
-	got = strings.Join(librarySummary(m, selectedGuides("acls", "vsx"), true, true), "\n")
+	got = strings.Join(librarySummary(m, selectedGuides("acls", "vsx"), true, true, false), "\n")
 	if !strings.HasSuffix(got, "\nGuide folders: removed; all 2 PDF files are in the release folder.") {
+		t.Fatalf("summary:\n%s", got)
+	}
+	got = strings.Join(librarySummary(m, selectedGuides("acls", "vsx"), true, true, true), "\n")
+	if !strings.HasSuffix(got, "\nRelease folder: only the 2 PDF files, with no index or library records; "+
+		"to download this release there again, first move or delete the folder.") {
 		t.Fatalf("summary:\n%s", got)
 	}
 }

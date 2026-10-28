@@ -41,6 +41,9 @@ type zipExportOptions struct {
 	beforeReplace func() error
 	rename        func(*os.Root, string, string) error
 	versionPolicy nativeVersionPolicy
+	// pdfOnly is the manifest a release folder holding only its PDFs was
+	// published with; it is verified by that, having no records of its own.
+	pdfOnly *Manifest
 }
 
 // ExportZIP verifies and exports a published native version directory. A
@@ -66,6 +69,7 @@ func (r *Run) ExportZIP(ctx context.Context) (string, error) {
 	target, err := exportZIPInRoot(ctx, parent, filepath.Join(r.Destination, filepath.FromSlash(r.parent)), path.Base(r.target), zipExportOptions{
 		beforeReplace: r.checkOwnership,
 		versionPolicy: r.versionPolicy,
+		pdfOnly:       r.pdfOnly,
 	})
 	closeErr := parent.Close()
 	if err != nil {
@@ -137,7 +141,13 @@ func exportZIPInRoot(ctx context.Context, root *os.Root, parentPath, base string
 	if err != nil {
 		return "", err
 	}
-	if physicalEntries > 0 {
+	if options.pdfOnly != nil {
+		verifier := &Run{root: root, platform: options.pdfOnly.Platform, version: options.pdfOnly.Version,
+			versionPolicy: options.versionPolicy}
+		if err := verifier.checkLibraryEntries(base, *options.pdfOnly, false); err != nil {
+			return "", err
+		}
+	} else if physicalEntries > 0 {
 		if err := verifyPublishedZIPSource(root, base, options.versionPolicy); err != nil {
 			return "", err
 		}

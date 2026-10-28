@@ -17,8 +17,9 @@ const maxSummaryTitles = 3
 // selected guides are all there, how many have a PDF, and, guide by guide,
 // what is missing and why. selected are the guides this run downloaded, in
 // order; the manifest's skipped guides were selected too. replace says the
-// run kept only the PDF of each guide, in the release folder.
-func librarySummary(manifest library.Manifest, selected []model.Document, convert, replace bool) []string {
+// run kept only the PDF of each guide, in the release folder, and pdfOnly
+// that the release folder holds nothing else.
+func librarySummary(manifest library.Manifest, selected []model.Document, convert, replace, pdfOnly bool) []string {
 	published := map[string]library.Guide{}
 	for _, guide := range manifest.Guides {
 		published[guide.ID] = guide
@@ -102,7 +103,10 @@ func librarySummary(manifest library.Manifest, selected []model.Document, conver
 	if pdfs := publisherPDFs + generatedPDFs; pdfs > 0 || convert {
 		lines = append(lines, pdfSummary(present, publisherPDFs, generatedPDFs))
 	}
-	if atRoot > 0 {
+	switch {
+	case pdfOnly:
+		lines = append(lines, pdfOnlySummary(len(manifest.Guides)))
+	case atRoot > 0:
 		lines = append(lines, releaseFolderSummary(present, atRoot))
 	}
 	if len(missing) > 0 {
@@ -209,6 +213,17 @@ func pdfSummary(present, publisher, converted int) string {
 	}
 	return fmt.Sprintf("PDF files: %d of the %d guides %s one%s; the guides without one are listed under Missing.",
 		pdfs, present, plural(pdfs, "has", "have"), source)
+}
+
+// pdfOnlySummary says that the release folder holds only the PDF files of
+// its guides, and what that means for a later download.
+func pdfOnlySummary(guides int) string {
+	files := fmt.Sprintf("the %d PDF files", guides)
+	if guides == 1 {
+		files = "the guide's PDF file"
+	}
+	return fmt.Sprintf("Release folder: only %s, with no index or library records; "+
+		"to download this release there again, first move or delete the folder.", files)
 }
 
 // releaseFolderSummary says how many of the present guides are only a PDF

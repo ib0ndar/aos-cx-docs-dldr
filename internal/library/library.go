@@ -59,7 +59,18 @@ type Run struct {
 	migrationHook                               func(string) error
 	// ReplaceHTMLWithPDF keeps only the generated PDF of each accepted HTML
 	// guide whose PDF is complete. A guide whose PDF failed keeps its HTML.
+	// When every guide is then a PDF in the release folder and the run left
+	// nothing unfinished, Publish leaves only those PDFs there.
 	ReplaceHTMLWithPDF bool
+	// pdfOnly is the manifest of a release folder that Publish left holding
+	// only its PDFs, without the records a later run could open it by.
+	pdfOnly *Manifest
+}
+
+// KeptOnlyPDFs reports whether Publish left only the PDFs in the release
+// folder: no index, manifest or history.
+func (r *Run) KeptOnlyPDFs() bool {
+	return r.pdfOnly != nil
 }
 
 func (r *Run) SetSkippedUnavailable(values []model.SkippedUnavailableGuide) {
@@ -978,44 +989,59 @@ func (r *Run) readLibraryTree(directory string) (Manifest, error) {
 			return manifest, fmt.Errorf("invalid upgraded-from application version at %s", directory)
 		}
 	}
-	allowed := map[string]bool{"manifest.json": true, "history.json": true, "index.html": true, "search-index.js": true, "search.js": true}
+	return manifest, r.checkLibraryEntries(directory, manifest, true)
+}
+
+// libraryRecords are the files of a release folder besides its guides.
+var libraryRecords = []string{"index.html", "search-index.js", "search.js", "history.json", "manifest.json"}
+
+// checkLibraryEntries verifies the guides of manifest in release folder
+// directory, and that the folder holds them and, if records is set, the
+// library's records, and nothing else.
+func (r *Run) checkLibraryEntries(directory string, manifest Manifest, records bool) error {
+	allowed := map[string]bool{}
+	if records {
+		for _, name := range libraryRecords {
+			allowed[name] = true
+		}
+	}
 	folded := map[string]bool{}
 	for key, result := range manifest.PDFGuides {
 		component, err := storage.SafeComponent(result.Document.ID)
 		fold := strings.ToLower(key)
 		if err != nil || component != key || folded[fold] || result.Document.Platform != r.platform || result.Document.Version != r.version {
-			return manifest, fmt.Errorf("invalid/colliding guide identity in %s", directory)
+			return fmt.Errorf("invalid/colliding guide identity in %s", directory)
 		}
 		folded[fold] = true
 		entry := releaseEntry(key, result)
 		if entry != key {
 			if folded[strings.ToLower(entry)] {
-				return manifest, fmt.Errorf("colliding PDF name %q in %s", entry, directory)
+				return fmt.Errorf("colliding PDF name %q in %s", entry, directory)
 			}
 			folded[strings.ToLower(entry)] = true
 		}
 		allowed[entry] = true
 		if err := r.verifyGuide(path.Join(directory, key), result); err != nil {
-			return manifest, err
+			return err
 		}
 	}
 	for key, result := range manifest.HTMLGuides {
 		component, err := storage.SafeComponent(result.Document.ID)
 		fold := strings.ToLower(key)
 		if err != nil || component != key || folded[fold] || result.Document.Platform != r.platform || result.Document.Version != r.version {
-			return manifest, fmt.Errorf("invalid/colliding guide identity in %s", directory)
+			return fmt.Errorf("invalid/colliding guide identity in %s", directory)
 		}
 		folded[fold] = true
 		entry := releaseEntry(key, result)
 		if entry != key {
 			if folded[strings.ToLower(entry)] {
-				return manifest, fmt.Errorf("colliding PDF name %q in %s", entry, directory)
+				return fmt.Errorf("colliding PDF name %q in %s", entry, directory)
 			}
 			folded[strings.ToLower(entry)] = true
 		}
 		allowed[entry] = true
 		if err := r.verifyGuide(path.Join(directory, key), result); err != nil {
-			return manifest, err
+			return err
 		}
 	}
 	summaries := map[string]bool{}
@@ -1027,7 +1053,7 @@ func (r *Run) readLibraryTree(directory string) (Manifest, error) {
 		if !ok || summaries[guide.Path] || guide.ID != result.Document.ID || guide.Title != result.Document.Title ||
 			guide.Status != result.Status || guide.Format != result.Format || guide.SourceURL != result.Document.URL ||
 			guide.RouteOrigin != result.Document.RouteOrigin || guide.AtReleaseRoot != result.AtReleaseRoot {
-			return manifest, fmt.Errorf("inconsistent central guide summary in %s", directory)
+			return fmt.Errorf("inconsistent central guide summary in %s", directory)
 		}
 		summaries[guide.Path] = true
 	}
@@ -1036,52 +1062,52 @@ func (r *Run) readLibraryTree(directory string) (Manifest, error) {
 		if skipped.ID == "" || skipped.Title == "" || skipped.Kind == "" ||
 			skipped.MappedSourceURL == "" || !skipped.Checked || skipped.Available ||
 			skipped.Reason == "" || skippedIDs[skipped.ID] {
-			return manifest, fmt.Errorf("invalid skipped unavailable guide metadata in %s", directory)
+			return fmt.Errorf("invalid skipped unavailable guide metadata in %s", directory)
 		}
 		skippedIDs[skipped.ID] = true
 		_, retainedPDF := manifest.PDFGuides[skipped.ID]
 		_, retainedHTML := manifest.HTMLGuides[skipped.ID]
 		if skipped.RetainedPrevious != (retainedPDF || retainedHTML) {
-			return manifest, fmt.Errorf("inconsistent skipped guide retention in %s", directory)
+			return fmt.Errorf("inconsistent skipped guide retention in %s", directory)
 		}
 	}
 	if manifest.Status != versionStatus(manifest.Errors, manifest.Attempts, manifest.Guides) {
-		return manifest, fmt.Errorf("inconsistent native library status in %s", directory)
+		return fmt.Errorf("inconsistent native library status in %s", directory)
 	}
 	dir, err := r.root.Open(directory)
 	if err != nil {
-		return manifest, err
+		return err
 	}
 	entries, readErr := dir.ReadDir(-1)
 	closeErr := dir.Close()
 	if err := errors.Join(readErr, closeErr); err != nil {
-		return manifest, err
+		return err
 	}
 	entries, err = withoutFinderMetadata(r.root, directory, entries)
 	if err != nil {
-		return manifest, err
+		return err
 	}
 	if len(entries) != len(allowed) {
 		names := make([]string, 0, len(entries))
 		for _, entry := range entries {
 			names = append(names, entry.Name())
 		}
-		return manifest, fmt.Errorf("unexpected/missing files in managed library %s: entries=%v expected=%v", directory, names, slices.Sorted(maps.Keys(allowed)))
+		return fmt.Errorf("unexpected/missing files in managed library %s: entries=%v expected=%v", directory, names, slices.Sorted(maps.Keys(allowed)))
 	}
 	for _, entry := range entries {
 		if !allowed[entry.Name()] {
-			return manifest, fmt.Errorf("unrecognized library entry %s", entry.Name())
+			return fmt.Errorf("unrecognized library entry %s", entry.Name())
 		}
 		if err := storage.Check(r.root, path.Join(directory, entry.Name())); err != nil {
-			return manifest, err
+			return err
 		}
 		_, pdfGuide := manifest.PDFGuides[entry.Name()]
 		_, htmlGuide := manifest.HTMLGuides[entry.Name()]
 		if !pdfGuide && !htmlGuide && !entry.Type().IsRegular() {
-			return manifest, fmt.Errorf("invalid generated library file %s", entry.Name())
+			return fmt.Errorf("invalid generated library file %s", entry.Name())
 		}
 	}
-	return manifest, nil
+	return nil
 }
 
 func versionStatus(errors []string, attempts []Attempt, guides []Guide) string {
@@ -1390,5 +1416,39 @@ func (r *Run) Publish(cancelled bool) (Manifest, error) {
 		return Manifest{}, err
 	}
 	r.published = true
+	if r.ReplaceHTMLWithPDF && onlyPDFs(manifest) {
+		if err := r.dropRecords(); err != nil {
+			return Manifest{}, fmt.Errorf("published %s, but removing its index and records failed: %w", r.Target, err)
+		}
+		r.pdfOnly = &manifest
+	}
 	return manifest, nil
+}
+
+// onlyPDFs reports whether published library manifest can be left as only
+// its PDFs: every guide is a PDF in the release folder, and the run left
+// nothing unfinished that a later run would need the library's records for.
+func onlyPDFs(manifest Manifest) bool {
+	return manifest.Status != "incomplete" && len(manifest.Guides) > 0 &&
+		!slices.ContainsFunc(manifest.Guides, func(guide Guide) bool { return !guide.AtReleaseRoot })
+}
+
+// dropRecords removes the library's records and index from the published
+// release folder, which then holds only the PDFs, and the snapshots of
+// earlier copies of the release, which only those records refer to. The
+// records are written and published first, so that an interrupted
+// publication is recovered as any other.
+func (r *Run) dropRecords() error {
+	if err := r.checkOwnership(); err != nil {
+		return err
+	}
+	for _, name := range libraryRecords {
+		if err := storage.Remove(r.root, path.Join(r.target, name)); err != nil {
+			return err
+		}
+	}
+	if err := storage.SyncDir(r.root, r.target); err != nil {
+		return err
+	}
+	return storage.RemoveTree(r.root, path.Join(r.parent, ".snapshots", path.Base(r.target)))
 }

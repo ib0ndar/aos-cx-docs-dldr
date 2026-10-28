@@ -348,14 +348,26 @@ using the packaged renderer. Append it to a download command; the HTML remains
 the canonical offline copy.
 
 `--replace-html-with-pdf` creates the same PDF, then removes the guide's HTML
-and its folder and keeps the PDF in the release folder, next to `index.html`.
-Guides that come from the publisher as a PDF are kept there too, so the
-release folder holds the PDFs and the library's own files, without guide
-folders. The HTML is removed only after the PDF and the HTML it was made from
-pass verification; a guide whose PDF fails keeps its HTML in its folder and is
-reported as incomplete. These guides are searchable by title only, and links
-to them from other guides stay online. The guided selection offers the same
-choice as "generate PDFs with pinned Chrome and remove the HTML".
+and its folder and keeps the PDF in the release folder. Guides that come from
+the publisher as a PDF are kept there too. The HTML is removed only after the
+PDF and the HTML it was made from pass verification. The guided selection
+offers the same choice as "generate PDFs with pinned Chrome and remove the
+HTML".
+
+When every guide of the release ends up as a PDF and nothing failed or was
+cancelled, the release folder holds only the PDFs: the release `index.html`,
+its search files, `manifest.json` and `history.json` are removed too, and so
+are the tool's snapshots of earlier copies of that release. Nothing records
+the download any more, so the tool no longer recognizes the folder: to
+download the release there again, first move or delete the folder, or choose
+another `--destination`. With `--json`, the output still carries the details
+`manifest.json` would have held, and reports `"pdf_only": true`.
+
+A guide whose PDF fails keeps its HTML in its folder and is reported as
+incomplete. The release folder then keeps its index and records, so that
+running the same download again can finish it; once it does, only the PDFs
+remain. Until then, the converted guides are searchable by title only, and
+links to them from other guides stay online.
 
 ### Stop and resume
 
@@ -397,7 +409,8 @@ Guides that come as a publisher PDF are saved as that single PDF file. Guides
 built from HTML get the browsable folder shown above. With
 `--replace-html-with-pdf`, each guide is instead a single PDF file in the
 release folder, named `<platform> - <release> - <title>.pdf`, and has no
-folder.
+folder; once every guide is, the release folder holds nothing else (see
+[Choose PDF behavior](#choose-pdf-behavior)).
 
 The release-level search covers titles and archived HTML text. Publisher PDFs
 remain title-only. Cross-guide links are localized only when the application
@@ -447,7 +460,7 @@ again.
 | `--refresh` | Revalidate cached guide bytes; the catalogue is always refreshed. |
 | `--prefer-pdf` / `--no-prefer-pdf` | Prefer a verified publisher PDF, or complete HTML. |
 | `--convert-html-to-pdf` / `--no-convert-html-to-pdf` | Create a companion PDF from HTML, or keep the default HTML-only behavior. |
-| `--replace-html-with-pdf` | Create a PDF from HTML and keep only the PDFs, in the release folder without guide folders; a guide whose PDF fails keeps its HTML. |
+| `--replace-html-with-pdf` | Create a PDF from HTML and keep only the PDFs, in the release folder: no guide folders, and once every guide is a PDF, no index or records either. A guide whose PDF fails keeps its HTML. |
 | `--workers` | How many downloads run at once. Default 4. |
 | `--raw-cache` | Use a different cache folder. |
 | `--transport compatible\|http` | Browser-free request mode. Leave at the compatible default. |

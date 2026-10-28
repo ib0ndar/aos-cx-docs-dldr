@@ -322,7 +322,7 @@ func runWithPrompts(ctx context.Context, args []string, out, stderr io.Writer, n
 	flags.BoolVar(&o.noPreferPDF, "no-prefer-pdf", false, "Prefer complete HTML when available (the default)")
 	flags.BoolVar(&o.convertHTMLToPDF, "convert-html-to-pdf", false, "Create a companion PDF from complete archived HTML using the pinned Chrome sidecar")
 	flags.BoolVar(&o.noConvertHTMLToPDF, "no-convert-html-to-pdf", false, "Do not create a PDF from archived HTML (the default)")
-	flags.BoolVar(&o.replaceHTMLWithPDF, "replace-html-with-pdf", false, "Create a PDF from complete archived HTML with the pinned Chrome sidecar and keep only the PDFs, in the release folder without guide folders; a guide whose PDF fails keeps its HTML")
+	flags.BoolVar(&o.replaceHTMLWithPDF, "replace-html-with-pdf", false, "Create a PDF from complete archived HTML with the pinned Chrome sidecar and keep only the PDFs, in the release folder: no guide folders, and once every guide is a PDF, no index or library records; a guide whose PDF fails keeps its HTML")
 	flags.StringVar(&o.chromePath, "chrome-path", "", "Exact pinned Chrome for Testing headless-shell executable")
 	flags.StringVar(&o.qpdfPath, "qpdf-path", "", "Exact pinned qpdf outline-postprocessor executable")
 	flags.BoolVar(&o.zip, "zip", false, "Export the verified published version library as an adjacent ZIP")

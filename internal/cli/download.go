@@ -163,6 +163,9 @@ type DownloadOutput struct {
 	Library  string           `json:"library"`
 	ZIP      string           `json:"zip,omitempty"`
 	Manifest library.Manifest `json:"manifest"`
+	// PDFOnly says the library folder holds only the PDFs: Manifest is not
+	// saved there.
+	PDFOnly bool `json:"pdf_only,omitempty"`
 }
 
 func downloadGuides(ctx context.Context, o options, catalog model.Catalog, fetcher model.Fetcher, out, stderr io.Writer) (code int, err error) {
@@ -414,7 +417,7 @@ func downloadGuidesObserved(
 				fmt.Fprintln(stderr, errPresentation.failure(message))
 			}
 		}
-		reportGuideDiagnostics(progress, stderr, errPresentation, document.ID, result, archiveErr)
+		reportGuideDiagnostics(progress, stderr, errPresentation, document.ID, result, archiveErr, o.replaceHTMLWithPDF)
 		if progress != nil {
 			topics, assets := 0, 0
 			if result.HTML != nil {
@@ -503,12 +506,13 @@ func downloadGuidesObserved(
 			return 1, fmt.Errorf("export published library ZIP: %w", err)
 		}
 	}
+	pdfOnly := run.KeptOnlyPDFs()
 	if manifest.Status != "complete" {
 		code = 2
-		reportIncompleteManifest(progress, stderr, errPresentation, run.Target, manifest)
+		reportIncompleteManifest(progress, stderr, errPresentation, run.Target, manifest, pdfOnly)
 	}
 	if o.json {
-		err = writeJSON(out, DownloadOutput{Library: run.Target, ZIP: zipPath, Manifest: manifest})
+		err = writeJSON(out, DownloadOutput{Library: run.Target, ZIP: zipPath, Manifest: manifest, PDFOnly: pdfOnly})
 	} else {
 		status := outPresentation.success(manifest.Status)
 		if manifest.Status != "complete" {
@@ -517,7 +521,7 @@ func downloadGuidesObserved(
 		_, err = fmt.Fprintf(out, "%s %s\n%s %s\n",
 			outPresentation.heading("Library:"), outPresentation.plain(run.Target),
 			outPresentation.heading("Status:"), status)
-		for _, line := range librarySummary(manifest, documents, o.convertHTMLToPDF, o.replaceHTMLWithPDF) {
+		for _, line := range librarySummary(manifest, documents, o.convertHTMLToPDF, o.replaceHTMLWithPDF, pdfOnly) {
 			if err == nil {
 				_, err = fmt.Fprintln(out, outPresentation.plain(line))
 			}
@@ -552,7 +556,14 @@ func reportGuideDiagnostics(
 	guideID string,
 	result model.ArchiveResult,
 	archiveErr error,
+	replace bool,
 ) {
+	// A run that keeps only the PDFs may keep no manifest; the --json output
+	// always has the details.
+	noticesHint, warningsHint := "see published manifest", "see the published manifest"
+	if replace {
+		noticesHint, warningsHint = "the --json output lists them", "the --json output lists them"
+	}
 	errorsToShow := deduplicateDiagnostics(result.Errors, archiveErr)
 	for index, message := range errorsToShow {
 		if index == maxGuideErrorsShown {
@@ -567,14 +578,14 @@ func reportGuideDiagnostics(
 	}
 	if summary := summarizeNotices(result.Notices); summary != "" {
 		printNotice(progress, stderr, presentation,
-			fmt.Sprintf("Guide %s: %s; see published manifest.", guideID, summary))
+			fmt.Sprintf("Guide %s: %s; %s.", guideID, summary, noticesHint))
 	}
 	warnings := deduplicateDiagnostics(result.Warnings, nil)
 	for index, message := range warnings {
 		if index == maxGuideWarningsShown {
 			printDiagnostic(progress, stderr, presentation, "warning", fmt.Sprintf(
-				"Guide %s: %d more publisher/source warnings; see the published manifest.",
-				guideID, len(warnings)-index,
+				"Guide %s: %d more publisher/source warnings; %s.",
+				guideID, len(warnings)-index, warningsHint,
 			))
 			break
 		}
@@ -696,8 +707,12 @@ func reportIncompleteManifest(
 	presentation humanPresentation,
 	target string,
 	manifest library.Manifest,
+	pdfOnly bool,
 ) {
 	message := "Full diagnostics: " + filepath.Join(target, "manifest.json")
+	if pdfOnly {
+		message = "Full diagnostics: in the --json output only; the release folder keeps only the PDFs."
+	}
 	printDiagnostic(progress, stderr, presentation, "warning", message)
 	for _, manifestError := range manifest.Errors {
 		if !strings.HasPrefix(manifestError, "Unfinished work retained at ") {
