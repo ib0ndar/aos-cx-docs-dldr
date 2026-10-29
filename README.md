@@ -28,6 +28,7 @@ Chrome and qpdf components required for optional HTML-to-PDF conversion.
 | --- | --- | --- | --- |
 | macOS | Native bundle | Apple Silicon (`arm64`) | Unsigned and unnotarized |
 | Windows | Linux container under Docker Desktop | 64-bit Intel/AMD (`linux/amd64`) | Verified on the environment described below |
+| Linux | The same container under Docker Engine | 64-bit Intel/AMD (`linux/amd64`) | Verified on the environment described below |
 
 There is no native Windows executable, Linux native package, Intel Mac build,
 or ARM container. Retrieval is browser-free. Packaged Chrome is used only for
@@ -46,6 +47,7 @@ Each release provides its downloads, checksums, and release notes; the
 
 - [Install on macOS](#install-on-macos)
 - [Install on Windows](#install-on-windows)
+- [Install on Linux](#install-on-linux)
 - [Update the application](#update-the-application)
 - [Everyday use](#everyday-use)
 - [Output and library lifecycle](#output-and-library-lifecycle)
@@ -276,6 +278,133 @@ different folder, set `AOSCX_DOCS_LIBRARY` before running the command.
 
 ---
 
+## Install on Linux
+
+On Linux the tool runs in the same container as on Windows, which includes
+everything, including PDF creation. You do not need to install Go or compile
+anything. The host must be 64-bit Intel/AMD (`x86_64`); ARM Linux is not
+supported. The documented route is Docker Engine in its default setup, where
+the engine runs as root. See [Linux status](#limits-and-current-status) for the
+verification scope.
+
+### Step 1 — Install Docker Engine
+
+Install Docker Engine from Docker's
+[installation guide](https://docs.docker.com/engine/install/) or from your
+distribution's packages (`docker.io` on Debian and Ubuntu), and start it. Then
+allow your account to run `docker` without `sudo`, and log out and back in:
+
+```sh
+sudo usermod -aG docker "$USER"
+```
+
+Members of the `docker` group control the engine, which amounts to root access;
+see Docker's
+[post-installation steps](https://docs.docker.com/engine/install/linux-postinstall/).
+After logging back in, `docker version` must show both a client and a server.
+
+Rootless Docker, Docker Desktop for Linux and Podman map user IDs differently
+and have not been tested.
+
+### Step 2 — Load the image
+
+Download `aos-cx-docs-dldr-VERSION-linux-amd64.tar.gz` and `SHA256SUMS` from
+your chosen [release](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/latest).
+In a terminal, change to the download folder. Set `APP_VERSION` once,
+replacing `VERSION` as described above, then check the archive:
+
+```sh
+APP_VERSION='VERSION'
+sha256sum -c SHA256SUMS
+```
+
+Stop unless it prints `OK`. Then load the archive; `docker load` handles the
+compressed file directly:
+
+```sh
+docker load -i "aos-cx-docs-dldr-${APP_VERSION}-linux-amd64.tar.gz"
+```
+
+### Step 3 — Install the shortcut command
+
+The shortcut is a small script that lets you type `aos-cx-docs-dldr` instead of
+a long `docker run` line. It runs the container with your user and group IDs,
+so the library and cache it writes in your home folder belong to you, and
+without privileges. In the same terminal, because it uses `APP_VERSION`,
+create it in `~/.local/bin`:
+
+```sh
+mkdir -p "$HOME/.local/bin"
+cat > "$HOME/.local/bin/aos-cx-docs-dldr" <<'EOF'
+#!/bin/sh
+# aos-cx-docs-dldr in its container, writing to your folders as you.
+image=${AOSCX_DOCS_IMAGE:-aos-cx-docs-dldr:VERSION}
+library=${AOSCX_DOCS_LIBRARY:-$HOME/Documents/AOS-CX}
+cache=${XDG_CACHE_HOME:-$HOME/.cache}/aos-cx-docs-dldr-container
+# Create both folders first: Docker would create missing ones owned by root.
+mkdir -p "$library" "$cache" || exit 1
+# --list takes no destination; every other run saves to the library.
+listing=
+for arg in "$@"; do
+    [ "$arg" = --list ] && listing=1
+done
+[ -n "$listing" ] || set -- --destination /library "$@"
+# A terminal only when both input and output are one, so that redirected
+# output stays plain.
+tty=
+[ -t 0 ] && [ -t 1 ] && tty=-t
+docker run --rm -i $tty --cap-drop ALL --security-opt no-new-privileges \
+    --user "$(id -u):$(id -g)" \
+    -v "$library:/library" -v "$cache:/cache" \
+    -e HTTPS_PROXY -e HTTP_PROXY -e NO_PROXY \
+    -e https_proxy -e http_proxy -e no_proxy \
+    "$image" "$@"
+status=$?
+if [ -z "$listing" ] && [ -t 1 ]; then
+    printf '\nLibrary folder: %s\n' "$library" >&2
+fi
+exit "$status"
+EOF
+sed -i "s/aos-cx-docs-dldr:VERSION/aos-cx-docs-dldr:${APP_VERSION}/" "$HOME/.local/bin/aos-cx-docs-dldr"
+chmod +x "$HOME/.local/bin/aos-cx-docs-dldr"
+```
+
+Check it from the same terminal:
+
+```sh
+"$HOME/.local/bin/aos-cx-docs-dldr" --version
+```
+
+The printed application version should match the release you downloaded. The
+script runs the image of that release; when you update, load the new image and
+create the script again. An `AOSCX_DOCS_IMAGE` variable takes precedence, so
+update or remove it when switching releases. Run the shortcut as yourself, not
+with `sudo`, which would make the files belong to root.
+
+Most distributions put `~/.local/bin` on your `PATH` at login once the folder
+exists. If `command -v aos-cx-docs-dldr` still finds nothing after logging in
+again, add `export PATH="$HOME/.local/bin:$PATH"` to your shell's startup file.
+
+### Step 4 — First run on Linux
+
+Start guided selection:
+
+```sh
+aos-cx-docs-dldr
+```
+
+Your downloads are saved to `$HOME/Documents/AOS-CX`. To use a different
+folder, set `AOSCX_DOCS_LIBRARY` before running the command. Open
+`$HOME/Documents/AOS-CX/<platform>/<release>/index.html` in a web browser, for
+example with `xdg-open`. Downloaded web responses are cached in
+`~/.cache/aos-cx-docs-dldr-container`.
+
+> Progress messages come from inside the container, so they show paths like
+> `/library/6300/...`. The shortcut prints your real folder when the run
+> finishes.
+
+---
+
 ## Update the application
 
 1. Check the [latest release](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/latest)
@@ -283,11 +412,12 @@ different folder, set `AOSCX_DOCS_LIBRARY` before running the command.
 2. Follow the installation steps again with files from that release. On macOS,
    extract the complete bundle into its own folder. On Windows, load the new
    image, replace the PowerShell shortcut, and dot-source it again (or open a
-   new PowerShell session if it is already in your profile).
+   new PowerShell session if it is already in your profile). On Linux, load
+   the new image and create the shortcut script again.
 3. Run `--version` to confirm the version being used.
 4. Choose a new library destination when changing application versions. On
-   macOS, use `--destination`; on Windows, set `AOSCX_DOCS_LIBRARY` before
-   running the shortcut. Then download the guides you need again.
+   macOS, use `--destination`; on Windows and Linux, set `AOSCX_DOCS_LIBRARY`
+   before running the shortcut. Then download the guides you need again.
 
 There is no automatic library migration. Existing libraries remain browsable
 through their `index.html`; see [Libraries from other versions](#libraries-from-other-versions)
@@ -298,8 +428,8 @@ product name also require new locations; incompatible state is left untouched.
 
 ## Everyday use
 
-Examples below use the native macOS command. On Windows, use
-`aos-cx-docs-dldr` without `./`; the wrapper automatically supplies the
+Examples below use the native macOS command. On Windows and Linux, use
+`aos-cx-docs-dldr` without `./`; the shortcut automatically supplies the
 download destination, so omit `--destination` there.
 
 ### Guided selection
@@ -452,9 +582,9 @@ version only. If you point it at a folder created by a different application
 version, it refuses and leaves that folder untouched. Choose a new folder and
 download again.
 
-A library is also tied to the runtime platform that produced it: native macOS
-or the Linux container used on Windows. Integrity digests include Unix
-permissions and generated-PDF records include platform sidecar pins, so the two
+A library is also tied to the runtime platform that produced it: native macOS,
+or the Linux container on Windows or on Linux. Integrity digests include Unix
+permissions and generated-PDF records include platform sidecar pins, so these
 libraries are not interchangeable. Choose a new destination and download
 again.
 
@@ -472,7 +602,7 @@ again.
 | `--guides` | Guide IDs to download, space separated. |
 | `--all` | Download every resolved mapped guide that is not definitively unavailable. |
 | `--guide-source` | `GUIDE_ID=URL`: download that guide from a publisher document you name; see [A guide is shown as unavailable](#a-guide-is-shown-as-unavailable). |
-| `--destination` | Base folder for output. Fixed automatically on Windows. |
+| `--destination` | Base folder for output. Fixed automatically by the Windows and Linux shortcuts. |
 | `--zip` | Also produce a verified ZIP of the release folder. |
 | `--refresh` | Revalidate cached guide bytes; the catalogue is always refreshed. |
 | `--prefer-pdf` / `--no-prefer-pdf` | Prefer a verified publisher PDF, or complete HTML. |
@@ -650,13 +780,33 @@ docker run --rm -i --cap-drop ALL --security-opt no-new-privileges `
   $image --list
 ```
 
+The Linux shortcut forwards `HTTPS_PROXY`, `HTTP_PROXY` and `NO_PROXY`, in
+upper or lower case, when they are set in your shell. A proxy listening on the
+host's own `localhost` cannot be reached from inside the container; use an
+address the container can reach. If the proxy inspects encrypted traffic, call
+Docker directly and mount its CA file, as on Windows. The cache folder must
+exist first, or Docker creates it owned by root:
+
+```sh
+image='aos-cx-docs-dldr:VERSION'
+cache="${XDG_CACHE_HOME:-$HOME/.cache}/aos-cx-docs-dldr-container"
+mkdir -p "$cache"
+docker run --rm -i --cap-drop ALL --security-opt no-new-privileges \
+  --user "$(id -u):$(id -g)" \
+  -v "$cache:/cache" \
+  -v /path/to/corporate-ca.pem:/certs/ca.pem:ro \
+  -e SSL_CERT_FILE=/certs/ca.pem \
+  -e HTTPS_PROXY -e NO_PROXY \
+  "$image" --list
+```
+
 ---
 
 ## Environment variables
 
 None are required. Most are application settings that work on both native
-macOS and inside the Linux container. The Windows shortcut has three additional
-wrapper-only settings.
+macOS and inside the Linux container. The Windows and Linux shortcuts have a
+few settings of their own.
 
 On macOS, set application variables in the shell before running
 `./aos-cx-docs-dldr`. For a direct container command, pass each application
@@ -678,7 +828,8 @@ request modes honour them.
 The Windows shortcut does not forward these variables from PowerShell. Use a
 direct container command and `-e`, as shown in the proxy example above. A CA
 file must also be mounted into the container before `SSL_CERT_FILE` can name
-its container path.
+its container path. The Linux shortcut forwards the proxy variables when they
+are set, but not `SSL_CERT_FILE` or `SSL_CERT_DIR`.
 
 ### Application: appearance
 
@@ -709,18 +860,21 @@ The container already sets `XDG_CACHE_HOME=/cache`,
 `HOME=/home/nonroot`, and `SSL_CERT_FILE` to the public certificate bundle.
 Change those only if you know why.
 
-### Windows shortcut only
+### Shortcuts only
 
-These three variables are read by `scripts/aos-cx-docs-dldr.ps1`, not by the
-application. Set them in PowerShell before running `aos-cx-docs-dldr`.
+These variables are read by the Windows shortcut (`scripts/aos-cx-docs-dldr.ps1`)
+and the Linux shortcut script, not by the application. Set them before running
+`aos-cx-docs-dldr`.
 
 | Variable | Default | Effect |
 | --- | --- | --- |
-| `AOSCX_DOCS_LIBRARY` | `%USERPROFILE%\Documents\AOS-CX` | Windows folder where downloads are saved. |
-| `AOSCX_DOCS_ENGINE` | `docker` | Container command. The `podman` override exists but is unverified. |
-| `AOSCX_DOCS_IMAGE` | Versioned image tag pinned in the downloaded shortcut | Container image to run, including a company-registry image. |
+| `AOSCX_DOCS_LIBRARY` | `%USERPROFILE%\Documents\AOS-CX` on Windows, `$HOME/Documents/AOS-CX` on Linux | Folder where downloads are saved. |
+| `AOSCX_DOCS_IMAGE` | Versioned image tag pinned in the shortcut | Container image to run, including a company-registry image. |
+| `AOSCX_DOCS_ENGINE` | `docker` | Windows only. Container command. The `podman` override exists but is unverified. |
 
-No other PowerShell environment variables are forwarded by the shortcut.
+No other PowerShell environment variables are forwarded by the Windows
+shortcut. The Linux shortcut forwards only the proxy variables, and keeps the
+download cache in `${XDG_CACHE_HOME:-$HOME/.cache}/aos-cx-docs-dldr-container`.
 
 ---
 
@@ -746,9 +900,9 @@ The tool is honest about what it cannot do rather than guessing:
   the authoritative copy.
 
 **Two deliverables, nothing else.** A native macOS Apple Silicon bundle and a
-Linux container for 64-bit Intel/AMD. Both include PDF creation. There is no
-native Windows program, no Linux native package, no Intel Mac build, and no
-ARM container.
+Linux container for 64-bit Intel/AMD, used on Windows and on Linux. Both
+include PDF creation. There is no native Windows program, no Linux native
+package, no Intel Mac build, and no ARM container.
 
 **Why no ARM container.** The pinned qpdf distribution has no Linux ARM binary,
 so an ARM container cannot carry the required component. See
@@ -760,6 +914,17 @@ generated-PDF validation, and library reopening have been verified on Windows
 live publisher retrieval from Windows, Podman Desktop, and other Windows
 releases have not been tested. See [docs/container.md](docs/container.md) for
 the exact tested environment and verification record.
+
+**Linux status.** The installation steps above, including the shortcut
+script, were run as written on Ubuntu 24.04 x86_64 with Docker Engine 29.1.3
+(Ubuntu's `docker.io` package, set to the `cgroupfs` cgroup driver), in a
+virtual machine on an Apple Silicon Mac where x86_64 programs run under
+Rosetta translation. Against a fixture portal they passed version and help,
+listing, a download with generated PDF and ZIP, reopening the library,
+redirected `--json` output, a group-writable umask, and library and cache
+files owned by the user. Live publisher retrieval, a physical x86_64 machine,
+other distributions, SELinux-enforcing hosts, rootless Docker, Docker Desktop
+for Linux and Podman have not been tested.
 
 ---
 
