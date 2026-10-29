@@ -173,7 +173,7 @@ func TestAssemblePreservesSemanticsOrderLinksAndResources(t *testing.T) {
 		!strings.Contains(string(body), "box-sizing:border-box") ||
 		!strings.Contains(string(body), `body class="print-source-flare"`) ||
 		!strings.Contains(string(body), `body.print-source-flare .print-topic :where(.print-content h1){font-size:16pt!important;line-height:1.2!important}`) ||
-		!strings.Contains(string(body), `:where(.print-content h1,.print-content h2,.print-content h3){break-inside:avoid-page!important;break-after:avoid-page!important}`) ||
+		!strings.Contains(string(body), `:where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6,.print-content p.subheading){break-inside:avoid-page!important;break-after:avoid-page!important}`) ||
 		!strings.Contains(string(body), "max-width:100%;overflow-x:auto;white-space:pre-wrap") ||
 		!strings.Contains(string(body), ":where(.print-content p.CLI){max-width:100%;overflow-x:auto}") {
 		t.Fatalf("combined structure is incomplete:\n%s", body)
@@ -690,5 +690,51 @@ func TestAssemblePointsEmptyLinksAtTheirTopic(t *testing.T) {
 		if !bytes.Contains(link, []byte(`href="#`+string(section[1])+`"`)) {
 			t.Errorf("%s link %s does not lead to topic #%s", name, link, section[1])
 		}
+	}
+}
+
+// A parent topic whose page is only its title must not be left alone at the
+// bottom of a page; its section avoids a break after itself. A topic with
+// any other content keeps ordinary breaks.
+func TestAssembleMarksTopicsThatHoldOnlyHeadings(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = regexp.MustCompile(`(?s)<ol>.*?</ol>|<a [^>]*>back</a>`).ReplaceAll(body, nil)
+	body = bytes.Replace(body, []byte(`</h1>`), []byte("</h1><p class=\"shortdesc\">\n</p><div class=\"body\"> </div><style>p{margin:0}</style>"), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	sections := regexp.MustCompile(`<section class="([^"]*)" id="[^"]+" data-source-url="([^"]+)"`).FindAllSubmatch(combined, -1)
+	marked := map[string]bool{}
+	for _, section := range sections {
+		marked[string(section[2])] = strings.Contains(string(section[1]), "print-heading-only")
+	}
+	if !marked[result.HTML.Topics[1].URL] || marked[result.HTML.Topics[0].URL] || len(marked) < 2 {
+		t.Fatalf("heading-only marks = %v, want only %s", marked, result.HTML.Topics[1].URL)
+	}
+}
+
+// Flare tables of contents wrap the guide in entries such as the guide title,
+// which the PDF outline drops. The printed Contents drops them too, and the
+// topic a wrapper names is not listed again as an additional topic.
+func TestAssembleContentsDropsPublisherWrappers(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	plan.TOC = []model.TocEntry{{Title: "Modern Guide", URL: plan.Document.URL, Children: plan.TOC}}
+	_, combined := assembleGuide(t, output, plan, result)
+	start := bytes.Index(combined, []byte(`<nav class="print-toc"`))
+	end := bytes.Index(combined[start:], []byte(`</nav>`))
+	if start < 0 || end < 0 {
+		t.Fatal("printed Contents not found")
+	}
+	contents := string(combined[start : start+end])
+	_, additional, _ := strings.Cut(contents, "<h2>Additional topics</h2>")
+	if strings.Contains(contents, ">Modern Guide<") || strings.Count(contents, ">Introduction<") != 1 ||
+		strings.Count(additional, "<li>") != 1 || !strings.Contains(additional, "extra.htm") {
+		t.Fatalf("printed Contents kept the wrapper or lost entries:\n%s", contents)
 	}
 }

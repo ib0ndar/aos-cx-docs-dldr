@@ -35,11 +35,13 @@ const (
 
 // Chrome clips each printed page to its content area. Publisher lists can be
 // indented less than their hanging markers are wide (DITA guides use 1em), so
-// .print-content keeps a left gutter that holds the markers. Two publisher
-// rules meant for a scrolling browser window are lifted: code blocks lose
-// their height cap, which print would cut off instead of scrolling, and
-// captions wrap, because a line wider than the page makes Chrome shrink the
-// whole document to fit it.
+// .print-content keeps a left gutter that holds the markers. Publisher rules
+// meant for a scrolling browser window are overridden where print would lose
+// or strand content: code and CLI output wrap instead of scrolling or being
+// capped in height, and are never hyphenated; captions wrap, because a line
+// wider than the page makes Chrome shrink the whole document; headings,
+// captions and notes stay with what follows them; and a topic's trailing
+// margin cannot push an empty page before the next chapter.
 const printCSS = `
 @page{size:Letter;margin:.72in .68in}
 @media screen{body{box-sizing:border-box;max-width:90rem;margin:0 auto;padding:2rem;color:#202124}.print-cover{min-height:60vh}}
@@ -51,24 +53,30 @@ body.print-source-hpe{font-family:"HPE Graphik",Arial,sans-serif}
 .print-destination-registry{position:absolute;left:0;top:0;width:1px;height:1px;overflow:hidden;clip-path:inset(50%)}
 .print-destination-registry a{display:block;width:1px;height:1px}
 .print-overview{break-after:page}.print-toc{break-before:page;break-after:page}
-.print-toc ol{list-style:none;padding-left:1.1em}.print-toc>ol{padding-left:0}.print-toc li{margin:.2em 0}
+.print-toc ol{list-style:none;padding-left:1.1em}.print-toc>ol{padding-left:0}.print-toc li{margin:.2em 0;list-style:none}
 .print-topic.print-chapter{break-before:page}.print-topic{min-width:0}
 .print-content{box-sizing:border-box;padding-left:2em}
+.print-topic.print-heading-only{break-after:avoid-page}
 .print-topic.print-flare-homepage{break-after:page}
-:where(.print-content h1,.print-content h2,.print-content h3){break-inside:avoid-page!important;break-after:avoid-page!important}
+.print-content .wh_topic_content{margin-bottom:0!important}
+:where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6,.print-content p.subheading){break-inside:avoid-page!important;break-after:avoid-page!important}
+:where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6){break-before:auto!important}
 :where(.print-content p,.print-content li){orphans:3;widows:3}
 body.print-source-flare .print-topic :where(.print-content h1){font-size:16pt!important;line-height:1.2!important}
 body.print-source-flare .print-topic :where(.print-content h2){font-size:14pt!important;line-height:1.25!important}
 body.print-source-flare .print-topic :where(.print-content h3){font-size:12pt!important;line-height:1.25!important}
 :where(.print-content table){max-width:100%}
-.print-content caption{white-space:normal!important}
+.print-content caption{white-space:normal!important;break-after:avoid-page!important}
+.print-content div.note{break-inside:avoid-page}.print-content .note__title{break-after:avoid-page}
 :where(.print-content img,.print-content svg){max-width:100%;height:auto}
 .archive-image-placeholder{display:flex;box-sizing:border-box;align-items:center;justify-content:center;max-width:100%;min-width:3rem;min-height:2.5rem;max-height:12rem;padding:.6rem;border:1px dashed #8a6d3b;border-radius:.25rem;background:#fff8e5;color:#533f1f;font-size:.9rem;line-height:1.3;text-align:center;overflow:hidden;break-inside:avoid-page}
 .archive-image-placeholder::before{content:"[!]";margin-right:.4rem;font-weight:700}
 .archive-image-placeholder-small{min-width:0;min-height:0;padding:.1rem;font-size:0}
 .archive-image-placeholder-small::before{margin:0;font-size:.8rem}
-:where(.print-content pre,.print-content .pre,.print-content .codeblock,.print-content .screen){max-width:100%;overflow-x:auto;white-space:pre-wrap;overflow-wrap:normal}
+:where(.print-content pre,.print-content .pre,.print-content .codeblock,.print-content .screen){max-width:100%;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .print-content :is(pre,.pre,.codeblock,.screen){max-height:none!important}
+.print-content :is(pre,.pre,.codeblock,.screen,.screen>p,p.CLI){white-space:pre-wrap!important}
+.print-content :is(pre,.pre,.codeblock,.screen,p.CLI,code,kbd,samp,.codeph){hyphens:manual!important}
 :where(.print-content p.CLI){max-width:100%;overflow-x:auto}
 body.print-source-flare :where(.print-content>#mc-main-content>.topichero){display:none!important;position:static!important}
 :where(.print-content.print-flare-home-hero-removed>#mc-main-content>.container){margin-top:0!important}
@@ -77,6 +85,15 @@ body.print-source-flare :where(.print-content>#mc-main-content>.topichero){displ
 body.print-source-hpe :where(.print-content table code.codeph){display:inline-block;max-width:min(60ch,calc(100vw - 3rem));overflow-x:auto;white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}
 .print-provenance{break-before:page;color:#4b5563}
 `
+
+// printFontFallbackCSS gives "Open Sans", which Flare stylesheets name with
+// no fallback, an installed sans-serif face; without one Chrome falls back
+// to a serif font. It precedes the publisher stylesheets, so a guide that
+// ships its own Open Sans faces keeps them.
+const printFontFallbackCSS = `@font-face{font-family:"Open Sans";src:local("Open Sans"),local("OpenSans-Regular"),local("Arial"),local("ArialMT"),local("Liberation Sans"),local("LiberationSans")}` +
+	`@font-face{font-family:"Open Sans";font-weight:bold;src:local("Open Sans Bold"),local("OpenSans-Bold"),local("Arial Bold"),local("Arial-BoldMT"),local("Liberation Sans Bold"),local("LiberationSans-Bold")}` +
+	`@font-face{font-family:"Open Sans";font-style:italic;src:local("Open Sans Italic"),local("OpenSans-Italic"),local("Arial Italic"),local("Arial-ItalicMT"),local("Liberation Sans Italic"),local("LiberationSans-Italic")}` +
+	`@font-face{font-family:"Open Sans";font-weight:bold;font-style:italic;src:local("Open Sans Bold Italic"),local("OpenSans-BoldItalic"),local("Arial Bold Italic"),local("Arial-BoldItalicMT"),local("Liberation Sans Bold Italic"),local("LiberationSans-BoldItalic")}`
 
 type topicInfo struct {
 	record model.FileRecord
@@ -443,6 +460,7 @@ func (a *assembler) render(out io.Writer) error {
 		return err
 	}
 	fmt.Fprintf(out, `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta http-equiv="Content-Security-Policy" content="default-src 'none'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; font-src 'self' data:; script-src 'none'; connect-src 'none'; object-src 'none'; frame-src 'none'; base-uri 'none'; form-action 'none'"><title>%s</title>`, stdhtml.EscapeString(a.result.Document.Title))
+	fmt.Fprintf(out, "<style>%s</style>", printFontFallbackCSS)
 	for _, stylesheet := range a.stylesheets {
 		fmt.Fprintf(out, `<link rel="stylesheet" href="%s">`, stdhtml.EscapeString(stylesheet))
 	}
@@ -516,6 +534,9 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 	}
 	stripActiveMarkup(content)
 	removeEmptyShortdescs(content)
+	if holdsOnlyHeadings(content) {
+		class += " print-heading-only"
+	}
 	seen := map[string]int{}
 	var first error
 	walk(content, func(node *xhtml.Node) {
@@ -607,6 +628,42 @@ func removeEmptyShortdescs(content *xhtml.Node) {
 	}
 }
 
+// holdsOnlyHeadings reports whether a topic shows nothing but headings, as a
+// parent topic whose page is only its title does. The heading's
+// break-after:avoid does not reach past the end of its topic, so Chrome
+// could leave such a title alone at the bottom of a page; its section
+// avoids a break after itself instead.
+func holdsOnlyHeadings(content *xhtml.Node) bool {
+	other := false
+	var visit func(node *xhtml.Node, inHeading bool)
+	visit = func(node *xhtml.Node, inHeading bool) {
+		switch {
+		case other:
+			return
+		case node.Type == xhtml.TextNode:
+			other = !inHeading && strings.Trim(node.Data, " \t\n\f\r") != ""
+			return
+		case node.Type == xhtml.ElementNode:
+			switch node.Data {
+			case "style", "script", "template", "noscript":
+				return
+			case "h1", "h2", "h3", "h4", "h5", "h6":
+				inHeading = true
+			case "img", "svg", "table", "pre", "video", "audio", "object", "embed", "canvas", "math", "hr":
+				if !inHeading {
+					other = true
+					return
+				}
+			}
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			visit(child, inHeading)
+		}
+	}
+	visit(content, false)
+	return !other
+}
+
 func removeFlareHomepageHero(kind string, content *xhtml.Node) (bool, error) {
 	if kind != "flare" {
 		return false, nil
@@ -660,6 +717,13 @@ func (a *assembler) renderTOC(out io.Writer) error {
 	entries := a.plan.TOC
 	if a.overview != "" && len(entries) > 0 {
 		entries = append(slices.Clone(entries[0].Children), entries[1:]...)
+	} else if normalized, err := normalizeOutlineWrappers(a.plan); err == nil {
+		// The Contents page lists what the PDF outline lists: publisher
+		// navigation wrappers such as the guide title, "Table of Contents"
+		// or "Home" give way to their children. The topics they name are
+		// still printed, so they are not additional topics.
+		a.markTOCTopics(a.plan.TOC)
+		entries = normalized
 	}
 	if err := a.renderTOCEntries(out, entries, 0); err != nil {
 		return err
@@ -680,6 +744,15 @@ func (a *assembler) renderTOC(out io.Writer) error {
 	}
 	_, err := io.WriteString(out, "</nav>")
 	return err
+}
+
+func (a *assembler) markTOCTopics(entries []model.TocEntry) {
+	for _, entry := range entries {
+		if topic := a.topicForURL(entry.URL); topic != nil {
+			a.included[topic.full] = true
+		}
+		a.markTOCTopics(entry.Children)
+	}
 }
 
 func (a *assembler) renderTOCEntries(out io.Writer, entries []model.TocEntry, depth int) error {

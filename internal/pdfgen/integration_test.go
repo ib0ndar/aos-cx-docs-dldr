@@ -13,6 +13,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -21,6 +22,7 @@ import (
 	"aos-cx-docs-dldr/internal/publication"
 	"aos-cx-docs-dldr/internal/storage"
 	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/css"
 	"github.com/chromedp/cdproto/dom"
 	"github.com/chromedp/cdproto/emulation"
 	"github.com/chromedp/chromedp"
@@ -929,5 +931,74 @@ func assertGeneratedOutline(
 			strings.Contains(node.Title, "Publisher detail") {
 			t.Fatalf("publisher content heading leaked into the explicit outline: %q", node.Title)
 		}
+	}
+}
+
+// Publisher stylesheets carry rules for a scrolling browser window that cost
+// content or pagination in print, often with more specificity than the
+// print stylesheet's defaults. Each rule here comes from a reviewed guide;
+// the print rules must win in Chrome's own cascade.
+func TestPinnedChromePrintRulesOutrankPublisherRules(t *testing.T) {
+	content := `<style>.screen{white-space:pre}div.screen>p{white-space:pre}p.CLI{white-space:normal;hyphens:auto}` +
+		`.wh_topic_content{margin-bottom:1.875rem}h1{page-break-before:avoid}ol>li>ol>li{list-style-type:lower-alpha}` +
+		`.fixture-font{font-family:'Open Sans'}</style>` +
+		`<div class="wh_topic_content"><h1 class="fixture-h1">Heading</h1><h4>Minor heading</h4><p class="subheading">Command History</p>` +
+		`<div class="screen"><p>` + strings.Repeat("show arp vrf default ", 30) + `</p></div>` +
+		`<p class="CLI">ip dhcp-snooping   preferred   default</p>` +
+		`<div class="note"><div class="note__title">NOTE</div><p>Note text.</p></div>` +
+		`<table><caption>Table 1. Caption</caption><tr><td>cell</td></tr></table>` +
+		`<p class="fixture-font">Open Sans text</p></div>`
+	var styles map[string]string
+	var fonts []string
+	layOutPrintDocument(t, content, chromedp.ActionFunc(func(ctx context.Context) error {
+		if err := chromedp.Evaluate(`(() => {
+			const style = (selector, property) => getComputedStyle(document.querySelector(selector))[property];
+			const screen = document.querySelector(".print-content div.screen");
+			return {
+				screen_hidden: String(screen.scrollWidth - screen.clientWidth),
+				cli_white_space: style(".print-content p.CLI", "whiteSpace"),
+				cli_hyphens: style(".print-content p.CLI", "hyphens"),
+				note_break_inside: style(".print-content div.note", "breakInside"),
+				note_title_break_after: style(".print-content .note__title", "breakAfter"),
+				topic_margin_bottom: style(".print-content .wh_topic_content", "marginBottom"),
+				h1_break_before: style(".print-content h1.fixture-h1", "breakBefore"),
+				h4_break_after: style(".print-content h4", "breakAfter"),
+				subheading_break_after: style(".print-content p.subheading", "breakAfter"),
+				caption_break_after: style(".print-content caption", "breakAfter"),
+				toc_nested_marker: style(".print-toc ol ol li", "listStyleType"),
+			};
+		})()`, &styles).Do(ctx); err != nil {
+			return err
+		}
+		tree, err := dom.GetDocument().Do(ctx)
+		if err != nil {
+			return err
+		}
+		node, err := dom.QuerySelector(tree.NodeID, ".print-content p.fixture-font").Do(ctx)
+		if err != nil {
+			return err
+		}
+		if err := css.Enable().Do(ctx); err != nil {
+			return err
+		}
+		used, err := css.GetPlatformFontsForNode(node).Do(ctx)
+		for _, font := range used {
+			fonts = append(fonts, font.FamilyName)
+		}
+		return err
+	}))
+	want := map[string]string{
+		"screen_hidden": "0", "cli_white_space": "pre-wrap", "cli_hyphens": "manual",
+		"note_break_inside": "avoid-page", "note_title_break_after": "avoid-page", "topic_margin_bottom": "0px",
+		"h1_break_before": "auto", "h4_break_after": "avoid-page", "subheading_break_after": "avoid-page",
+		"caption_break_after": "avoid-page", "toc_nested_marker": "none",
+	}
+	for key, value := range want {
+		if styles[key] != value {
+			t.Errorf("%s = %q, want %q", key, styles[key], value)
+		}
+	}
+	if len(fonts) == 0 || slices.ContainsFunc(fonts, func(family string) bool { return strings.Contains(family, "Times") }) {
+		t.Errorf("Open Sans text rendered with %v, want an installed sans-serif face", fonts)
 	}
 }
