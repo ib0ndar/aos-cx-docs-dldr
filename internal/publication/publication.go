@@ -33,18 +33,19 @@ const (
 	maxOutputBytes = int64(16 << 30)
 )
 
-// Chrome clips each printed page to its content area. Publisher lists can be
-// indented less than their hanging markers are wide (DITA guides use 1em), so
-// .print-content keeps a left gutter that holds the markers. Publisher rules
-// meant for a scrolling browser window are overridden where print would lose
-// or strand content: code and CLI output wrap instead of scrolling or being
-// capped in height, and are never hyphenated; captions wrap, because a line
-// wider than the page makes Chrome shrink the whole document; headings,
-// captions and notes stay with what follows them; and a topic's trailing
-// margin cannot push an empty page before the next chapter.
+// Chrome prints the guide with the publisher stylesheets' screen rules, as
+// the HTML archive shows it, and clips each printed page to its content
+// area. Publisher lists can be indented less than their hanging markers are
+// wide (DITA guides use 1em), so .print-content keeps a left gutter that
+// holds the markers. Publisher rules meant for a scrolling browser window
+// are overridden where print would lose or strand content: code and CLI
+// output wrap instead of scrolling or being capped in height, and are never
+// hyphenated; captions wrap, because a line wider than the page makes Chrome
+// shrink the whole document; headings, captions, notes, labels and short
+// lines of code stay with what follows them; and a topic's trailing margin
+// cannot push an empty page before the next chapter.
 const printCSS = `
 @page{size:Letter;margin:.72in .68in}
-@media screen{body{box-sizing:border-box;max-width:90rem;margin:0 auto;padding:2rem;color:#202124}.print-cover{min-height:60vh}}
 html{color:#202124;background:#fff}
 body{font-family:"Open Sans",Arial,sans-serif;font-size:10pt;line-height:1.35}
 body.print-source-hpe{font-family:"HPE Graphik",Arial,sans-serif}
@@ -58,7 +59,7 @@ body.print-source-hpe{font-family:"HPE Graphik",Arial,sans-serif}
 .print-content{box-sizing:border-box;padding-left:2em}
 .print-topic.print-heading-only{break-after:avoid-page}
 .print-topic.print-flare-homepage{break-after:page}
-.print-content .wh_topic_content{margin-bottom:0!important}
+.print-content .print-trailing{margin-bottom:0!important}
 :where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6,.print-content p.subheading){break-inside:avoid-page!important;break-after:avoid-page!important}
 :where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6){break-before:auto!important}
 :where(.print-content p,.print-content li){orphans:3;widows:3}
@@ -68,13 +69,15 @@ body.print-source-flare .print-topic :where(.print-content h3){font-size:12pt!im
 :where(.print-content table){max-width:100%}
 .print-content caption{white-space:normal!important;break-after:avoid-page!important}
 .print-content div.note{break-inside:avoid-page}.print-content .note__title{break-after:avoid-page}
+.print-content div.p>:is(ul,ol){break-before:avoid-page}
 :where(.print-content img,.print-content svg){max-width:100%;height:auto}
 .archive-image-placeholder{display:flex;box-sizing:border-box;align-items:center;justify-content:center;max-width:100%;min-width:3rem;min-height:2.5rem;max-height:12rem;padding:.6rem;border:1px dashed #8a6d3b;border-radius:.25rem;background:#fff8e5;color:#533f1f;font-size:.9rem;line-height:1.3;text-align:center;overflow:hidden;break-inside:avoid-page}
 .archive-image-placeholder::before{content:"[!]";margin-right:.4rem;font-weight:700}
 .archive-image-placeholder-small{min-width:0;min-height:0;padding:.1rem;font-size:0}
 .archive-image-placeholder-small::before{margin:0;font-size:.8rem}
 :where(.print-content pre,.print-content .pre,.print-content .codeblock,.print-content .screen){max-width:100%;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere}
-.print-content :is(pre,.pre,.codeblock,.screen){max-height:none!important}
+.print-content :is(pre,.pre,.codeblock,.screen){max-height:none!important;orphans:3;widows:3}
+body.print-source-flare .print-content div.screen{break-inside:avoid-page}
 .print-content :is(pre,.pre,.codeblock,.screen,.screen>p,p.CLI){white-space:pre-wrap!important}
 .print-content :is(pre,.pre,.codeblock,.screen,p.CLI,code,kbd,samp,.codeph){hyphens:manual!important}
 :where(.print-content p.CLI){max-width:100%;overflow-x:auto}
@@ -537,6 +540,7 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 	if holdsOnlyHeadings(content) {
 		class += " print-heading-only"
 	}
+	markTrailingElements(content)
 	seen := map[string]int{}
 	var first error
 	walk(content, func(node *xhtml.Node) {
@@ -663,6 +667,44 @@ func holdsOnlyHeadings(content *xhtml.Node) bool {
 	visit(content, false)
 	return !other
 }
+
+// markTrailingElements marks the chain of block elements that end a topic:
+// its last element, that element's last element, and so on, through
+// containers whose bottom margin collapses with their last child's. Those
+// margins become one margin after the topic, which Chrome keeps before a
+// chapter's forced page break; when the topic ends near the bottom of a
+// page, that margin alone fills an otherwise empty page. In the HTML
+// archive the margin is the unseen end of a page.
+func markTrailingElements(content *xhtml.Node) {
+	node := content
+	for depth := 0; depth < 1024; depth++ {
+		var last *xhtml.Node
+		for child := node.LastChild; child != nil; child = child.PrevSibling {
+			if child.Type == xhtml.TextNode && strings.Trim(child.Data, " \t\n\f\r") != "" {
+				return
+			}
+			if child.Type == xhtml.ElementNode && child.Data != "style" {
+				last = child
+				break
+			}
+		}
+		if last == nil || last.Namespace != "" || !slices.Contains(trailingBlocks, last.Data) {
+			return
+		}
+		setAttribute(last, "class", strings.TrimSpace(attribute(last, "class")+" print-trailing"))
+		if !slices.Contains(trailingContainers, last.Data) {
+			return
+		}
+		node = last
+	}
+}
+
+var (
+	trailingContainers = []string{"div", "section", "article", "main", "aside", "header", "footer", "nav",
+		"ul", "ol", "li", "dl", "dd", "figure", "blockquote", "details", "form", "fieldset"}
+	trailingBlocks = append([]string{"p", "pre", "table", "h1", "h2", "h3", "h4", "h5", "h6", "dt", "figcaption", "hr"},
+		trailingContainers...)
+)
 
 func removeFlareHomepageHero(kind string, content *xhtml.Node) (bool, error) {
 	if kind != "flare" {

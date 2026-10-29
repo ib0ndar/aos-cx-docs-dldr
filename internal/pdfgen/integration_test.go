@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"aos-cx-docs-dldr/internal/model"
+	"aos-cx-docs-dldr/internal/pdfcheck"
 	"aos-cx-docs-dldr/internal/publication"
 	"aos-cx-docs-dldr/internal/storage"
 	"github.com/chromedp/cdproto/cdp"
@@ -609,9 +610,9 @@ func printContentWidth() int64 {
 
 // layOutPrintDocument adds publisher content to the renderer fixture's second
 // topic, assembles the print document and opens it in the pinned Chrome with
-// print media at the content-area width, where the area's left edge is x=0.
-// Chrome clips each printed page to that area. check then inspects the
-// layout.
+// screen media, as the renderer prints it, at the content-area width, where
+// the area's left edge is x=0. Chrome clips each printed page to that area.
+// check then inspects the layout.
 func layOutPrintDocument(t *testing.T, content string, check chromedp.Action) {
 	t.Helper()
 	chrome := os.Getenv(ChromePathEnvironment)
@@ -670,7 +671,7 @@ func layOutPrintDocument(t *testing.T, content string, check chromedp.Action) {
 	defer browserCancel()
 	if err := chromedp.Run(browserCtx,
 		emulation.SetScriptExecutionDisabled(true),
-		emulation.SetEmulatedMedia().WithMedia("print"),
+		emulation.SetEmulatedMedia().WithMedia("screen"),
 		emulation.SetDeviceMetricsOverride(printContentWidth(), 1000, 1, false),
 		chromedp.Navigate((&url.URL{Scheme: "file", Path: input}).String()),
 		check,
@@ -696,7 +697,7 @@ func TestPinnedChromeKeepsListMarkersInsidePrintArea(t *testing.T) {
 		}
 		var visit func(*cdp.Node) error
 		visit = func(node *cdp.Node) error {
-			if node.LocalName == "li" && node.AttributeValue("class") == "li" {
+			if node.LocalName == "li" && slices.Contains(strings.Fields(node.AttributeValue("class")), "li") {
 				for _, pseudo := range node.PseudoElements {
 					if pseudo.PseudoType != cdp.PseudoTypeMarker {
 						continue
@@ -947,6 +948,8 @@ func TestPinnedChromePrintRulesOutrankPublisherRules(t *testing.T) {
 		`<p class="CLI">ip dhcp-snooping   preferred   default</p>` +
 		`<div class="note"><div class="note__title">NOTE</div><p>Note text.</p></div>` +
 		`<table><caption>Table 1. Caption</caption><tr><td>cell</td></tr></table>` +
+		`<pre class="fixture-pre">line 1
+line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		`<p class="fixture-font">Open Sans text</p></div>`
 	var styles map[string]string
 	var fonts []string
@@ -966,6 +969,10 @@ func TestPinnedChromePrintRulesOutrankPublisherRules(t *testing.T) {
 				subheading_break_after: style(".print-content p.subheading", "breakAfter"),
 				caption_break_after: style(".print-content caption", "breakAfter"),
 				toc_nested_marker: style(".print-toc ol ol li", "listStyleType"),
+				screen_break_inside: style(".print-content div.screen", "breakInside"),
+				pre_widows: style(".print-content pre.fixture-pre", "widows"),
+				pre_orphans: style(".print-content pre.fixture-pre", "orphans"),
+				label_list_break_before: style(".print-content div.p > ul", "breakBefore"),
 			};
 		})()`, &styles).Do(ctx); err != nil {
 			return err
@@ -992,6 +999,8 @@ func TestPinnedChromePrintRulesOutrankPublisherRules(t *testing.T) {
 		"note_break_inside": "avoid-page", "note_title_break_after": "avoid-page", "topic_margin_bottom": "0px",
 		"h1_break_before": "auto", "h4_break_after": "avoid-page", "subheading_break_after": "avoid-page",
 		"caption_break_after": "avoid-page", "toc_nested_marker": "none",
+		"screen_break_inside": "avoid-page", "pre_widows": "3", "pre_orphans": "3",
+		"label_list_break_before": "avoid-page",
 	}
 	for key, value := range want {
 		if styles[key] != value {
@@ -1000,5 +1009,50 @@ func TestPinnedChromePrintRulesOutrankPublisherRules(t *testing.T) {
 	}
 	if len(fonts) == 0 || slices.ContainsFunc(fonts, func(family string) bool { return strings.Contains(family, "Times") }) {
 		t.Errorf("Open Sans text rendered with %v, want an installed sans-serif face", fonts)
+	}
+}
+
+// The renderer prints with the publisher stylesheets' screen rules, as the
+// HTML archive shows a guide, not with the rules a publisher wrote for its
+// own PDF output. A rule that makes an element four pages tall shows which
+// media the page was printed for.
+func TestPinnedChromeRendersWithScreenMedia(t *testing.T) {
+	chrome := os.Getenv(ChromePathEnvironment)
+	if chrome == "" {
+		t.Skip(ChromePathEnvironment + " is not set")
+	}
+	sidecar, err := ResolveSidecar(chrome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for media, tall := range map[string]bool{"screen": true, "print": false} {
+		t.Run(media, func(t *testing.T) {
+			root := t.TempDir()
+			input := filepath.Join(root, "input.html")
+			body := `<!doctype html><html><head><style>@page{size:Letter;margin:.72in .68in}@media ` + media +
+				`{.probe{height:4000px}}</style></head><body><main class="print-content"><div class="probe">publisher text</div></main></body></html>`
+			if err := os.WriteFile(input, []byte(body), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			output, err := os.CreateTemp(root, ".output-*.pdf")
+			if err != nil {
+				t.Fatal(err)
+			}
+			defer output.Close()
+			if _, err := renderChrome(context.Background(), sidecar, input, root, "", output, DefaultConfig(chrome)); err != nil {
+				t.Fatal(err)
+			}
+			info, err := output.Stat()
+			if err != nil {
+				t.Fatal(err)
+			}
+			summary, err := pdfcheck.InspectGenerated(output, info.Size(), pdfcheck.GeneratedExpectations{MaxPages: 100})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := summary.PageCount > 1; got != tall {
+				t.Fatalf("@media %s rule applied=%v, want %v (%d pages)", media, got, tall, summary.PageCount)
+			}
+		})
 	}
 }

@@ -724,6 +724,15 @@ func renderChromeOnce(
 	if err := chromedp.Run(browserCtx, cdpfetch.Enable(), emulation.SetScriptExecutionDisabled(true)); err != nil {
 		return metrics, &chromeStartError{chromeError("start pinned Chrome", err, logs)}
 	}
+	if expectedFooter == nil {
+		// A guide's PDF shows its pages as the HTML archive does, so the
+		// publisher stylesheets apply their screen rules, not the print
+		// rules written for the publisher's own PDF output. Page size,
+		// margins and pagination come from the print stylesheet.
+		if err := chromedp.Run(browserCtx, emulation.SetEmulatedMedia().WithMedia("screen")); err != nil {
+			return metrics, chromeError("emulate screen media", err, logs)
+		}
+	}
 	process := chromedp.FromContext(browserCtx).Browser.Process()
 	if process == nil {
 		return metrics, errors.New("pinned Chrome process identity is unavailable")

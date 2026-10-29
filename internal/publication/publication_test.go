@@ -738,3 +738,29 @@ func TestAssembleContentsDropsPublisherWrappers(t *testing.T) {
 		t.Fatalf("printed Contents kept the wrapper or lost entries:\n%s", contents)
 	}
 }
+
+// The block elements that end a topic lose their bottom margin, so it cannot
+// fill an empty page before the next chapter. Elements inside a table or
+// before the end keep theirs.
+func TestAssembleMarksTheElementsThatEndATopic(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`</h1>`), []byte(`</h1><p data-case="before">Text</p>`+
+		`<div data-case="body"><section data-case="section"><table data-case="table"><tr><td><p data-case="cell">x</p></td></tr></table>`+
+		"\n</section><style>p{}</style></div>"), 1)
+	body = regexp.MustCompile(`(?s)<ol>.*?</ol>|<a [^>]*>back</a>`).ReplaceAll(body, nil)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	for name, want := range map[string]bool{"body": true, "section": true, "table": true, "before": false, "cell": false} {
+		element := regexp.MustCompile(`<[a-z]+ [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
+		if got := bytes.Contains(element, []byte("print-trailing")); got != want {
+			t.Errorf("%s element %s: trailing=%v, want %v", name, element, got, want)
+		}
+	}
+}
