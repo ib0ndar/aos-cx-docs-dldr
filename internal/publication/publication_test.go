@@ -631,3 +631,34 @@ func writeManifest(t testingTB, output string, manifest *model.HTMLArchive) {
 		t.Fatal(err)
 	}
 }
+
+// An empty DITA short description between a heading and its content lets
+// Chrome leave the heading alone at the bottom of a page. Only whitespace
+// counts as empty; one with an ID may be a link target.
+func TestAssembleRemovesOnlyEmptyShortdescs(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[0]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`<h1 id="same">`), []byte(
+		`<p class="- topic/shortdesc shortdesc" data-case="empty"></p>`+
+			"<p class=\"shortdesc\" data-case=\"whitespace\">\n\t  </p>"+
+			`<p class="shortdesc" data-case="text">Kept summary</p>`+
+			`<p class="shortdesc" data-case="nbsp">&nbsp;</p>`+
+			`<p class="shortdesc" data-case="element"><span></span></p>`+
+			`<p class="shortdesc" data-case="id" id="summary"></p>`+
+			`<p data-case="plain"></p><h1 id="same">`), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	for kept, cases := range map[bool][]string{false: {"empty", "whitespace"}, true: {"text", "nbsp", "element", "id", "plain"}} {
+		for _, name := range cases {
+			if bytes.Contains(combined, []byte(`data-case="`+name+`"`)) != kept {
+				t.Errorf("short description %q: kept=%v, want %v", name, !kept, kept)
+			}
+		}
+	}
+}

@@ -33,6 +33,13 @@ const (
 	maxOutputBytes = int64(16 << 30)
 )
 
+// Chrome clips each printed page to its content area. Publisher lists can be
+// indented less than their hanging markers are wide (DITA guides use 1em), so
+// .print-content keeps a left gutter that holds the markers. Two publisher
+// rules meant for a scrolling browser window are lifted: code blocks lose
+// their height cap, which print would cut off instead of scrolling, and
+// captions wrap, because a line wider than the page makes Chrome shrink the
+// whole document to fit it.
 const printCSS = `
 @page{size:Letter;margin:.72in .68in}
 @media screen{body{box-sizing:border-box;max-width:90rem;margin:0 auto;padding:2rem;color:#202124}.print-cover{min-height:60vh}}
@@ -46,6 +53,7 @@ body.print-source-hpe{font-family:"HPE Graphik",Arial,sans-serif}
 .print-overview{break-after:page}.print-toc{break-before:page;break-after:page}
 .print-toc ol{list-style:none;padding-left:1.1em}.print-toc>ol{padding-left:0}.print-toc li{margin:.2em 0}
 .print-topic.print-chapter{break-before:page}.print-topic{min-width:0}
+.print-content{box-sizing:border-box;padding-left:2em}
 .print-topic.print-flare-homepage{break-after:page}
 :where(.print-content h1,.print-content h2,.print-content h3){break-inside:avoid-page!important;break-after:avoid-page!important}
 :where(.print-content p,.print-content li){orphans:3;widows:3}
@@ -53,12 +61,14 @@ body.print-source-flare .print-topic :where(.print-content h1){font-size:16pt!im
 body.print-source-flare .print-topic :where(.print-content h2){font-size:14pt!important;line-height:1.25!important}
 body.print-source-flare .print-topic :where(.print-content h3){font-size:12pt!important;line-height:1.25!important}
 :where(.print-content table){max-width:100%}
+.print-content caption{white-space:normal!important}
 :where(.print-content img,.print-content svg){max-width:100%;height:auto}
 .archive-image-placeholder{display:flex;box-sizing:border-box;align-items:center;justify-content:center;max-width:100%;min-width:3rem;min-height:2.5rem;max-height:12rem;padding:.6rem;border:1px dashed #8a6d3b;border-radius:.25rem;background:#fff8e5;color:#533f1f;font-size:.9rem;line-height:1.3;text-align:center;overflow:hidden;break-inside:avoid-page}
 .archive-image-placeholder::before{content:"[!]";margin-right:.4rem;font-weight:700}
 .archive-image-placeholder-small{min-width:0;min-height:0;padding:.1rem;font-size:0}
 .archive-image-placeholder-small::before{margin:0;font-size:.8rem}
 :where(.print-content pre,.print-content .pre,.print-content .codeblock,.print-content .screen){max-width:100%;overflow-x:auto;white-space:pre-wrap;overflow-wrap:normal}
+.print-content :is(pre,.pre,.codeblock,.screen){max-height:none!important}
 :where(.print-content p.CLI){max-width:100%;overflow-x:auto}
 body.print-source-flare :where(.print-content>#mc-main-content>.topichero){display:none!important;position:static!important}
 :where(.print-content.print-flare-home-hero-removed>#mc-main-content>.container){margin-top:0!important}
@@ -505,6 +515,7 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 		class += " print-flare-homepage"
 	}
 	stripActiveMarkup(content)
+	removeEmptyShortdescs(content)
 	seen := map[string]int{}
 	var first error
 	walk(content, func(node *xhtml.Node) {
@@ -567,6 +578,32 @@ func stripActiveMarkup(content *xhtml.Node) {
 		if node.Parent != nil {
 			node.Parent.RemoveChild(node)
 		}
+	}
+}
+
+// removeEmptyShortdescs removes DITA short descriptions that hold nothing but
+// HTML whitespace. Publishers leave one between many headings and their
+// content, where it lets Chrome break the page after the heading despite
+// break-after:avoid and leave the heading alone at the bottom of a page.
+// CSS :empty cannot match the whitespace-only ones. A short description with
+// an ID or name stays, as a link may target it.
+func removeEmptyShortdescs(content *xhtml.Node) {
+	var remove []*xhtml.Node
+	walk(content, func(node *xhtml.Node) {
+		if node.Type != xhtml.ElementNode || node.Data != "p" || !hasClass(node, "shortdesc") ||
+			attribute(node, "id") != "" || attribute(node, "name") != "" {
+			return
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			if child.Type == xhtml.ElementNode ||
+				(child.Type == xhtml.TextNode && strings.Trim(child.Data, " \t\n\f\r") != "") {
+				return
+			}
+		}
+		remove = append(remove, node)
+	})
+	for _, node := range remove {
+		node.Parent.RemoveChild(node)
 	}
 }
 

@@ -9,6 +9,8 @@ import (
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
+	"fmt"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -18,6 +20,10 @@ import (
 	"aos-cx-docs-dldr/internal/model"
 	"aos-cx-docs-dldr/internal/publication"
 	"aos-cx-docs-dldr/internal/storage"
+	"github.com/chromedp/cdproto/cdp"
+	"github.com/chromedp/cdproto/dom"
+	"github.com/chromedp/cdproto/emulation"
+	"github.com/chromedp/chromedp"
 )
 
 func TestPinnedChromeGeneratesValidatedCompanion(t *testing.T) {
@@ -589,6 +595,164 @@ func TestPinnedChromeRejectsFixedOrStickyPrintContent(t *testing.T) {
 				t.Fatalf("%s print content was accepted: %v", position, err)
 			}
 		})
+	}
+}
+
+// printContentWidth is the width of a printed page's content area in CSS
+// pixels, as Chrome lays it out: Letter paper less the side margins.
+func printContentWidth() int64 {
+	settings := ExpectedSettings()
+	return int64((8.5 - settings.MarginLeftInches - settings.MarginRightInches) * 96)
+}
+
+// layOutPrintDocument adds publisher content to the renderer fixture's second
+// topic, assembles the print document and opens it in the pinned Chrome with
+// print media at the content-area width, where the area's left edge is x=0.
+// Chrome clips each printed page to that area. check then inspects the
+// layout.
+func layOutPrintDocument(t *testing.T, content string, check chromedp.Action) {
+	t.Helper()
+	chrome := os.Getenv(ChromePathEnvironment)
+	if chrome == "" {
+		t.Skip(ChromePathEnvironment + " is not set")
+	}
+	sidecar, err := ResolveSidecar(chrome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	output, plan, archived := rendererFixture(t)
+	topic := &archived.HTML.Topics[1]
+	topicPath := filepath.Join(output, filepath.FromSlash(topic.Path))
+	body, err := os.ReadFile(topicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.Replace(body, []byte(`</div></main>`), []byte(content+`</div></main>`), 1)
+	if err := os.WriteFile(topicPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256(body)
+	topic.SHA256 = hex.EncodeToString(hash[:])
+	topic.Size = int64(len(body))
+	data, err := json.MarshalIndent(archived.HTML, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(output, "manifest.json"), append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	root, err := os.OpenRoot(output)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer root.Close()
+	var document bytes.Buffer
+	if _, err := publication.Assemble(context.Background(), root, ".", plan, archived, &document); err != nil {
+		t.Fatal(err)
+	}
+	input := filepath.Join(output, "print.html")
+	if err := os.WriteFile(input, document.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	tempRoot := t.TempDir()
+	if err := createChromeLaunchDirectories(tempRoot); err != nil {
+		t.Fatal(err)
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Minute)
+	defer cancel()
+	var logs bytes.Buffer
+	allocatorCtx, allocatorCancel := chromedp.NewExecAllocator(ctx, chromeAllocatorOptions(sidecar.Path, tempRoot, &logs)...)
+	defer allocatorCancel()
+	browserCtx, browserCancel := chromedp.NewContext(allocatorCtx)
+	defer browserCancel()
+	if err := chromedp.Run(browserCtx,
+		emulation.SetScriptExecutionDisabled(true),
+		emulation.SetEmulatedMedia().WithMedia("print"),
+		emulation.SetDeviceMetricsOverride(printContentWidth(), 1000, 1, false),
+		chromedp.Navigate((&url.URL{Scheme: "file", Path: input}).String()),
+		check,
+	); err != nil {
+		t.Fatalf("lay out print document: %v\n%s", err, logs.String())
+	}
+}
+
+// A list marker that hangs left of the print area loses its left part: a
+// bullet prints as a half disc and step 10 as ".0.". The publisher's DITA
+// stylesheet indents lists by only 1em; the print stylesheet's gutter must
+// hold the rest of the marker.
+func TestPinnedChromeKeepsListMarkersInsidePrintArea(t *testing.T) {
+	lists := `<style>body{margin:0}ul.ul,ol.ol{padding-left:0;margin-left:1em}li.li{padding-left:.25em}</style>` +
+		`<ul class="ul"><li class="li">Broadcast address</li><li class="li">Multicast address</li></ul>` +
+		`<ol class="ol">` + strings.Repeat(`<li class="li">Step</li>`, 12) + `</ol>`
+	markers := 0
+	var clipped []string
+	layOutPrintDocument(t, lists, chromedp.ActionFunc(func(ctx context.Context) error {
+		tree, err := dom.GetDocument().WithDepth(-1).Do(ctx)
+		if err != nil {
+			return err
+		}
+		var visit func(*cdp.Node) error
+		visit = func(node *cdp.Node) error {
+			if node.LocalName == "li" && node.AttributeValue("class") == "li" {
+				for _, pseudo := range node.PseudoElements {
+					if pseudo.PseudoType != cdp.PseudoTypeMarker {
+						continue
+					}
+					box, err := dom.GetBoxModel().WithBackendNodeID(pseudo.BackendNodeID).Do(ctx)
+					if err != nil {
+						return err
+					}
+					markers++
+					left := min(box.Border[0], box.Border[2], box.Border[4], box.Border[6])
+					if left < 0 {
+						clipped = append(clipped, fmt.Sprintf("marker %d at x=%.2f", markers, left))
+					}
+				}
+			}
+			for _, child := range node.Children {
+				if err := visit(child); err != nil {
+					return err
+				}
+			}
+			return nil
+		}
+		return visit(tree)
+	}))
+	if markers != 14 || len(clipped) != 0 {
+		t.Fatalf("list markers must lie inside the %d px print area: checked %d of 14, clipped %v",
+			printContentWidth(), markers, clipped)
+	}
+}
+
+// The publisher's Oxygen stylesheet caps code blocks at 600px and makes them
+// scroll, and keeps captions on one line. Print cannot scroll, so a capped
+// block loses every line past the cap; and a caption wider than the page
+// makes Chrome shrink the whole document to fit it.
+func TestPinnedChromePrintsCappedCodeBlocksAndWideCaptionsWhole(t *testing.T) {
+	var code strings.Builder
+	for line := range 120 {
+		fmt.Fprintf(&code, "interface 1/1/%d\n", line+1)
+	}
+	content := `<style>pre{max-height:600px;overflow:auto}caption{white-space:nowrap}</style>` +
+		`<pre class="pre codeblock">` + code.String() + `</pre>` +
+		`<table class="wide-caption"><caption>` + strings.Repeat("Configuration task list for PIM and IGMP on an SVI. ", 8) +
+		`</caption><tr><td>cell</td></tr></table>`
+	var layout struct {
+		HiddenCode   float64 `json:"hidden_code"`
+		CaptionRight float64 `json:"caption_right"`
+	}
+	layOutPrintDocument(t, content, chromedp.Evaluate(`(() => {
+		const code = document.querySelector(".print-content pre.codeblock");
+		const caption = document.createRange();
+		caption.selectNodeContents(document.querySelector(".print-content table.wide-caption caption"));
+		return {hidden_code: code.scrollHeight - code.clientHeight, caption_right: caption.getBoundingClientRect().right};
+	})()`, &layout))
+	if layout.HiddenCode > 1 {
+		t.Fatalf("code block hides %.0f px of its lines", layout.HiddenCode)
+	}
+	if width := float64(printContentWidth()); layout.CaptionRight > width {
+		t.Fatalf("caption text ends at x=%.0f px, past the %.0f px print area", layout.CaptionRight, width)
 	}
 }
 
