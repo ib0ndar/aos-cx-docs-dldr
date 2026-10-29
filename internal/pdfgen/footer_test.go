@@ -20,12 +20,12 @@ func footerTestDocument(t *testing.T) qpdfDocument {
 		objects[key] = body
 	}
 	destinations := map[string]any{
-		"/contents":   []any{"4 0 R", "/XYZ", float64(0), float64(740), float64(0)},
-		"/topic-a":    []any{"6 0 R", "/XYZ", float64(0), float64(740), float64(0)},
+		"/contents":   []any{"4 0 R", "/XYZ", float64(0), float64(792), float64(0)},
+		"/topic-a":    []any{"6 0 R", "/XYZ", float64(0), float64(792), float64(0)},
 		"/topic-b":    []any{"7 0 R", "/XYZ", float64(0), float64(400), float64(0)},
 		"/topic-c":    []any{"7 0 R", "/XYZ", float64(0), float64(200), float64(0)},
-		"/topic-d":    []any{"8 0 R", "/XYZ", float64(0), float64(740), float64(0)},
-		"/provenance": []any{"10 0 R", "/XYZ", float64(0), float64(740), float64(0)},
+		"/topic-d":    []any{"8 0 R", "/XYZ", float64(0), float64(792), float64(0)},
+		"/provenance": []any{"10 0 R", "/XYZ", float64(0), float64(792), float64(0)},
 	}
 	add("trailer", map[string]any{"/Root": "1 0 R"})
 	add("obj:1 0 R", map[string]any{"/Type": "/Catalog", "/Pages": "2 0 R", "/Dests": destinations})
@@ -81,6 +81,36 @@ func TestFooterPlanUsesContentsContinuationAndPageTopCategoryPolicy(t *testing.T
 	}
 }
 
+// Chrome writes the top of a destination at the top of the content area as
+// 792. A topic that starts within the tolerance below that names the page;
+// one that starts lower leaves the page to the topic continued from before.
+func TestFooterPlanNamesPageOnlyForTopicNearContentTop(t *testing.T) {
+	source := publication.FooterSourcePlan{
+		SchemaVersion:  publication.FooterSourceSchemaVersion,
+		GuideTitle:     "Guide",
+		ContentsTarget: "contents", ProvenanceTarget: "provenance",
+		Topics: []publication.FooterSourceTopic{
+			{Target: "topic-a", Label: "Category A"},
+			{Target: "topic-b", Label: "Category B"},
+			{Target: "topic-c", Label: "Category C"},
+			{Target: "topic-d", Label: "Category D"},
+		},
+	}
+	for top, want := range map[float64]string{760: "Category D", 744: "Category C"} {
+		document := footerTestDocument(t)
+		mutateQPDFObject(t, document.Objects, "1 0 R", func(value map[string]any) {
+			value["/Dests"].(map[string]any)["/topic-d"] = []any{"8 0 R", "/XYZ", float64(0), top, float64(0)}
+		})
+		plan, _, err := buildFooterPlan(document, source)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := plan.Entries[5].Label; got != want {
+			t.Errorf("topic starting at top %.0f labels its page %q, want %q", top, got, want)
+		}
+	}
+}
+
 func TestFooterOverlayHTMLHasExactArabicPhysicalNumbersAndEscapedLabels(t *testing.T) {
 	plan := footerPlan{SchemaVersion: FooterPlanSchemaVersion, Entries: []footerEntry{
 		{PhysicalPage: 1, DecimalNumber: 1, Kind: "cover"},
@@ -110,7 +140,7 @@ func TestFooterPlanRejectsNonPhysicalContentsAndMissingDestination(t *testing.T)
 	}
 	document := footerTestDocument(t)
 	mutateQPDFObject(t, document.Objects, "1 0 R", func(value map[string]any) {
-		value["/Dests"].(map[string]any)["/contents"] = []any{"3 0 R", "/XYZ", float64(0), float64(740), float64(0)}
+		value["/Dests"].(map[string]any)["/contents"] = []any{"3 0 R", "/XYZ", float64(0), float64(792), float64(0)}
 	})
 	if _, _, err := buildFooterPlan(document, source); err == nil ||
 		!strings.Contains(err.Error(), "expected 2") {

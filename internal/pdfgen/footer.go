@@ -104,7 +104,10 @@ func buildFooterPlan(document qpdfDocument, source publication.FooterSourcePlan)
 		})
 	}
 	active := source.GuideTitle
-	const contentTop = 792.0 - (0.72 * 72.0)
+	// Chrome measures a destination's top from the top of the page's content
+	// area but writes it as if from the page top: a topic that starts a page
+	// has top 792, not 792 less the top margin.
+	const contentTop = letterPageHeightPoints
 	for physicalPage := 1; physicalPage <= len(document.Pages); physicalPage++ {
 		entry := footerEntry{PhysicalPage: physicalPage, DecimalNumber: physicalPage}
 		switch {

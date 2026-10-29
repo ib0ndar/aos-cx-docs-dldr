@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"regexp"
 	"runtime"
 	"strings"
 	"testing"
@@ -659,6 +660,35 @@ func TestAssembleRemovesOnlyEmptyShortdescs(t *testing.T) {
 			if bytes.Contains(combined, []byte(`data-case="`+name+`"`)) != kept {
 				t.Errorf("short description %q: kept=%v, want %v", name, !kept, kept)
 			}
+		}
+	}
+}
+
+// Publisher pages hold cross-references with an empty href, which names the
+// page itself. In print it must lead to the topic, not to the transient
+// print file Chrome would resolve it against.
+func TestAssemblePointsEmptyLinksAtTheirTopic(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[0]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`<h1 id="same">`), []byte(
+		`<p><a class="xref" href="" data-case="empty">Broken cross-reference</a>`+
+			`<a href="  " data-case="blank">Blank</a></p><h1 id="same">`), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	section := regexp.MustCompile(`<section class="[^"]*" id="([^"]+)" data-source-url="` + regexp.QuoteMeta(record.URL) + `"`).FindSubmatch(combined)
+	if section == nil {
+		t.Fatalf("topic section for %s not found", record.URL)
+	}
+	for _, name := range []string{"empty", "blank"} {
+		link := regexp.MustCompile(`<a [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
+		if !bytes.Contains(link, []byte(`href="#`+string(section[1])+`"`)) {
+			t.Errorf("%s link %s does not lead to topic #%s", name, link, section[1])
 		}
 	}
 }

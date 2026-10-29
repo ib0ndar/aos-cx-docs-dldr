@@ -770,6 +770,15 @@ func (a *assembler) rewriteNode(info *topicInfo, node *xhtml.Node) error {
 			}
 			setAttribute(node, "href", local)
 		}
+	} else if hasAttribute(node, "href") && node.Namespace == "" && (node.Data == "a" || node.Data == "area") {
+		// An empty href names the topic's own page. Left empty, Chrome
+		// would resolve it against the transient print file and write that
+		// local file: URL into the PDF.
+		local, err := a.rewriteNavigation(info, "")
+		if err != nil {
+			return err
+		}
+		setAttribute(node, "href", local)
 	}
 	if href := attribute(node, "xlink:href"); href != "" {
 		if strings.HasPrefix(href, "#") && info.ids[strings.TrimPrefix(href, "#")] == "" {
@@ -1176,6 +1185,10 @@ func attribute(node *xhtml.Node, key string) string {
 		}
 	}
 	return ""
+}
+
+func hasAttribute(node *xhtml.Node, key string) bool {
+	return slices.ContainsFunc(node.Attr, func(attribute xhtml.Attribute) bool { return attribute.Key == key })
 }
 
 func setAttribute(node *xhtml.Node, key, value string) {
