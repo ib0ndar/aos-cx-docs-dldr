@@ -84,6 +84,7 @@ body.print-source-flare .print-content p.Figure_Title:has(img){break-after:auto!
 .print-content :is(.print-leadin,p:has(+:is(div.screen,pre,.pre,.codeblock,figure,.fig)),p:not([class^="CLI"],[class*=" CLI"]):has(+:is(ul,ol)),p:has(+p.print-blank+:is(ul,ol,div.screen,pre,.pre,.codeblock,figure,.fig)),p:has(+:is(div:not(.screen),blockquote)>:is(div.screen,pre,.pre,.codeblock):first-child)){break-inside:avoid-page}
 body.print-source-flare .print-content p:not([class^="CLI"],[class*=" CLI"]):has(+:is(p[class^="CLI"],p[class*=" CLI"])){break-inside:avoid-page}
 .print-content li>span.cmd:has(+div.itemgroup>:is(pre,.pre,.codeblock):first-child){display:block;break-inside:avoid-page}
+.print-content li:not(:has(>:is(p,div,ul,ol,pre,table,dl,figure))):has(+:is(div.screen,pre,.pre,.codeblock)){break-inside:avoid-page}
 .print-content .print-leadin{display:block;break-after:avoid-page}.print-content :is(ul,ol):has(+:is(div.screen,pre,.pre,.codeblock)){break-after:avoid-page}
 .print-content p:has(+:is(div:not(.screen),blockquote)>:is(div.screen,pre,.pre,.codeblock):first-child){break-after:avoid-page}
 .print-content li:has(+:is(div.screen,pre,.pre,.codeblock,p[class^="CLI"],p[class*=" CLI"])),.print-content li:has(+p>span.CLI:first-child){break-after:avoid-page}
@@ -101,6 +102,8 @@ body.print-source-flare .print-content p:not([class^="CLI"],[class*=" CLI"]):has
 .print-content :is(pre,.pre,.codeblock,.screen){max-height:none!important;orphans:3;widows:3}
 .print-content .print-keep{break-inside:avoid-page}
 .print-content .print-tail-1{widows:4}.print-content .print-tail-2{widows:5}.print-content .print-tail-3{widows:6}
+.print-content .print-head-1{orphans:4}.print-content .print-head-2{orphans:5}.print-content .print-head-3{orphans:6}
+.print-content div.screen>.print-screen-edge{break-before:avoid-page}.print-content div.screen>.print-screen-whole{break-inside:avoid-page}
 .print-content .print-screen-gap{display:block;break-inside:avoid-page}
 .print-content div.screen>:not(:first-child):is(:nth-child(-n+5),:nth-last-child(-n+5)){break-before:avoid-page}
 .print-content div.screen>:is(ul,ol)>:not(:first-child):is(:nth-child(-n+5),:nth-last-child(-n+5)){break-before:avoid-page}
@@ -585,6 +588,7 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 	removeEmptyDITABlocks(content)
 	markShortCodeBlocks(content)
 	wrapScreenGaps(content)
+	markScreenEdges(content)
 	markBlankParagraphs(content)
 	markLabelParagraphs(content)
 	markLeadIns(content)
@@ -687,8 +691,10 @@ func removeEmpty(content *xhtml.Node, match func(*xhtml.Node) bool) {
 }
 
 // markShortCodeBlocks marks code blocks of at most shortCodeLines lines to
-// stay on one page, and code blocks that end with blank lines with their
-// number, which the print rules add to the lines kept after a break. Longer blocks may break, keeping three lines on either
+// stay on one page. Longer code blocks of text alone are marked with the
+// blank lines among their first and last three visible lines, which Chrome
+// counts toward the three lines it keeps on either side of a break; the
+// print rules keep as many more. Longer blocks may break, keeping three lines on either
 // side; a shorter block cannot satisfy both, and Chrome then splits it
 // anywhere, leaving one line alone on a page.
 func markShortCodeBlocks(content *xhtml.Node) {
@@ -698,9 +704,8 @@ func markShortCodeBlocks(content *xhtml.Node) {
 			(node.Data == "pre" || hasClass(node, "pre") || hasClass(node, "codeblock") || hasClass(node, "screen")) {
 			if codeLines(node) <= shortCodeLines {
 				setAttribute(node, "class", strings.TrimSpace(attribute(node, "class")+" print-keep"))
-			}
-			if tail := min(codeTailLines(node), 3); tail > 0 && !hasClass(node, "screen") {
-				setAttribute(node, "class", strings.TrimSpace(fmt.Sprintf("%s print-tail-%d", attribute(node, "class"), tail)))
+			} else if !hasClass(node, "screen") || !hasBlockChild(node) {
+				markCodeEdges(node)
 			}
 			return
 		}
@@ -905,23 +910,120 @@ func codeLines(node *xhtml.Node) int {
 	return last - first + 1
 }
 
-// codeTailLines counts the blank lines a code block shows after its last
-// visible line, such as the line of indentation an Oxygen block keeps before
-// </code>. A closing line feed with nothing after it shows no line.
-func codeTailLines(node *xhtml.Node) int {
+// markCodeEdges marks a code block or a paragraph of a Flare screen box
+// with print-head-N and print-tail-N, N up to three, for the blank lines it
+// shows before its third visible line and after its third-to-last, such as
+// the line of indentation an Oxygen block keeps before </code>.
+func markCodeEdges(node *xhtml.Node) {
+	head, tail := codeEdgeBlankLines(node)
+	for _, mark := range []struct {
+		name  string
+		count int
+	}{{"print-head", head}, {"print-tail", tail}} {
+		if mark.count > 0 {
+			setAttribute(node, "class", strings.TrimSpace(fmt.Sprintf("%s %s-%d", attribute(node, "class"), mark.name, min(mark.count, 3))))
+		}
+	}
+}
+
+// codeEdgeBlankLines counts the blank lines a code block shows before its
+// third visible line and after its third-to-last. A line feed that closes
+// the last line, or a block boundary that opens the first, shows none.
+func codeEdgeBlankLines(node *xhtml.Node) (head, tail int) {
 	lines := codeLineTexts(node)
-	last := len(lines) - 1
-	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
-		last--
+	var visible []int
+	for index, line := range lines {
+		if strings.TrimSpace(line) != "" {
+			visible = append(visible, index)
+		}
 	}
-	if last < 0 {
-		return 0
+	if len(visible) == 0 {
+		return 0, 0
 	}
-	tail := len(lines) - 1 - last
-	if tail > 0 && lines[len(lines)-1] == "" {
+	start, end := visible[0], visible[len(visible)-1]
+	if len(visible) >= 3 {
+		start, end = visible[len(visible)-3], visible[2]
+	}
+	for _, line := range lines[start:] {
+		if strings.TrimSpace(line) == "" {
+			tail++
+		}
+	}
+	if lines[len(lines)-1] == "" && len(lines)-1 > visible[len(visible)-1] {
 		tail--
 	}
-	return tail
+	for _, line := range lines[:end] {
+		if strings.TrimSpace(line) == "" {
+			head++
+		}
+	}
+	if lines[0] == "" && visible[0] > 0 {
+		head--
+	}
+	return head, tail
+}
+
+func visibleLines(node *xhtml.Node) int {
+	count := 0
+	for _, line := range codeLineTexts(node) {
+		if strings.TrimSpace(line) != "" {
+			count++
+		}
+	}
+	return count
+}
+
+func hasBlockChild(node *xhtml.Node) bool {
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == xhtml.ElementNode && slices.Contains([]string{"p", "ul", "ol"}, child.Data) {
+			return true
+		}
+	}
+	return false
+}
+
+// markScreenEdges marks the children of a Flare screen box that may break
+// near its top and bottom, where Chrome counts the gaps and blank lines between them toward
+// the three lines it keeps on either side of a break. A child before which
+// a break would leave fewer than three visible lines on either side is kept
+// with what precedes it, a child of one or two lines there stays whole, and
+// paragraphs of three or more lines are marked like code blocks.
+func markScreenEdges(content *xhtml.Node) {
+	walk(content, func(box *xhtml.Node) {
+		if box.Type != xhtml.ElementNode || box.Data != "div" || !hasClass(box, "screen") ||
+			hasClass(box, "print-keep") || !hasBlockChild(box) {
+			return
+		}
+		var children []*xhtml.Node
+		for child := box.FirstChild; child != nil; child = child.NextSibling {
+			if child.Type == xhtml.TextNode && strings.Trim(child.Data, " \t\n\f\r") != "" {
+				return
+			}
+			if child.Type == xhtml.ElementNode {
+				children = append(children, child)
+			}
+		}
+		visible := make([]int, len(children))
+		total := 0
+		for index, child := range children {
+			visible[index] = visibleLines(child)
+			total += visible[index]
+		}
+		before := 0
+		for index, child := range children {
+			after := total - before - visible[index]
+			if index > 0 && (before < 3 || total-before < 3) {
+				setAttribute(child, "class", strings.TrimSpace(attribute(child, "class")+" print-screen-edge"))
+			}
+			if visible[index] > 0 && visible[index] < 3 && (before < 3 || after < 3) {
+				setAttribute(child, "class", strings.TrimSpace(attribute(child, "class")+" print-screen-whole"))
+			}
+			if visible[index] >= 3 && child.Data == "p" {
+				markCodeEdges(child)
+			}
+			before += visible[index]
+		}
+	})
 }
 
 func codeLineTexts(node *xhtml.Node) []string {

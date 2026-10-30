@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"slices"
 	"strings"
 	"testing"
 
@@ -1019,22 +1020,27 @@ func TestAssembleWrapsLeadInsBeforeCodeAndLists(t *testing.T) {
 	}
 }
 
-// Blank lines that end a code block count toward the lines Chrome keeps
-// after a page break, so a block could end a page with only blank lines
-// and one visible line on the next. Code blocks other than Flare screen
-// boxes are marked with how many blank lines they end with, up to three.
-func TestAssembleMarksBlankCodeTails(t *testing.T) {
+// Chrome counts a code block's blank lines toward the three lines it keeps
+// on either side of a page break, so a block could leave one visible line
+// on a page. Code blocks long enough to break are marked with the blank
+// lines among their first and last three visible lines, up to three; a line
+// feed closing the last line counts none. In a Flare screen box, the
+// children near either end are kept with their neighbours instead.
+func TestAssembleMarksCodeBlockEdges(t *testing.T) {
 	output, plan, result := flareGuide(t, false)
 	record := &result.HTML.Topics[1]
 	name := filepath.Join(output, record.Path)
 	body, _ := os.ReadFile(name)
+	lines := strings.Repeat("line\n", 10)
 	body = bytes.Replace(body, []byte(`</h1>`), []byte("</h1>"+
-		"<pre data-case=\"closing\">a\nb\n</pre>"+
-		"<pre data-case=\"indent\"><code>a\nb\n      </code></pre>"+
-		"<pre data-case=\"blank\">a\n\n</pre>"+
-		"<pre data-case=\"two\">a\n   \n   </pre>"+
-		"<pre data-case=\"many\">a\n\n\n\n\n\n</pre>"+
-		"<div class=\"screen\" data-case=\"screen\"><p>a</p>\n\n   </div>"), 1)
+		"<pre data-case=\"closing\">"+lines+"a\nb\n</pre>"+
+		"<pre data-case=\"indent\"><code>"+lines+"a\nb\n      </code></pre>"+
+		"<pre data-case=\"blank\">"+lines+"a\n\n</pre>"+
+		"<pre data-case=\"inner\">"+lines+"a\n\nb\n   </pre>"+
+		"<pre data-case=\"many\">"+lines+"a\n\n\n\n\n\n</pre>"+
+		"<pre data-case=\"head\">a\n\n\nb\n"+lines+"</pre>"+
+		"<pre data-case=\"short\">a\n\n</pre>"+
+		"<div class=\"screen\" data-case=\"box\">\n<p>first</p>\n<p>second</p>\n<p>"+lines+"</p>\n<p>last</p>\n</div>"), 1)
 	if err := os.WriteFile(name, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1042,11 +1048,23 @@ func TestAssembleMarksBlankCodeTails(t *testing.T) {
 	writeManifest(t, output, result.HTML)
 	_, combined := assembleGuide(t, output, plan, result)
 	for name, want := range map[string]string{"closing": "", "indent": "print-tail-1", "blank": "print-tail-1",
-		"two": "print-tail-2", "many": "print-tail-3", "screen": ""} {
-		element := regexp.MustCompile(`<(pre|div) [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
-		got := regexp.MustCompile(`print-tail-\d`).Find(element)
-		if string(got) != want {
-			t.Errorf("%s block %s: tail class %q, want %q", name, element, got, want)
+		"inner": "print-tail-2", "many": "print-tail-3", "head": "print-head-2", "short": "print-keep"} {
+		element := regexp.MustCompile(`<pre [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
+		got := strings.Join(regexp.MustCompile(`print-(?:head|tail)-\d|print-keep`).FindAllString(string(element), -1), " ")
+		if got != want {
+			t.Errorf("%s block %s: marks %q, want %q", name, element, got, want)
 		}
+	}
+	box := regexp.MustCompile(`(?s)<div class="[^"]*" data-case="box">.*?</div>`).Find(combined)
+	children := regexp.MustCompile(`<(p|span) class="([^"]*)"`).FindAllSubmatch(box, -1)
+	var marks []string
+	for _, child := range children {
+		marks = append(marks, string(child[1])+":"+string(child[2]))
+	}
+	want := []string{"span:print-screen-gap", "p:print-screen-edge print-screen-whole", "span:print-screen-gap print-screen-edge",
+		"p:print-screen-edge print-screen-whole", "span:print-screen-gap print-screen-edge", "p:print-screen-edge",
+		"span:print-screen-gap print-screen-edge", "p:print-screen-edge print-screen-whole", "span:print-screen-gap print-screen-edge"}
+	if !slices.Equal(marks, want) {
+		t.Errorf("screen box child marks = %q, want %q", marks, want)
 	}
 }
