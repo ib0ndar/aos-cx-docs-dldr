@@ -1258,6 +1258,42 @@ func TestPinnedChromeFitsWideTablesInsteadOfShrinkingTheDocument(t *testing.T) {
 	}
 }
 
+// A Flare cell repeats its padding on each page it spans, and a fragment
+// must also hold the trailing margin of the cell's content; when only that
+// margin did not fit, Chrome continued the row as an empty fragment under a
+// repeated header. The renderer moves the margin into the padding, which
+// leaves the cell's size unchanged.
+func TestPinnedChromeMovesFlareCellEndMarginsIntoPadding(t *testing.T) {
+	content := `<table class="fixture-cellend"><tr><td class="fixture-margin" style="padding-bottom:4px">` +
+		`<div><p style="margin:0 0 3px">Value</p></div></td><td class="fixture-text" style="padding-bottom:4px">Plain text</td></tr></table>`
+	measure := `(() => {
+		const cell = document.querySelector(".print-content td.fixture-margin");
+		const text = document.querySelector(".print-content td.fixture-text");
+		return {
+			height: cell.getBoundingClientRect().height,
+			padding: getComputedStyle(cell).paddingBottom,
+			margin: getComputedStyle(cell.querySelector("p")).marginBottom,
+			text_padding: getComputedStyle(text).paddingBottom,
+		};
+	})()`
+	type cellState struct {
+		Height      float64 `json:"height"`
+		Padding     string  `json:"padding"`
+		Margin      string  `json:"margin"`
+		TextPadding string  `json:"text_padding"`
+	}
+	var before, after cellState
+	layOutPrintDocument(t, content, chromedp.Tasks{
+		chromedp.Evaluate(measure, &before),
+		chromedp.Evaluate(flareCellEndExpression, nil),
+		chromedp.Evaluate(measure, &after),
+	})
+	if before.Margin != "3px" || after.Margin != "0px" || after.Padding != "7px" || after.TextPadding != "4px" ||
+		after.Height < before.Height-1 || after.Height > before.Height+1 {
+		t.Fatalf("cell end before %+v, after %+v; want the 3px margin moved into the padding at the same height", before, after)
+	}
+}
+
 // pdfContentScale returns the first scale that a Chrome-printed page's
 // content sets after flipping the page: 3.125 for a document printed at
 // full size, less when Chrome shrank it to fit its widest element.

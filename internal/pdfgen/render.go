@@ -649,6 +649,36 @@ func retryChromeStart(ctx context.Context, output *os.File, render func() (rende
 	return render()
 }
 
+// flareCellEndExpression moves the bottom margin that ends a Flare table
+// cell's content into the cell's bottom padding. The print rules make Flare
+// cells repeat their padding on each page (box-decoration-break:clone), and
+// a cell fragment must then also hold its content's trailing margin; when
+// only that margin did not fit, Chrome continued the row on the next page
+// as an empty fragment under a repeated header.
+const flareCellEndExpression = `(() => {
+	for (const cell of document.querySelectorAll("body.print-source-flare .print-content td")) {
+		const tail = cell.lastChild;
+		if (tail && tail.nodeType === Node.TEXT_NODE && tail.textContent.trim() !== "") continue;
+		let margin = 0;
+		const chain = [];
+		for (let element = cell.lastElementChild; element; element = element.lastElementChild) {
+			const style = getComputedStyle(element);
+			if (!["block", "list-item", "table"].includes(style.display) || style.position === "absolute" ||
+				style.position === "fixed" || style.float !== "none") break;
+			margin = Math.max(margin, Number.parseFloat(style.marginBottom) || 0);
+			chain.push(element);
+			const last = element.lastChild;
+			if (style.display === "table" || Number.parseFloat(style.paddingBottom) ||
+				Number.parseFloat(style.borderBottomWidth) || style.overflow !== "visible") break;
+			if (last && last.nodeType === Node.TEXT_NODE && last.textContent.trim() !== "") break;
+		}
+		if (!(margin > 0)) continue;
+		for (const element of chain) element.style.setProperty("margin-bottom", "0", "important");
+		const padding = Number.parseFloat(getComputedStyle(cell).paddingBottom) || 0;
+		cell.style.setProperty("padding-bottom", (padding + margin) + "px", "important");
+	}
+})()`
+
 // fitWideTablesExpression zooms each outermost table of the guide content
 // that passes the right edge of the viewport so that it ends there.
 const fitWideTablesExpression = `(() => {
@@ -990,18 +1020,19 @@ func renderChromeOnce(
 	default:
 	}
 	if expectedFooter == nil {
-		// Chrome shrinks every page of a document to fit its widest element.
-		// A table whose words cannot fit the page is scaled down on its own
-		// instead, measured at the width of a page's content area, so that
-		// the rest of the guide prints at full size.
+		// Laid out at the width of a page's content area: Flare cells take
+		// their content's trailing margin into their padding, and a table
+		// whose words cannot fit the page is scaled down on its own, as
+		// Chrome would otherwise shrink every page of the guide to fit it.
 		settings := ExpectedSettings()
 		width := int64((8.5 - settings.MarginLeftInches - settings.MarginRightInches) * 96)
 		if err := chromedp.Run(browserCtx,
 			emulation.SetDeviceMetricsOverride(width, 1000, 1, false),
+			chromedp.Evaluate(flareCellEndExpression, nil),
 			chromedp.Evaluate(fitWideTablesExpression, nil),
 			emulation.ClearDeviceMetricsOverride(),
 		); err != nil {
-			return metrics, chromeError("fit wide tables to the page", err, logs)
+			return metrics, chromeError("fit tables to the page", err, logs)
 		}
 	}
 	writer := &limitedFileWriter{file: output, limit: config.MaxPDFBytes}
