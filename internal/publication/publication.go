@@ -24,6 +24,7 @@ import (
 	"github.com/tdewolff/parse/v2"
 	"github.com/tdewolff/parse/v2/css"
 	xhtml "golang.org/x/net/html"
+	"golang.org/x/net/html/atom"
 )
 
 const (
@@ -41,9 +42,9 @@ const (
 // are overridden where print would lose or strand content: code and CLI
 // output wrap instead of scrolling or being capped in height, and are never
 // hyphenated; captions wrap, because a line wider than the page makes Chrome
-// shrink the whole document; headings, captions, notes, labels and short
-// lines of code stay with what follows them; and a topic's trailing margin
-// cannot push an empty page before the next chapter.
+// shrink the whole document; headings, labels, captions, table headers,
+// notes and short code blocks stay with what follows them; and a topic's
+// trailing margin cannot push an empty page before the next chapter.
 const printCSS = `
 @page{size:Letter;margin:.72in .68in}
 html{color:#202124;background:#fff}
@@ -56,12 +57,12 @@ body.print-source-hpe{font-family:"HPE Graphik",Arial,sans-serif}
 .print-overview{break-after:page}.print-toc{break-before:page;break-after:page}
 .print-toc ol{list-style:none;padding-left:1.1em}.print-toc>ol{padding-left:0}.print-toc li{margin:.2em 0;list-style:none}
 .print-topic.print-chapter{break-before:page}.print-topic{min-width:0}
-.print-content{box-sizing:border-box;padding-left:27px}
+.print-content{box-sizing:border-box;padding-left:27px;padding-right:1px}
 .print-topic.print-heading-only{break-after:avoid-page}
 .print-topic.print-flare-homepage{break-after:page}
 .print-content .print-trailing{margin-bottom:0!important}
 .print-content :is(span,a)[id]:empty+:is(h1,h2,h3,h4,h5,h6){break-before:avoid-page!important}
-:where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6,.print-content p.subheading){break-inside:avoid-page!important;break-after:avoid-page!important}
+:where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6,.print-content p.subheading,.print-content p.Subheading){break-inside:avoid-page!important;break-after:avoid-page!important}
 :where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6){break-before:auto!important}
 :where(.print-content p,.print-content li){orphans:3;widows:3}
 body.print-source-flare .print-topic :where(.print-content h1){font-size:16pt!important;line-height:1.2!important}
@@ -72,6 +73,8 @@ body.print-source-flare .print-topic :where(.print-content h3){font-size:12pt!im
 .print-content div.note{break-inside:avoid-page}.print-content .note__title{break-after:avoid-page}
 .print-content div.p>:is(ul,ol){break-before:avoid-page}
 body.print-source-flare .print-content p.Figure_Title{break-after:avoid-page!important}body.print-source-flare .print-content p.Figure_Title+p{break-inside:avoid-page}
+body.print-source-flare .print-content p.Figure_Title:has(img){break-after:auto!important;break-inside:avoid-page!important}body.print-source-flare .print-content p.Figure_Title:has(img)+p{break-inside:auto}
+.print-content p:has(+:is(ul,ol)){break-after:avoid-page}
 :where(.print-content img,.print-content svg){max-width:100%;height:auto}
 .archive-image-placeholder{display:flex;box-sizing:border-box;align-items:center;justify-content:center;max-width:100%;min-width:3rem;min-height:2.5rem;max-height:12rem;padding:.6rem;border:1px dashed #8a6d3b;border-radius:.25rem;background:#fff8e5;color:#533f1f;font-size:.9rem;line-height:1.3;text-align:center;overflow:hidden;break-inside:avoid-page}
 .archive-image-placeholder::before{content:"[!]";margin-right:.4rem;font-weight:700}
@@ -80,7 +83,8 @@ body.print-source-flare .print-content p.Figure_Title{break-after:avoid-page!imp
 :where(.print-content pre,.print-content .pre,.print-content .codeblock,.print-content .screen){max-width:100%;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .print-content :is(pre,.pre,.codeblock,.screen){max-height:none!important;orphans:3;widows:3}
 .print-content .print-keep{break-inside:avoid-page}
-body.print-source-flare .print-content div.screen>p:first-child{break-before:avoid-page}
+.print-content .print-screen-gap{display:block}
+.print-content div.screen>:is(:nth-child(-n+5),:nth-last-child(-n+5)){break-before:avoid-page}
 body.print-source-flare .print-content div.screen>p.subheading{break-inside:auto!important;break-after:auto!important}
 .print-content :is(pre,.pre,.codeblock,.screen,.screen>p,p.CLI){white-space:pre-wrap!important}
 body.print-source-flare .print-content :is(p[class^="CLI"],p[class*=" CLI"],p.screen,span.CLI,code,[xml\:space="preserve"]){white-space:pre-wrap!important;overflow-wrap:anywhere!important}
@@ -93,6 +97,7 @@ body.print-source-flare :where(.print-content>#mc-main-content>.topichero){displ
 :where(.print-content.print-flare-home-hero-removed>#mc-main-content>.container){margin-top:0!important}
 :where(.print-content thead){display:table-header-group}
 .print-content thead{break-inside:avoid-page}
+.print-content table:has(>thead)>tbody>tr:only-child{break-inside:auto}
 :where(.print-content .table){overflow-wrap:break-word}
 :where(.print-content tr,.print-content figure,.print-content img){break-inside:avoid-page}
 body.print-source-hpe :where(.print-content table code.codeph){display:inline-block;max-width:min(60ch,calc(100vw - 3rem));overflow-x:auto;white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}
@@ -548,6 +553,7 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 	stripActiveMarkup(content)
 	removeEmptyDITABlocks(content)
 	markShortCodeBlocks(content)
+	wrapScreenGaps(content)
 	if holdsOnlyHeadings(content) {
 		class += " print-heading-only"
 	}
@@ -671,6 +677,38 @@ func markShortCodeBlocks(content *xhtml.Node) {
 }
 
 const shortCodeLines = 8
+
+// wrapScreenGaps puts the whitespace between the paragraphs of a Flare
+// screen box into block spans. Under white-space:pre-wrap that whitespace
+// shows as blank lines, as in the HTML, but in anonymous boxes that break
+// rules cannot name; Chrome could then break between a box's top and its
+// first line, or before its last line, leaving an empty grey box top or tail
+// on a page. As elements the gaps can be kept with the lines they separate.
+func wrapScreenGaps(content *xhtml.Node) {
+	walk(content, func(node *xhtml.Node) {
+		if node.Type != xhtml.ElementNode || node.Data != "div" || !hasClass(node, "screen") {
+			return
+		}
+		hasParagraph := false
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			hasParagraph = hasParagraph || child.Type == xhtml.ElementNode && child.Data == "p"
+		}
+		if !hasParagraph {
+			return
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			if child.Type != xhtml.TextNode || strings.Trim(child.Data, " \t\n\f\r") != "" {
+				continue
+			}
+			gap := &xhtml.Node{Type: xhtml.ElementNode, Data: "span", DataAtom: atom.Span,
+				Attr: []xhtml.Attribute{{Key: "class", Val: "print-screen-gap"}}}
+			node.InsertBefore(gap, child)
+			node.RemoveChild(child)
+			gap.AppendChild(child)
+			child = gap
+		}
+	})
+}
 
 // codeLines counts the non-blank lines a code block shows: its text split at
 // line feeds, line breaks and block elements such as Flare's paragraphs.

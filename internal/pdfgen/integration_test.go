@@ -957,12 +957,19 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		`<p class="Figure_Title">Figure 1 Topology</p><p class="fixture-image"><img alt="Topology"></p>` +
 		`<div class="screen fixture-config"><p class="subheading">interface 1/1/1</p></div>` +
 		`<span id="fixture-anchor"></span><h3 class="fixture-h3">Section after an anchor</h3>` +
+		`<table class="fixture-command"><thead><tr><th>Platforms</th></tr></thead><tbody><tr><td>All</td></tr></tbody></table>` +
+		`<p class="Subheading">Procedure</p>` + "<div class=\"screen fixture-gaps\">\n<p>one</p>\n<p>two</p>\n</div>" +
+		`<p class="Figure_Title fixture-figure-image"><img alt="Inline figure"></p>` +
+		`<p class="fixture-lead">The following:</p><ul><li>item</li></ul>` +
 		`<p class="fixture-font">Open Sans text</p></div>`
 	var styles map[string]string
 	var fonts []string
 	layOutPrintDocument(t, content, chromedp.ActionFunc(func(ctx context.Context) error {
 		if err := chromedp.Evaluate(`(() => {
-			const style = (selector, property) => getComputedStyle(document.querySelector(selector))[property];
+			const style = (selector, property) => {
+				const element = document.querySelector(selector);
+				return element ? getComputedStyle(element)[property] : "missing";
+			};
 			const screen = document.querySelector(".print-content div.screen");
 			const right = element => {
 				const range = document.createRange();
@@ -995,6 +1002,14 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				config_break_inside: style(".print-content div.fixture-config > p.subheading", "breakInside"),
 				anchored_heading_break_before: style(".print-content h3.fixture-h3", "breakBefore"),
 				short_code_break_inside: style(".print-content pre.fixture-pre", "breakInside"),
+				content_padding_right: style(".print-content", "paddingRight"),
+				command_row_break_inside: style(".print-content table.fixture-command tbody tr", "breakInside"),
+				capital_subheading_break_after: style(".print-content p.Subheading", "breakAfter"),
+				screen_gap_display: style(".print-content div.fixture-gaps > .print-screen-gap", "display"),
+				screen_gap_break_before: style(".print-content div.fixture-gaps > .print-screen-gap", "breakBefore"),
+				figure_with_image_break_after: style(".print-content p.fixture-figure-image", "breakAfter"),
+				figure_with_image_break_inside: style(".print-content p.fixture-figure-image", "breakInside"),
+				lead_break_after: style(".print-content p.fixture-lead", "breakAfter"),
 			};
 		})()`, &styles).Do(ctx); err != nil {
 			return err
@@ -1026,6 +1041,9 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		"figure_title_break_after": "avoid-page", "figure_image_break_inside": "avoid-page",
 		"screen_first_line_break_before": "avoid-page", "config_break_inside": "auto",
 		"anchored_heading_break_before": "avoid-page", "short_code_break_inside": "avoid-page",
+		"content_padding_right": "1px", "command_row_break_inside": "auto", "capital_subheading_break_after": "avoid-page",
+		"screen_gap_display": "block", "screen_gap_break_before": "avoid-page", "figure_with_image_break_after": "auto",
+		"figure_with_image_break_inside": "avoid-page", "lead_break_after": "avoid-page",
 	}
 	for key, value := range want {
 		if styles[key] != value {

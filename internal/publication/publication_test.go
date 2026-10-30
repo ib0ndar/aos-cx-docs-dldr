@@ -173,7 +173,7 @@ func TestAssemblePreservesSemanticsOrderLinksAndResources(t *testing.T) {
 		!strings.Contains(string(body), "box-sizing:border-box") ||
 		!strings.Contains(string(body), `body class="print-source-flare"`) ||
 		!strings.Contains(string(body), `body.print-source-flare .print-topic :where(.print-content h1){font-size:16pt!important;line-height:1.2!important}`) ||
-		!strings.Contains(string(body), `:where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6,.print-content p.subheading){break-inside:avoid-page!important;break-after:avoid-page!important}`) ||
+		!strings.Contains(string(body), `:where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6,.print-content p.subheading,.print-content p.Subheading){break-inside:avoid-page!important;break-after:avoid-page!important}`) ||
 		!strings.Contains(string(body), "max-width:100%;overflow-x:auto;white-space:pre-wrap") ||
 		!strings.Contains(string(body), ":where(.print-content p.CLI){max-width:100%;overflow-x:auto}") {
 		t.Fatalf("combined structure is incomplete:\n%s", body)
@@ -793,5 +793,31 @@ func TestAssembleKeepsShortCodeBlocksWhole(t *testing.T) {
 		if got := bytes.Contains(element, []byte("print-keep")); got != want {
 			t.Errorf("%s block %s: kept whole=%v, want %v", name, element, got, want)
 		}
+	}
+}
+
+// The whitespace between a Flare screen box's paragraphs becomes block spans
+// with the same text, so break rules can keep the box's first and last lines
+// with it. Boxes without paragraphs keep their text as it is.
+func TestAssembleWrapsGapsBetweenScreenBoxLines(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`</h1>`), []byte("</h1><div class=\"screen\" data-case=\"lines\">\n  <p>one</p>\n\n  <p>two</p>\n</div>"+
+		"<div class=\"screen\" data-case=\"text\">plain\n  text</div>"), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	lines := regexp.MustCompile(`(?s)<div class="screen[^"]*" data-case="lines">.*?</div>`).Find(combined)
+	want := "<span class=\"print-screen-gap\">\n  </span><p>one</p><span class=\"print-screen-gap\">\n\n  </span><p>two</p><span class=\"print-screen-gap\">\n</span></div>"
+	if !bytes.HasSuffix(lines, []byte(want)) {
+		t.Fatalf("screen box gaps = %q, want suffix %q", lines, want)
+	}
+	if text := regexp.MustCompile(`(?s)<div class="screen[^"]*" data-case="text">.*?</div>`).Find(combined); bytes.Contains(text, []byte("print-screen-gap")) {
+		t.Fatalf("text-only screen box was changed: %q", text)
 	}
 }
