@@ -991,6 +991,8 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		`<section class="subheading fixture-examples"><p>Examples</p><p>Example text.</p></section>` +
 		`<ul class="fixture-listblank"><li>Configure:</li></ul><p>&nbsp;</p><div class="screen"><p>vsx</p></div>` +
 		"<pre class=\"fixture-tail\"><code>" + strings.Repeat("show vsx status\n", 12) + "      </code></pre>" +
+		`<p class="fixture-chain">Example:</p><p>Configure the switch.</p><pre>vsx</pre>` +
+		`<p class="CLI fixture-clirun">ntp enable</p><p class="CLI">no ntp enable</p>` +
 		"<pre class=\"fixture-head\">show vsx\n\n\nstatus\n" + strings.Repeat("show vsx status\n", 12) + "</pre>" +
 		"<div class=\"screen fixture-edges\">\n<p>first</p>\n<p>second</p>\n<p>" + strings.Repeat("line\n", 10) + "</p>\n<p>last</p>\n</div>" +
 		`<p class="fixture-font">Open Sans text</p><p class="subheading fixture-tail">&nbsp;</p></div>`
@@ -1082,6 +1084,9 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				list_blank_code_break_after: style(".print-content ul.fixture-listblank", "breakAfter"),
 				code_tail_widows: style(".print-content pre.fixture-tail", "widows"),
 				code_head_orphans: style(".print-content pre.fixture-head", "orphans"),
+				chain_break_after: style(".print-content p.fixture-chain", "breakAfter"),
+				chain_break_inside: style(".print-content p.fixture-chain", "breakInside"),
+				cli_run_break_after: style(".print-content p.fixture-clirun", "breakAfter"),
 				screen_edge_break_before: style(".print-content div.fixture-edges > p:first-of-type", "breakBefore"),
 				screen_edge_break_inside: style(".print-content div.fixture-edges > p:first-of-type", "breakInside"),
 				screen_middle_break_before: style(".print-content div.fixture-edges > p:nth-of-type(3)", "breakBefore"),
@@ -1144,7 +1149,8 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		"cli_before_list_break_after": "auto", "blank_lead_break_after": "avoid-page", "step_code_break_before": "avoid-page",
 		"indented_lead_break_after": "avoid-page", "section_label_break_after": "avoid-page",
 		"list_blank_code_break_after": "avoid-page", "code_tail_widows": "4", "code_lead_break_inside": "avoid-page",
-		"code_head_orphans": "5", "screen_edge_break_before": "avoid-page", "screen_edge_break_inside": "avoid-page",
+		"code_head_orphans": "5", "chain_break_after": "avoid-page", "chain_break_inside": "avoid-page",
+		"cli_run_break_after": "avoid-page", "screen_edge_break_before": "avoid-page", "screen_edge_break_inside": "avoid-page",
 		"screen_middle_break_before": "avoid-page", "item_code_lead_break_inside": "avoid-page",
 		"list_lead_break_inside": "avoid-page", "run_lead_break_inside": "avoid-page", "cli_lead_break_inside": "avoid-page",
 		"step_command_display": "block", "step_command_break_inside": "avoid-page",

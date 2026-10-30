@@ -1068,3 +1068,40 @@ func TestAssembleMarksCodeBlockEdges(t *testing.T) {
 		t.Errorf("screen box child marks = %q, want %q", marks, want)
 	}
 }
+
+// A paragraph ending with a colon that introduces code or a list through a
+// second paragraph is marked to stay with it, and a short run of Flare CLI
+// paragraphs is marked to move whole; other paragraphs stay as they are.
+func TestAssembleMarksLeadInChainsAndCLIRuns(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`</h1>`), []byte(`</h1>`+
+		`<p data-case="chain">Example:</p><p>Configure the switch.</p><pre>vsx</pre>`+
+		`<p data-case="list">Steps&#160;:</p><p>Do this.</p><ul><li>a</li></ul>`+
+		`<p data-case="no-colon">Example</p><p>text</p><pre>x</pre>`+
+		`<p data-case="blank">Example:</p><p>&#160;</p><pre>x</pre>`+
+		`<p data-case="cli-second">Example:</p><p class="CLI">show</p><pre>x</pre>`+
+		`<p data-case="no-code">Example:</p><p>B</p><p>C</p>`+
+		`<p class="CLI" data-case="run-first">ntp enable</p><p class="CLI_Indented" data-case="run-last">no ntp enable</p><p>Text</p>`+
+		`<p class="CLI" data-case="single">ntp server</p><p>Text</p>`+
+		`<div data-case="long">`+strings.Repeat(`<p class="CLI">line</p>`, 9)+`</div>`), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	for name, want := range map[string]string{"chain": "print-chain", "list": "print-chain", "no-colon": "",
+		"blank": "", "cli-second": "", "no-code": "", "run-first": "print-cli-run", "run-last": "", "single": ""} {
+		element := regexp.MustCompile(`<p [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
+		got := regexp.MustCompile(`print-chain|print-cli-run`).Find(element)
+		if string(got) != want {
+			t.Errorf("%s paragraph %s: mark %q, want %q", name, element, got, want)
+		}
+	}
+	if long := regexp.MustCompile(`(?s)<div data-case="long">.*?</div>`).Find(combined); bytes.Contains(long, []byte("print-cli-run")) {
+		t.Errorf("a run of nine CLI lines was kept whole: %s", long)
+	}
+}
