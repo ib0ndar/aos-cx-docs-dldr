@@ -75,7 +75,7 @@ body.print-source-flare .print-topic :where(.print-content h3){font-size:12pt!im
 .print-content div.p>:is(ul,ol){break-before:avoid-page}
 body.print-source-flare .print-content p.Figure_Title{break-after:avoid-page!important}body.print-source-flare .print-content p.Figure_Title+p{break-inside:avoid-page}
 body.print-source-flare .print-content p.Figure_Title:has(img){break-after:auto!important;break-inside:avoid-page!important}body.print-source-flare .print-content p.Figure_Title:has(img)+p{break-inside:auto}
-.print-content p:has(+:is(ul,ol)){break-after:avoid-page}
+.print-content p:has(+:is(ul,ol,div.screen,pre,.pre,.codeblock)){break-after:avoid-page}.print-content p.print-label{break-after:avoid-page}
 :where(.print-content img,.print-content svg){max-width:100%;height:auto}
 .archive-image-placeholder{display:flex;box-sizing:border-box;align-items:center;justify-content:center;max-width:100%;min-width:3rem;min-height:2.5rem;max-height:12rem;padding:.6rem;border:1px dashed #8a6d3b;border-radius:.25rem;background:#fff8e5;color:#533f1f;font-size:.9rem;line-height:1.3;text-align:center;overflow:hidden;break-inside:avoid-page}
 .archive-image-placeholder::before{content:"[!]";margin-right:.4rem;font-weight:700}
@@ -86,6 +86,7 @@ body.print-source-flare .print-content p.Figure_Title:has(img){break-after:auto!
 .print-content .print-keep{break-inside:avoid-page}
 .print-content .print-screen-gap{display:block;break-inside:avoid-page}
 .print-content div.screen>:not(:first-child):is(:nth-child(-n+5),:nth-last-child(-n+5)){break-before:avoid-page}
+.print-content div.screen>:is(ul,ol)>:not(:first-child):is(:nth-child(-n+5),:nth-last-child(-n+5)){break-before:avoid-page}
 body.print-source-flare .print-content div.screen>p.subheading{break-inside:auto!important;break-after:auto!important}
 .print-content :is(pre,.pre,.codeblock,.screen,.screen>p,p.CLI){white-space:pre-wrap!important}
 body.print-source-flare .print-content :is(p[class^="CLI"],p[class*=" CLI"],p.screen,span.CLI,code,[xml\:space="preserve"]){white-space:pre-wrap!important;overflow-wrap:anywhere!important}
@@ -93,7 +94,7 @@ body.print-source-flare .print-content :is(td,th,li,p,div.note,div.screen,div.sc
 body.print-source-flare .print-content table{max-width:100%!important}
 body.print-source-flare .print-content p[style*="float"]{float:none!important;width:auto!important}
 body.print-source-flare .print-content .inner-wrap{min-height:0!important}
-body.print-source-flare .print-content :is(td,th){min-width:4em}
+body.print-source-flare .print-content table:not(:has(tr>:nth-child(9))) :is(td,th){min-width:4em}
 .print-content :is(pre,.pre,.codeblock,.screen,p.CLI,p[class^="CLI"],p[class*=" CLI"],span.CLI,code,kbd,samp,.codeph){hyphens:manual!important}
 :where(.print-content p.CLI){max-width:100%;overflow-x:auto}
 body.print-source-flare :where(.print-content>#mc-main-content>.topichero){display:none!important;position:static!important}
@@ -108,11 +109,12 @@ body.print-source-hpe :where(.print-content table code.codeph){display:inline-bl
 .print-provenance{break-before:page;color:#4b5563}
 `
 
-// printFontFallbackCSS gives "Open Sans", which Flare stylesheets name with
-// no fallback, an installed sans-serif face; without one Chrome falls back
+// printFontFallbackCSS gives "Open Sans" and "Open Sans Extrabold", which
+// Flare stylesheets name with no fallback, an installed sans-serif face; without one Chrome falls back
 // to a serif font. It precedes the publisher stylesheets, so a guide that
 // ships its own Open Sans faces keeps them.
-const printFontFallbackCSS = `@font-face{font-family:"Open Sans";src:local("Open Sans"),local("OpenSans-Regular"),local("Arial"),local("ArialMT"),local("Liberation Sans"),local("LiberationSans")}` +
+const printFontFallbackCSS = `@font-face{font-family:"Open Sans Extrabold";font-weight:bold;src:local("Open Sans Extrabold"),local("OpenSans-ExtraBold"),local("Arial Black"),local("Arial-Black"),local("Arial Bold"),local("Arial-BoldMT"),local("Liberation Sans Bold"),local("LiberationSans-Bold")}` +
+	`@font-face{font-family:"Open Sans";src:local("Open Sans"),local("OpenSans-Regular"),local("Arial"),local("ArialMT"),local("Liberation Sans"),local("LiberationSans")}` +
 	`@font-face{font-family:"Open Sans";font-weight:bold;src:local("Open Sans Bold"),local("OpenSans-Bold"),local("Arial Bold"),local("Arial-BoldMT"),local("Liberation Sans Bold"),local("LiberationSans-Bold")}` +
 	`@font-face{font-family:"Open Sans";font-style:italic;src:local("Open Sans Italic"),local("OpenSans-Italic"),local("Arial Italic"),local("Arial-ItalicMT"),local("Liberation Sans Italic"),local("LiberationSans-Italic")}` +
 	`@font-face{font-family:"Open Sans";font-weight:bold;font-style:italic;src:local("Open Sans Bold Italic"),local("OpenSans-BoldItalic"),local("Arial Bold Italic"),local("Arial-BoldItalicMT"),local("Liberation Sans Bold Italic"),local("LiberationSans-BoldItalic")}`
@@ -566,6 +568,7 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 	markShortCodeBlocks(content)
 	wrapScreenGaps(content)
 	markBlankParagraphs(content)
+	markLabelParagraphs(content)
 	if holdsOnlyHeadings(content) {
 		class += " print-heading-only"
 	}
@@ -698,24 +701,33 @@ func wrapScreenGaps(content *xhtml.Node) {
 		if node.Type != xhtml.ElementNode || node.Data != "div" || !hasClass(node, "screen") {
 			return
 		}
-		hasParagraph := false
+		hasBlock := false
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			hasParagraph = hasParagraph || child.Type == xhtml.ElementNode && child.Data == "p"
+			hasBlock = hasBlock || child.Type == xhtml.ElementNode && slices.Contains([]string{"p", "ul", "ol"}, child.Data)
 		}
-		if !hasParagraph {
+		if !hasBlock {
 			return
 		}
+		wrapWhitespaceChildren(node)
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
-			if child.Type != xhtml.TextNode || strings.Trim(child.Data, " \t\n\f\r") != "" {
-				continue
+			if child.Type == xhtml.ElementNode && (child.Data == "ul" || child.Data == "ol") {
+				wrapWhitespaceChildren(child)
 			}
-			gap := screenGap(child.Data)
-			node.InsertBefore(gap, child)
-			node.RemoveChild(child)
-			child = gap
 		}
 		moveLeadingLineFeeds(node)
 	})
+}
+
+func wrapWhitespaceChildren(parent *xhtml.Node) {
+	for child := parent.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != xhtml.TextNode || strings.Trim(child.Data, " \t\n\f\r") != "" {
+			continue
+		}
+		gap := screenGap(child.Data)
+		parent.InsertBefore(gap, child)
+		parent.RemoveChild(child)
+		child = gap
+	}
 }
 
 func screenGap(text string) *xhtml.Node {
@@ -777,6 +789,30 @@ func markBlankParagraphs(content *xhtml.Node) {
 			}
 		}
 		setAttribute(node, "class", strings.TrimSpace(attribute(node, "class")+" print-blank"))
+	})
+}
+
+// markLabelParagraphs marks paragraphs that hold only one bold run, such as
+// Flare's <p><b>Procedure</b></p>. They act as headings for what follows,
+// a list, a note or a code box, and stay with it.
+func markLabelParagraphs(content *xhtml.Node) {
+	walk(content, func(node *xhtml.Node) {
+		if node.Type != xhtml.ElementNode || node.Data != "p" {
+			return
+		}
+		var bold *xhtml.Node
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			switch {
+			case child.Type == xhtml.TextNode && strings.Trim(child.Data, " \t\n\f\r\u00a0") == "":
+			case child.Type == xhtml.ElementNode && (child.Data == "b" || child.Data == "strong") && bold == nil:
+				bold = child
+			default:
+				return
+			}
+		}
+		if bold != nil && strings.TrimSpace(nodeText(bold)) != "" {
+			setAttribute(node, "class", strings.TrimSpace(attribute(node, "class")+" print-label"))
+		}
 	})
 }
 

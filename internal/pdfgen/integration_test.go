@@ -963,6 +963,11 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		`<p class="fixture-lead">The following:</p><ul><li>item</li></ul>` +
 		`<h4 class="fixture-h4b">Examples</h4><p>&nbsp;</p><p class="inner-wrap fixture-inner">Card text</p>` +
 		`<table class="fixture-tall"><tbody><tr><td>` + strings.Repeat("<p>value</p>", 6) + `</td></tr><tr><td>short</td></tr></tbody></table>` +
+		`<table class="fixture-wide"><tr>` + strings.Repeat("<th>Platform</th>", 13) + `</tr><tr>` + strings.Repeat("<td>Yes</td>", 13) + `</tr></table>` +
+		`<p class="fixture-codelead">Showing IP routes:</p><pre>show ip route</pre>` +
+		"<div class=\"screen fixture-listbox\">\n<ul>\n<li>a</li>\n<li>b</li>\n</ul>\n</div>" +
+		`<p class="fixture-label"><b>Procedure</b></p><div class="note">Note text.</div>` +
+		`<p class="fixture-extrabold" style="font-family:'Open Sans Extrabold'">All Switch Series</p>` +
 		`<p class="fixture-font">Open Sans text</p><p class="subheading fixture-tail">&nbsp;</p></div>`
 	var styles map[string]string
 	var fonts []string
@@ -978,7 +983,7 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				range.selectNodeContents(element);
 				return Math.max(range.getBoundingClientRect().right, element.getBoundingClientRect().right);
 			};
-			const widest = Math.max(...[".fixture-cli", "table.fixture-parameters", ".fixture-float"].map(
+			const widest = Math.max(...[".fixture-cli", "table.fixture-parameters", ".fixture-float", "table.fixture-wide"].map(
 				selector => right(document.querySelector(".print-content " + selector))));
 			return {
 				screen_hidden: String(screen.scrollWidth - screen.clientWidth),
@@ -1021,6 +1026,10 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				thead_break_after: style(".print-content table.fixture-head thead", "breakAfter"),
 				inner_wrap_min_height: style(".print-content p.fixture-inner", "minHeight"),
 				cell_min_width: String(Number.parseFloat(style(".print-content table.fixture-tall td", "minWidth")) > 0),
+				wide_table_cell_min_width: style(".print-content table.fixture-wide td", "minWidth"),
+				code_lead_break_after: style(".print-content p.fixture-codelead", "breakAfter"),
+				list_box_line_break_before: style(".print-content div.fixture-listbox > ul > li", "breakBefore"),
+				label_break_after: style(".print-content p.fixture-label", "breakAfter"),
 			};
 		})()`, &styles).Do(ctx); err != nil {
 			return err
@@ -1029,18 +1038,23 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		if err != nil {
 			return err
 		}
-		node, err := dom.QuerySelector(tree.NodeID, ".print-content p.fixture-font").Do(ctx)
-		if err != nil {
-			return err
-		}
 		if err := css.Enable().Do(ctx); err != nil {
 			return err
 		}
-		used, err := css.GetPlatformFontsForNode(node).Do(ctx)
-		for _, font := range used {
-			fonts = append(fonts, font.FamilyName)
+		for _, selector := range []string{".print-content p.fixture-font", ".print-content p.fixture-extrabold"} {
+			node, err := dom.QuerySelector(tree.NodeID, selector).Do(ctx)
+			if err != nil {
+				return err
+			}
+			used, err := css.GetPlatformFontsForNode(node).Do(ctx)
+			if err != nil {
+				return err
+			}
+			for _, font := range used {
+				fonts = append(fonts, font.FamilyName)
+			}
 		}
-		return err
+		return nil
 	}))
 	want := map[string]string{
 		"screen_hidden": "0", "cli_white_space": "pre-wrap", "cli_hyphens": "manual",
@@ -1058,7 +1072,8 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		"screen_gap_break_inside": "avoid-page", "heading_blank_break_after": "avoid-page", "topic_tail_break_after": "auto",
 		"tall_row_break_inside": "auto", "short_row_break_inside": "avoid-page",
 		"screen_box_break_before": "auto", "thead_break_after": "avoid-page", "inner_wrap_min_height": "0px",
-		"cell_min_width": "true",
+		"cell_min_width": "true", "wide_table_cell_min_width": "0px", "code_lead_break_after": "avoid-page",
+		"list_box_line_break_before": "avoid-page", "label_break_after": "avoid-page",
 	}
 	for key, value := range want {
 		if styles[key] != value {
@@ -1066,7 +1081,7 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		}
 	}
 	if len(fonts) == 0 || slices.ContainsFunc(fonts, func(family string) bool { return strings.Contains(family, "Times") }) {
-		t.Errorf("Open Sans text rendered with %v, want an installed sans-serif face", fonts)
+		t.Errorf("Open Sans and Open Sans Extrabold text rendered with %v, want installed sans-serif faces", fonts)
 	}
 }
 

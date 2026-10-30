@@ -895,3 +895,48 @@ func TestAssemblePutsSynthesizedTitleInsideTheContent(t *testing.T) {
 		t.Fatalf("synthesized title is not the first element of the print content: %q", section)
 	}
 }
+
+// A Flare screen box that holds a list gets the same block gaps around the
+// list and between its items, so its first and last lines stay together.
+func TestAssembleWrapsGapsInScreenBoxLists(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`</h1>`), []byte("</h1><div class=\"screen\" data-case=\"list\">\n<ul>\n<li>a</li>\n<li>b</li>\n</ul>\n</div>"), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	box := regexp.MustCompile(`(?s)<div class="screen[^"]*" data-case="list">.*?</div>`).Find(combined)
+	gap := "<span class=\"print-screen-gap\">\n</span>"
+	want := ">" + gap + "<ul>" + gap + "<li>a</li>" + gap + "<li>b</li>" + gap + "</ul>" + gap + "</div>"
+	if !bytes.HasSuffix(box, []byte(want)) {
+		t.Fatalf("list box = %q, want suffix %q", box, want)
+	}
+}
+
+// A paragraph holding only one bold run is a label for what follows it.
+func TestAssembleMarksLabelParagraphs(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`</h1>`), []byte(`</h1><p data-case="bold"><b>Procedure</b></p>`+
+		`<p data-case="strong"> <strong>Usage</strong> </p><p data-case="mixed">Use <b>this</b> command</p>`+
+		`<p data-case="two"><b>a</b><b>b</b></p><p data-case="blank-bold"><b> </b></p>`), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	for name, want := range map[string]bool{"bold": true, "strong": true, "mixed": false, "two": false, "blank-bold": false} {
+		element := regexp.MustCompile(`<p [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
+		if got := bytes.Contains(element, []byte("print-label")); got != want {
+			t.Errorf("%s paragraph %s: label=%v, want %v", name, element, got, want)
+		}
+	}
+}
