@@ -60,7 +60,8 @@ body.print-source-hpe{font-family:"HPE Graphik",Arial,sans-serif}
 .print-content{box-sizing:border-box;padding-left:27px;padding-right:1px}
 .print-topic.print-heading-only{break-after:avoid-page}
 .print-topic.print-flare-homepage{break-after:page}
-.print-content .print-trailing{margin-bottom:0!important}
+.print-content .print-trailing{margin-bottom:0!important;break-after:auto!important}
+.print-content :is(h1,h2,h3,h4,h5,h6,p.subheading,p.Subheading)+.print-blank{break-after:avoid-page}
 .print-content :is(span,a)[id]:empty+:is(h1,h2,h3,h4,h5,h6){break-before:avoid-page!important}
 :where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6,.print-content p.subheading,.print-content p.Subheading){break-inside:avoid-page!important;break-after:avoid-page!important}
 :where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6){break-before:auto!important}
@@ -83,7 +84,7 @@ body.print-source-flare .print-content p.Figure_Title:has(img){break-after:auto!
 :where(.print-content pre,.print-content .pre,.print-content .codeblock,.print-content .screen){max-width:100%;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .print-content :is(pre,.pre,.codeblock,.screen){max-height:none!important;orphans:3;widows:3}
 .print-content .print-keep{break-inside:avoid-page}
-.print-content .print-screen-gap{display:block}
+.print-content .print-screen-gap{display:block;break-inside:avoid-page}
 .print-content div.screen>:is(:nth-child(-n+5),:nth-last-child(-n+5)){break-before:avoid-page}
 body.print-source-flare .print-content div.screen>p.subheading{break-inside:auto!important;break-after:auto!important}
 .print-content :is(pre,.pre,.codeblock,.screen,.screen>p,p.CLI){white-space:pre-wrap!important}
@@ -98,6 +99,7 @@ body.print-source-flare :where(.print-content>#mc-main-content>.topichero){displ
 :where(.print-content thead){display:table-header-group}
 .print-content thead{break-inside:avoid-page}
 .print-content table:has(>thead)>tbody>tr:only-child{break-inside:auto}
+.print-content tbody>tr:is(:has(>td>:nth-child(6)),:has(>td li:nth-child(6))){break-inside:auto}
 :where(.print-content .table){overflow-wrap:break-word}
 :where(.print-content tr,.print-content figure,.print-content img){break-inside:avoid-page}
 body.print-source-hpe :where(.print-content table code.codeph){display:inline-block;max-width:min(60ch,calc(100vw - 3rem));overflow-x:auto;white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}
@@ -554,6 +556,7 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 	removeEmptyDITABlocks(content)
 	markShortCodeBlocks(content)
 	wrapScreenGaps(content)
+	markBlankParagraphs(content)
 	if holdsOnlyHeadings(content) {
 		class += " print-heading-only"
 	}
@@ -700,13 +703,74 @@ func wrapScreenGaps(content *xhtml.Node) {
 			if child.Type != xhtml.TextNode || strings.Trim(child.Data, " \t\n\f\r") != "" {
 				continue
 			}
-			gap := &xhtml.Node{Type: xhtml.ElementNode, Data: "span", DataAtom: atom.Span,
-				Attr: []xhtml.Attribute{{Key: "class", Val: "print-screen-gap"}}}
+			gap := screenGap(child.Data)
 			node.InsertBefore(gap, child)
 			node.RemoveChild(child)
-			gap.AppendChild(child)
 			child = gap
 		}
+		moveLeadingLineFeeds(node)
+	})
+}
+
+func screenGap(text string) *xhtml.Node {
+	gap := &xhtml.Node{Type: xhtml.ElementNode, Data: "span", DataAtom: atom.Span,
+		Attr: []xhtml.Attribute{{Key: "class", Val: "print-screen-gap"}}}
+	gap.AppendChild(&xhtml.Node{Type: xhtml.TextNode, Data: text})
+	return gap
+}
+
+// moveLeadingLineFeeds moves the line feeds that start a screen box's first
+// paragraph into the gap before it. They show as blank lines inside the
+// paragraph, where Chrome may break between them and leave the box's top
+// alone on a page. The gap shows as many lines as before: one more for each
+// line feed moved, the last of them a space so that it renders.
+func moveLeadingLineFeeds(box *xhtml.Node) {
+	var first *xhtml.Node
+	for child := box.FirstChild; child != nil && first == nil; child = child.NextSibling {
+		if child.Type == xhtml.ElementNode && !hasClass(child, "print-screen-gap") {
+			first = child
+		}
+	}
+	if first == nil || first.Data != "p" || first.FirstChild == nil || first.FirstChild.Type != xhtml.TextNode {
+		return
+	}
+	text := first.FirstChild
+	leading := text.Data[:len(text.Data)-len(strings.TrimLeft(text.Data, " \t\n\f\r"))]
+	end := strings.LastIndexByte(leading, '\n')
+	if end < 0 {
+		return
+	}
+	moved := leading[:end+1]
+	text.Data = text.Data[end+1:]
+	gap := first.PrevSibling
+	if gap == nil || gap.Type != xhtml.ElementNode || !hasClass(gap, "print-screen-gap") || gap.FirstChild == nil {
+		gap = screenGap("")
+		box.InsertBefore(gap, first)
+	}
+	shown := gap.FirstChild.Data
+	if shown == "" || strings.HasSuffix(shown, "\n") {
+		moved = moved[:len(moved)-1]
+	}
+	gap.FirstChild.Data = shown + moved + " "
+}
+
+// markBlankParagraphs marks paragraphs that show only white space, such as
+// Flare's <p>&nbsp;</p> spacers. A heading's break-after:avoid reaches only
+// the blank paragraph after it, so a page could still end with the heading
+// and the blank line; a blank paragraph after a heading also keeps what
+// follows.
+func markBlankParagraphs(content *xhtml.Node) {
+	walk(content, func(node *xhtml.Node) {
+		if node.Type != xhtml.ElementNode || node.Data != "p" {
+			return
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			if child.Type == xhtml.ElementNode ||
+				(child.Type == xhtml.TextNode && strings.Trim(child.Data, " \t\n\f\r\u00a0") != "") {
+				return
+			}
+		}
+		setAttribute(node, "class", strings.TrimSpace(attribute(node, "class")+" print-blank"))
 	})
 }
 

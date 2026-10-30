@@ -821,3 +821,52 @@ func TestAssembleWrapsGapsBetweenScreenBoxLines(t *testing.T) {
 		t.Fatalf("text-only screen box was changed: %q", text)
 	}
 }
+
+// Line feeds that start a screen box's first paragraph move into the gap
+// before it, which shows the same number of blank lines and cannot split.
+func TestAssembleMovesScreenBoxLeadingLinesIntoItsGap(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`</h1>`), []byte("</h1><div class=\"screen\" data-case=\"after-gap\">\n  <p class=\"CLI\">\nshow run</p>\n</div>"+
+		"<div class=\"screen\" data-case=\"no-gap\"><p>\n  indented</p><p>next</p></div>"), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	for name, want := range map[string]string{
+		"after-gap": "><span class=\"print-screen-gap\">\n  \n </span><p class=\"CLI\">show run</p><span class=\"print-screen-gap\">\n</span></div>",
+		"no-gap":    "><span class=\"print-screen-gap\"> </span><p>  indented</p><p>next</p></div>",
+	} {
+		box := regexp.MustCompile(`(?s)<div class="screen[^"]*" data-case="` + name + `">.*?</div>`).Find(combined)
+		if !bytes.HasSuffix(box, []byte(want)) {
+			t.Errorf("%s box = %q, want suffix %q", name, box, want)
+		}
+	}
+}
+
+// Paragraphs that show only white space are marked, so that one after a
+// heading keeps the heading's content with it.
+func TestAssembleMarksBlankParagraphs(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`</h1>`), []byte("</h1><p data-case=\"nbsp\">&nbsp;</p><p data-case=\"space\"> \n </p>"+
+		"<p data-case=\"text\">x</p><p data-case=\"break\"><br></p>"), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	for name, want := range map[string]bool{"nbsp": true, "space": true, "text": false, "break": false} {
+		element := regexp.MustCompile(`<p [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
+		if got := bytes.Contains(element, []byte("print-blank")); got != want {
+			t.Errorf("%s paragraph %s: blank=%v, want %v", name, element, got, want)
+		}
+	}
+}

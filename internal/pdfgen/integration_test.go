@@ -961,7 +961,9 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		`<p class="Subheading">Procedure</p>` + "<div class=\"screen fixture-gaps\">\n<p>one</p>\n<p>two</p>\n</div>" +
 		`<p class="Figure_Title fixture-figure-image"><img alt="Inline figure"></p>` +
 		`<p class="fixture-lead">The following:</p><ul><li>item</li></ul>` +
-		`<p class="fixture-font">Open Sans text</p></div>`
+		`<h4 class="fixture-h4b">Examples</h4><p>&nbsp;</p>` +
+		`<table class="fixture-tall"><tbody><tr><td>` + strings.Repeat("<p>value</p>", 6) + `</td></tr><tr><td>short</td></tr></tbody></table>` +
+		`<p class="fixture-font">Open Sans text</p><p class="subheading fixture-tail">&nbsp;</p></div>`
 	var styles map[string]string
 	var fonts []string
 	layOutPrintDocument(t, content, chromedp.ActionFunc(func(ctx context.Context) error {
@@ -1010,6 +1012,11 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				figure_with_image_break_after: style(".print-content p.fixture-figure-image", "breakAfter"),
 				figure_with_image_break_inside: style(".print-content p.fixture-figure-image", "breakInside"),
 				lead_break_after: style(".print-content p.fixture-lead", "breakAfter"),
+				screen_gap_break_inside: style(".print-content div.fixture-gaps > .print-screen-gap", "breakInside"),
+				heading_blank_break_after: style(".print-content h4.fixture-h4b + p", "breakAfter"),
+				topic_tail_break_after: style(".print-content p.fixture-tail", "breakAfter"),
+				tall_row_break_inside: style(".print-content table.fixture-tall tr:first-child", "breakInside"),
+				short_row_break_inside: style(".print-content table.fixture-tall tr:last-child", "breakInside"),
 			};
 		})()`, &styles).Do(ctx); err != nil {
 			return err
@@ -1044,6 +1051,8 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		"content_padding_right": "1px", "command_row_break_inside": "auto", "capital_subheading_break_after": "avoid-page",
 		"screen_gap_display": "block", "screen_gap_break_before": "avoid-page", "figure_with_image_break_after": "auto",
 		"figure_with_image_break_inside": "avoid-page", "lead_break_after": "avoid-page",
+		"screen_gap_break_inside": "avoid-page", "heading_blank_break_after": "avoid-page", "topic_tail_break_after": "auto",
+		"tall_row_break_inside": "auto", "short_row_break_inside": "avoid-page",
 	}
 	for key, value := range want {
 		if styles[key] != value {
