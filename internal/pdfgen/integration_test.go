@@ -4,16 +4,20 @@ package pdfgen
 
 import (
 	"bytes"
+	"compress/zlib"
 	"context"
 	"crypto/sha256"
 	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/url"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -1149,6 +1153,68 @@ func TestPinnedChromeRendersWithScreenMedia(t *testing.T) {
 			}
 		})
 	}
+}
+
+// Chrome shrinks every page of a document to fit its widest element, so one
+// table whose words cannot fit the page would print the whole guide small.
+// The renderer scales such a table down on its own instead.
+func TestPinnedChromeFitsWideTablesInsteadOfShrinkingTheDocument(t *testing.T) {
+	chrome := os.Getenv(ChromePathEnvironment)
+	if chrome == "" {
+		t.Skip(ChromePathEnvironment + " is not set")
+	}
+	sidecar, err := ResolveSidecar(chrome)
+	if err != nil {
+		t.Fatal(err)
+	}
+	root := t.TempDir()
+	input := filepath.Join(root, "input.html")
+	body := `<!doctype html><html><head><style>@page{size:Letter;margin:.72in .68in}</style></head><body>` +
+		`<main class="print-content"><p>Publisher text</p><table><tr>` + strings.Repeat("<td>Intermediate_Router1</td>", 12) +
+		`</tr></table><table><tr><td>cell</td></tr></table></main></body></html>`
+	if err := os.WriteFile(input, []byte(body), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	output, err := os.CreateTemp(root, ".output-*.pdf")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer output.Close()
+	if _, err := renderChrome(context.Background(), sidecar, input, root, "", output, DefaultConfig(chrome)); err != nil {
+		t.Fatal(err)
+	}
+	printed, err := os.ReadFile(output.Name())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if scale := pdfContentScale(t, printed); scale != 3.125 {
+		t.Fatalf("document printed at %.2f %% of its size, want 100 %%", scale/3.125*100)
+	}
+}
+
+// pdfContentScale returns the first scale that a Chrome-printed page's
+// content sets after flipping the page: 3.125 for a document printed at
+// full size, less when Chrome shrank it to fit its widest element.
+func pdfContentScale(t *testing.T, body []byte) float64 {
+	t.Helper()
+	scale := regexp.MustCompile(`(?m)^([\d.]+) 0 0 [\d.]+ [-\d.]+ [-\d.]+ cm$`)
+	for _, stream := range regexp.MustCompile(`(?s)>>\s*stream\r?\n(.*?)\r?\nendstream`).FindAllSubmatch(body, -1) {
+		reader, err := zlib.NewReader(bytes.NewReader(stream[1]))
+		if err != nil {
+			continue
+		}
+		content, err := io.ReadAll(reader)
+		if err != nil {
+			continue
+		}
+		for _, match := range scale.FindAllSubmatch(content, -1) {
+			if value, err := strconv.ParseFloat(string(match[1]), 64); err == nil && value > 1 {
+				return value
+			}
+		}
+	}
+	t.Fatal("printed PDF sets no content scale")
+	return 0
 }
 
 // A parent topic whose page is only its title ends with that heading, and

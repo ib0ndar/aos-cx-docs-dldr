@@ -649,6 +649,24 @@ func retryChromeStart(ctx context.Context, output *os.File, render func() (rende
 	return render()
 }
 
+// fitWideTablesExpression zooms each outermost table of the guide content
+// that passes the right edge of the viewport so that it ends there.
+const fitWideTablesExpression = `(() => {
+	const limit = document.documentElement.clientWidth;
+	for (let pass = 0; pass < 3; pass++) {
+		let changed = false;
+		for (const table of document.querySelectorAll(".print-content table")) {
+			if (table.parentElement.closest("table")) continue;
+			const box = table.getBoundingClientRect();
+			if (box.width <= 0 || box.left >= limit || box.right <= limit + 0.5) continue;
+			const zoom = (Number.parseFloat(table.style.zoom) || 1) * (limit - box.left) / box.width;
+			table.style.setProperty("zoom", String(Math.floor(zoom * 1000) / 1000), "important");
+			changed = true;
+		}
+		if (!changed) break;
+	}
+})()`
+
 func renderChromeOnce(
 	parent context.Context,
 	sidecar Sidecar,
@@ -970,6 +988,21 @@ func renderChromeOnce(
 	case requestErr := <-requestError:
 		return metrics, fmt.Errorf("generated PDF request interception failed: %w", requestErr)
 	default:
+	}
+	if expectedFooter == nil {
+		// Chrome shrinks every page of a document to fit its widest element.
+		// A table whose words cannot fit the page is scaled down on its own
+		// instead, measured at the width of a page's content area, so that
+		// the rest of the guide prints at full size.
+		settings := ExpectedSettings()
+		width := int64((8.5 - settings.MarginLeftInches - settings.MarginRightInches) * 96)
+		if err := chromedp.Run(browserCtx,
+			emulation.SetDeviceMetricsOverride(width, 1000, 1, false),
+			chromedp.Evaluate(fitWideTablesExpression, nil),
+			emulation.ClearDeviceMetricsOverride(),
+		); err != nil {
+			return metrics, chromeError("fit wide tables to the page", err, logs)
+		}
 	}
 	writer := &limitedFileWriter{file: output, limit: config.MaxPDFBytes}
 	if err := chromedp.Run(browserCtx, chromedp.ActionFunc(func(ctx context.Context) error {
