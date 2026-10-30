@@ -80,6 +80,10 @@ body.print-source-flare .print-content p.Figure_Title{break-after:avoid-page!imp
 body.print-source-flare .print-content p.Figure_Title:has(img){break-after:auto!important;break-inside:avoid-page!important}body.print-source-flare .print-content p.Figure_Title:has(img)+p{break-inside:auto}
 .print-content p:has(+:is(div.screen,pre,.pre,.codeblock,figure,.fig)),.print-content p:not([class^="CLI"],[class*=" CLI"]):has(+:is(ul,ol)){break-after:avoid-page}.print-content p.print-label{break-after:avoid-page}
 .print-content p:has(+p.print-blank+:is(ul,ol,div.screen,pre,.pre,.codeblock,figure,.fig)){break-after:avoid-page}
+.print-content :is(ul,ol):has(+p.print-blank+:is(div.screen,pre,.pre,.codeblock)){break-after:avoid-page}
+.print-content :is(.print-leadin,p:has(+:is(div.screen,pre,.pre,.codeblock,figure,.fig)),p:not([class^="CLI"],[class*=" CLI"]):has(+:is(ul,ol)),p:has(+p.print-blank+:is(ul,ol,div.screen,pre,.pre,.codeblock,figure,.fig)),p:has(+:is(div:not(.screen),blockquote)>:is(div.screen,pre,.pre,.codeblock):first-child)){break-inside:avoid-page}
+body.print-source-flare .print-content p:not([class^="CLI"],[class*=" CLI"]):has(+:is(p[class^="CLI"],p[class*=" CLI"])){break-inside:avoid-page}
+.print-content li>span.cmd:has(+div.itemgroup>:is(pre,.pre,.codeblock):first-child){display:block;break-inside:avoid-page}
 .print-content .print-leadin{display:block;break-after:avoid-page}.print-content :is(ul,ol):has(+:is(div.screen,pre,.pre,.codeblock)){break-after:avoid-page}
 .print-content p:has(+:is(div:not(.screen),blockquote)>:is(div.screen,pre,.pre,.codeblock):first-child){break-after:avoid-page}
 .print-content li:has(+:is(div.screen,pre,.pre,.codeblock,p[class^="CLI"],p[class*=" CLI"])),.print-content li:has(+p>span.CLI:first-child){break-after:avoid-page}
@@ -96,6 +100,7 @@ body.print-source-flare .print-content p:not([class^="CLI"],[class*=" CLI"]):has
 :where(.print-content pre,.print-content .pre,.print-content .codeblock,.print-content .screen){max-width:100%;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .print-content :is(pre,.pre,.codeblock,.screen){max-height:none!important;orphans:3;widows:3}
 .print-content .print-keep{break-inside:avoid-page}
+.print-content .print-tail-1{widows:4}.print-content .print-tail-2{widows:5}.print-content .print-tail-3{widows:6}
 .print-content .print-screen-gap{display:block;break-inside:avoid-page}
 .print-content div.screen>:not(:first-child):is(:nth-child(-n+5),:nth-last-child(-n+5)){break-before:avoid-page}
 .print-content div.screen>:is(ul,ol)>:not(:first-child):is(:nth-child(-n+5),:nth-last-child(-n+5)){break-before:avoid-page}
@@ -682,7 +687,8 @@ func removeEmpty(content *xhtml.Node, match func(*xhtml.Node) bool) {
 }
 
 // markShortCodeBlocks marks code blocks of at most shortCodeLines lines to
-// stay on one page. Longer blocks may break, keeping three lines on either
+// stay on one page, and code blocks that end with blank lines with their
+// number, which the print rules add to the lines kept after a break. Longer blocks may break, keeping three lines on either
 // side; a shorter block cannot satisfy both, and Chrome then splits it
 // anywhere, leaving one line alone on a page.
 func markShortCodeBlocks(content *xhtml.Node) {
@@ -692,6 +698,9 @@ func markShortCodeBlocks(content *xhtml.Node) {
 			(node.Data == "pre" || hasClass(node, "pre") || hasClass(node, "codeblock") || hasClass(node, "screen")) {
 			if codeLines(node) <= shortCodeLines {
 				setAttribute(node, "class", strings.TrimSpace(attribute(node, "class")+" print-keep"))
+			}
+			if tail := min(codeTailLines(node), 3); tail > 0 && !hasClass(node, "screen") {
+				setAttribute(node, "class", strings.TrimSpace(fmt.Sprintf("%s print-tail-%d", attribute(node, "class"), tail)))
 			}
 			return
 		}
@@ -885,6 +894,37 @@ var leadInBlocks = []string{"p", "div", "ul", "ol", "pre", "table", "figure", "h
 // to its last, blank lines between them included: its text split at line
 // feeds, line breaks and block elements such as Flare's paragraphs.
 func codeLines(node *xhtml.Node) int {
+	lines := codeLineTexts(node)
+	first, last := 0, len(lines)-1
+	for first <= last && strings.TrimSpace(lines[first]) == "" {
+		first++
+	}
+	for last >= first && strings.TrimSpace(lines[last]) == "" {
+		last--
+	}
+	return last - first + 1
+}
+
+// codeTailLines counts the blank lines a code block shows after its last
+// visible line, such as the line of indentation an Oxygen block keeps before
+// </code>. A closing line feed with nothing after it shows no line.
+func codeTailLines(node *xhtml.Node) int {
+	lines := codeLineTexts(node)
+	last := len(lines) - 1
+	for last >= 0 && strings.TrimSpace(lines[last]) == "" {
+		last--
+	}
+	if last < 0 {
+		return 0
+	}
+	tail := len(lines) - 1 - last
+	if tail > 0 && lines[len(lines)-1] == "" {
+		tail--
+	}
+	return tail
+}
+
+func codeLineTexts(node *xhtml.Node) []string {
 	var text strings.Builder
 	walk(node, func(child *xhtml.Node) {
 		switch {
@@ -894,15 +934,7 @@ func codeLines(node *xhtml.Node) int {
 			text.WriteByte('\n')
 		}
 	})
-	lines := strings.Split(text.String(), "\n")
-	first, last := 0, len(lines)-1
-	for first <= last && strings.TrimSpace(lines[first]) == "" {
-		first++
-	}
-	for last >= first && strings.TrimSpace(lines[last]) == "" {
-		last--
-	}
-	return last - first + 1
+	return strings.Split(text.String(), "\n")
 }
 
 // holdsOnlyHeadings reports whether a topic shows nothing but headings, as a

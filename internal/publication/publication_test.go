@@ -1018,3 +1018,35 @@ func TestAssembleWrapsLeadInsBeforeCodeAndLists(t *testing.T) {
 		t.Errorf("print-leadin appears %d times, want 5", count)
 	}
 }
+
+// Blank lines that end a code block count toward the lines Chrome keeps
+// after a page break, so a block could end a page with only blank lines
+// and one visible line on the next. Code blocks other than Flare screen
+// boxes are marked with how many blank lines they end with, up to three.
+func TestAssembleMarksBlankCodeTails(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`</h1>`), []byte("</h1>"+
+		"<pre data-case=\"closing\">a\nb\n</pre>"+
+		"<pre data-case=\"indent\"><code>a\nb\n      </code></pre>"+
+		"<pre data-case=\"blank\">a\n\n</pre>"+
+		"<pre data-case=\"two\">a\n   \n   </pre>"+
+		"<pre data-case=\"many\">a\n\n\n\n\n\n</pre>"+
+		"<div class=\"screen\" data-case=\"screen\"><p>a</p>\n\n   </div>"), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	for name, want := range map[string]string{"closing": "", "indent": "print-tail-1", "blank": "print-tail-1",
+		"two": "print-tail-2", "many": "print-tail-3", "screen": ""} {
+		element := regexp.MustCompile(`<(pre|div) [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
+		got := regexp.MustCompile(`print-tail-\d`).Find(element)
+		if string(got) != want {
+			t.Errorf("%s block %s: tail class %q, want %q", name, element, got, want)
+		}
+	}
+}

@@ -989,6 +989,8 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		`<ol><li class="step"><span class="cmd">Run the command:</span><div class="itemgroup fixture-itemgroup"><pre>show</pre></div></li></ol>` +
 		`<div class="Indent fixture-indent"><ul><li>Configure:</li></ul></div><div class="screen"><p>pim</p></div>` +
 		`<section class="subheading fixture-examples"><p>Examples</p><p>Example text.</p></section>` +
+		`<ul class="fixture-listblank"><li>Configure:</li></ul><p>&nbsp;</p><div class="screen"><p>vsx</p></div>` +
+		"<pre class=\"fixture-tail\"><code>" + strings.Repeat("show vsx status\n", 12) + "      </code></pre>" +
 		`<p class="fixture-font">Open Sans text</p><p class="subheading fixture-tail">&nbsp;</p></div>`
 	var styles map[string]string
 	var fonts []string
@@ -1075,6 +1077,14 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				step_code_break_before: style(".print-content div.fixture-itemgroup", "breakBefore"),
 				indented_lead_break_after: style(".print-content div.fixture-indent", "breakAfter"),
 				section_label_break_after: style(".print-content section.fixture-examples > p:first-child", "breakAfter"),
+				list_blank_code_break_after: style(".print-content ul.fixture-listblank", "breakAfter"),
+				code_tail_widows: style(".print-content pre.fixture-tail", "widows"),
+				code_lead_break_inside: style(".print-content p.fixture-codelead", "breakInside"),
+				list_lead_break_inside: style(".print-content p.fixture-lead", "breakInside"),
+				run_lead_break_inside: style(".print-content div.fixture-runlead > .print-leadin", "breakInside"),
+				cli_lead_break_inside: style(".print-content p.fixture-clilead", "breakInside"),
+				step_command_display: style(".print-content li.step > span.cmd", "display"),
+				step_command_break_inside: style(".print-content li.step > span.cmd", "breakInside"),
 			};
 		})()`, &styles).Do(ctx); err != nil {
 			return err
@@ -1126,6 +1136,9 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		"item_cli_class_lead_break_after": "avoid-page", "lead_pair_break_inside": "avoid-page",
 		"cli_before_list_break_after": "auto", "blank_lead_break_after": "avoid-page", "step_code_break_before": "avoid-page",
 		"indented_lead_break_after": "avoid-page", "section_label_break_after": "avoid-page",
+		"list_blank_code_break_after": "avoid-page", "code_tail_widows": "4", "code_lead_break_inside": "avoid-page",
+		"list_lead_break_inside": "avoid-page", "run_lead_break_inside": "avoid-page", "cli_lead_break_inside": "avoid-page",
+		"step_command_display": "block", "step_command_break_inside": "avoid-page",
 	}
 	for key, value := range want {
 		if styles[key] != value {
