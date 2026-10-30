@@ -992,6 +992,8 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		`<ul class="fixture-listblank"><li>Configure:</li></ul><p>&nbsp;</p><div class="screen"><p>vsx</p></div>` +
 		"<pre class=\"fixture-tail\"><code>" + strings.Repeat("show vsx status\n", 12) + "      </code></pre>" +
 		`<p class="fixture-chain">Example:</p><p>Configure the switch.</p><pre>vsx</pre>` +
+		`<p class="fixture-tablelead">The tasks are as follows:</p><table><tr><td>task</td></tr></table>` +
+		`<p class="fixture-imagelead">Use the following deployment:</p><p class="fixture-image-block"><img alt="Deployment"><img alt="Detail"></p>` +
 		`<p class="CLI fixture-clirun">ntp enable</p><p class="CLI">no ntp enable</p>` +
 		"<pre class=\"fixture-head\">show vsx\n\n\nstatus\n" + strings.Repeat("show vsx status\n", 12) + "</pre>" +
 		"<div class=\"screen fixture-edges\">\n<p>first</p>\n<p>second</p>\n<p>" + strings.Repeat("line\n", 10) + "</p>\n<p>last</p>\n</div>" +
@@ -1085,6 +1087,9 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				code_tail_widows: style(".print-content pre.fixture-tail", "widows"),
 				code_head_orphans: style(".print-content pre.fixture-head", "orphans"),
 				chain_break_after: style(".print-content p.fixture-chain", "breakAfter"),
+				table_lead_break_after: style(".print-content p.fixture-tablelead", "breakAfter"),
+				image_lead_break_after: style(".print-content p.fixture-imagelead", "breakAfter"),
+				image_block_orphans: style(".print-content p.fixture-image-block", "orphans"),
 				chain_break_inside: style(".print-content p.fixture-chain", "breakInside"),
 				cli_run_break_after: style(".print-content p.fixture-clirun", "breakAfter"),
 				screen_edge_break_before: style(".print-content div.fixture-edges > p:first-of-type", "breakBefore"),
@@ -1149,7 +1154,8 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		"cli_before_list_break_after": "auto", "blank_lead_break_after": "avoid-page", "step_code_break_before": "avoid-page",
 		"indented_lead_break_after": "avoid-page", "section_label_break_after": "avoid-page",
 		"list_blank_code_break_after": "avoid-page", "code_tail_widows": "4", "code_lead_break_inside": "avoid-page",
-		"code_head_orphans": "5", "chain_break_after": "avoid-page", "chain_break_inside": "avoid-page",
+		"code_head_orphans": "5", "chain_break_after": "avoid-page", "table_lead_break_after": "avoid-page",
+		"image_lead_break_after": "avoid-page", "image_block_orphans": "1", "chain_break_inside": "avoid-page",
 		"cli_run_break_after": "avoid-page", "screen_edge_break_before": "avoid-page", "screen_edge_break_inside": "avoid-page",
 		"screen_middle_break_before": "avoid-page", "item_code_lead_break_inside": "avoid-page",
 		"list_lead_break_inside": "avoid-page", "run_lead_break_inside": "avoid-page", "cli_lead_break_inside": "avoid-page",

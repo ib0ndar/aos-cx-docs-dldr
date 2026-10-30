@@ -1105,3 +1105,41 @@ func TestAssembleMarksLeadInChainsAndCLIRuns(t *testing.T) {
 		t.Errorf("a run of nine CLI lines was kept whole: %s", long)
 	}
 }
+
+// A paragraph ending with a colon is kept with a table or an image block
+// that follows it, unless it holds an image itself; paragraphs of images
+// alone outside figures are marked to break freely between their images.
+func TestAssembleKeepsColonLeadInsWithTablesAndImages(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	var image string
+	for _, asset := range result.HTML.Assets {
+		if strings.HasSuffix(asset.URL, "/photo.png") {
+			image = "../" + asset.Path
+		}
+	}
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	img := `<img alt="Topology" src="` + image + `">`
+	body = bytes.Replace(body, []byte(`</h1>`), []byte(`</h1>`+
+		`<p data-case="table">The tasks are as follows:</p><table><tr><td>a</td></tr></table>`+
+		`<p data-case="div-table">States:</p><div class="tablenoborder"> <table><tr><td>b</td></tr></table></div>`+
+		`<p data-case="image">Use the following deployment:</p><p data-case="image-block">`+img+`</p>`+
+		`<p data-case="own-image">Select:<br>`+img+`</p><p>Next.</p><pre>x</pre>`+
+		`<p data-case="figure">Topology:</p><div class="fig" data-case="figure-block">`+img+`<p>Caption</p></div>`+
+		`<p data-case="text-div">Note:</p><div><p>Text</p></div>`), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	for name, want := range map[string]string{"table": "print-chain", "div-table": "print-chain", "image": "print-chain",
+		"image-block": "print-image", "own-image": "", "figure": "", "figure-block": "", "text-div": ""} {
+		element := regexp.MustCompile(`<(p|div) [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
+		got := regexp.MustCompile(`print-chain|print-image`).Find(element)
+		if string(got) != want {
+			t.Errorf("%s element %s: mark %q, want %q", name, element, got, want)
+		}
+	}
+}

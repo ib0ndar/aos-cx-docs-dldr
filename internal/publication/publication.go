@@ -85,7 +85,7 @@ body.print-source-flare .print-content p.Figure_Title:has(img){break-after:auto!
 body.print-source-flare .print-content p:not([class^="CLI"],[class*=" CLI"]):has(+:is(p[class^="CLI"],p[class*=" CLI"])){break-inside:avoid-page}
 .print-content li>span.cmd:has(+div.itemgroup>:is(pre,.pre,.codeblock):first-child){display:block;break-inside:avoid-page}
 .print-content li:not(:has(>:is(p,div,ul,ol,pre,table,dl,figure))):has(+:is(div.screen,pre,.pre,.codeblock)){break-inside:avoid-page}
-.print-content p.print-chain{break-inside:avoid-page;break-after:avoid-page}
+.print-content p.print-chain{break-inside:avoid-page;break-after:avoid-page}.print-content .print-image{orphans:1;widows:1}
 body.print-source-flare .print-content p.print-cli-run{break-after:avoid-page}
 .print-content .print-leadin{display:block;break-after:avoid-page}.print-content :is(ul,ol):has(+:is(div.screen,pre,.pre,.codeblock)){break-after:avoid-page}
 .print-content p:has(+:is(div:not(.screen),blockquote)>:is(div.screen,pre,.pre,.codeblock):first-child){break-after:avoid-page}
@@ -595,6 +595,7 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 	markLabelParagraphs(content)
 	markLeadIns(content)
 	markLeadInChains(content)
+	markImageParagraphs(content)
 	markCLIRuns(content)
 	if holdsOnlyHeadings(content) {
 		class += " print-heading-only"
@@ -892,21 +893,26 @@ func wrapLeadIns(parent *xhtml.Node) {
 }
 
 // markLeadInChains marks a paragraph ending with a colon that introduces
-// code or a list through one more paragraph, as "Example:" before a
-// sentence and its code. The print rules keep the second paragraph with
-// the code; the mark keeps the first whole and with the second, which
-// Chrome could otherwise leave alone at the bottom of a page.
+// what follows it without a rule of its own: a table, an image block, or
+// code or a list reached through one more paragraph, as "Example:" before
+// a sentence and its code. The mark keeps the paragraph whole and with
+// what follows, which Chrome could otherwise leave alone at the bottom of
+// a page. A paragraph holding an image introduces that image instead.
 func markLeadInChains(content *xhtml.Node) {
 	var visit func(*xhtml.Node)
 	visit = func(node *xhtml.Node) {
 		if node.Type != xhtml.ElementNode || isCodeBox(node) {
 			return
 		}
-		if node.Data == "p" && !isCLIParagraph(node) &&
+		if node.Data == "p" && !isCLIParagraph(node) && !hasImage(node) &&
 			strings.HasSuffix(strings.Join(strings.Fields(nodeText(node)), " "), ":") {
 			second := nextElement(node)
-			if second != nil && second.Data == "p" && !isCLIParagraph(second) && !hasClass(second, "print-blank") &&
-				strings.Trim(nodeText(second), " \t\n\f\r\u00a0") != "" {
+			switch {
+			case second == nil:
+			case startsWithTable(second) || isImageBlock(second):
+				setAttribute(node, "class", strings.TrimSpace(attribute(node, "class")+" print-chain"))
+			case second.Data == "p" && !isCLIParagraph(second) && !hasClass(second, "print-blank") &&
+				strings.Trim(nodeText(second), " \t\n\f\r\u00a0") != "":
 				if third := nextElement(second); third != nil && (isCodeBox(third) || third.Data == "ul" || third.Data == "ol") {
 					setAttribute(node, "class", strings.TrimSpace(attribute(node, "class")+" print-chain"))
 				}
@@ -917,6 +923,67 @@ func markLeadInChains(content *xhtml.Node) {
 		}
 	}
 	visit(content)
+}
+
+// markImageParagraphs marks paragraphs and divisions that hold only images
+// outside figures. Under the paragraph orphan and widow limits Chrome would
+// not break between two tall images in one paragraph and could move both,
+// leaving most of a page empty.
+func markImageParagraphs(content *xhtml.Node) {
+	var visit func(*xhtml.Node)
+	visit = func(node *xhtml.Node) {
+		if node.Type != xhtml.ElementNode || isCodeBox(node) {
+			return
+		}
+		if (node.Data == "p" || node.Data == "div") && isImageBlock(node) {
+			setAttribute(node, "class", strings.TrimSpace(attribute(node, "class")+" print-image"))
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			visit(child)
+		}
+	}
+	visit(content)
+}
+
+// isImageBlock reports whether node shows only images: an image, an
+// archived full-size image container, or a paragraph or division outside
+// a figure that holds images and no text.
+func isImageBlock(node *xhtml.Node) bool {
+	switch {
+	case node.Data == "img" || (node.Data == "span" && hasClass(node, "archive-full-image-container")):
+		return true
+	case node.Data != "p" && node.Data != "div", hasClass(node, "fig"), hasClass(node, "figure"):
+		return false
+	}
+	return strings.Trim(nodeText(node), " \t\n\f\r\u00a0") == "" && hasImage(node)
+}
+
+func hasImage(node *xhtml.Node) bool {
+	found := false
+	walk(node, func(child *xhtml.Node) {
+		found = found || child.Type == xhtml.ElementNode && (child.Data == "img" || child.Data == "svg")
+	})
+	return found
+}
+
+// startsWithTable reports whether node is a table or a division whose
+// first content is a table.
+func startsWithTable(node *xhtml.Node) bool {
+	if node.Data == "table" {
+		return true
+	}
+	if node.Data != "div" {
+		return false
+	}
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type == xhtml.TextNode && strings.Trim(child.Data, " \t\n\f\r\u00a0") != "" {
+			return false
+		}
+		if child.Type == xhtml.ElementNode {
+			return child.Data == "table"
+		}
+	}
+	return false
 }
 
 // markCLIRuns marks every paragraph but the last of a run of Flare CLI
