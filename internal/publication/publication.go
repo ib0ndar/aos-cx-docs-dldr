@@ -56,10 +56,11 @@ body.print-source-hpe{font-family:"HPE Graphik",Arial,sans-serif}
 .print-overview{break-after:page}.print-toc{break-before:page;break-after:page}
 .print-toc ol{list-style:none;padding-left:1.1em}.print-toc>ol{padding-left:0}.print-toc li{margin:.2em 0;list-style:none}
 .print-topic.print-chapter{break-before:page}.print-topic{min-width:0}
-.print-content{box-sizing:border-box;padding-left:2em}
+.print-content{box-sizing:border-box;padding-left:27px}
 .print-topic.print-heading-only{break-after:avoid-page}
 .print-topic.print-flare-homepage{break-after:page}
 .print-content .print-trailing{margin-bottom:0!important}
+.print-content :is(span,a)[id]:empty+:is(h1,h2,h3,h4,h5,h6){break-before:avoid-page!important}
 :where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6,.print-content p.subheading){break-inside:avoid-page!important;break-after:avoid-page!important}
 :where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6){break-before:auto!important}
 :where(.print-content p,.print-content li){orphans:3;widows:3}
@@ -70,6 +71,7 @@ body.print-source-flare .print-topic :where(.print-content h3){font-size:12pt!im
 .print-content caption{white-space:normal!important;break-after:avoid-page!important}
 .print-content div.note{break-inside:avoid-page}.print-content .note__title{break-after:avoid-page}
 .print-content div.p>:is(ul,ol){break-before:avoid-page}
+body.print-source-flare .print-content p.Figure_Title{break-after:avoid-page!important}body.print-source-flare .print-content p.Figure_Title+p{break-inside:avoid-page}
 :where(.print-content img,.print-content svg){max-width:100%;height:auto}
 .archive-image-placeholder{display:flex;box-sizing:border-box;align-items:center;justify-content:center;max-width:100%;min-width:3rem;min-height:2.5rem;max-height:12rem;padding:.6rem;border:1px dashed #8a6d3b;border-radius:.25rem;background:#fff8e5;color:#533f1f;font-size:.9rem;line-height:1.3;text-align:center;overflow:hidden;break-inside:avoid-page}
 .archive-image-placeholder::before{content:"[!]";margin-right:.4rem;font-weight:700}
@@ -77,13 +79,21 @@ body.print-source-flare .print-topic :where(.print-content h3){font-size:12pt!im
 .archive-image-placeholder-small::before{margin:0;font-size:.8rem}
 :where(.print-content pre,.print-content .pre,.print-content .codeblock,.print-content .screen){max-width:100%;overflow-x:auto;white-space:pre-wrap;overflow-wrap:anywhere}
 .print-content :is(pre,.pre,.codeblock,.screen){max-height:none!important;orphans:3;widows:3}
-body.print-source-flare .print-content div.screen{break-inside:avoid-page}
+.print-content .print-keep{break-inside:avoid-page}
+body.print-source-flare .print-content div.screen>p:first-child{break-before:avoid-page}
+body.print-source-flare .print-content div.screen>p.subheading{break-inside:auto!important;break-after:auto!important}
 .print-content :is(pre,.pre,.codeblock,.screen,.screen>p,p.CLI){white-space:pre-wrap!important}
-.print-content :is(pre,.pre,.codeblock,.screen,p.CLI,code,kbd,samp,.codeph){hyphens:manual!important}
+body.print-source-flare .print-content :is(p[class^="CLI"],p[class*=" CLI"],p.screen,span.CLI,code,[xml\:space="preserve"]){white-space:pre-wrap!important;overflow-wrap:anywhere!important}
+body.print-source-flare .print-content :is(td,th,li,p,div.note,div.screen,div.screen>p){overflow-wrap:anywhere!important}
+body.print-source-flare .print-content table{max-width:100%!important}
+body.print-source-flare .print-content p[style*="float"]{float:none!important;width:auto!important}
+.print-content :is(pre,.pre,.codeblock,.screen,p.CLI,p[class^="CLI"],p[class*=" CLI"],span.CLI,code,kbd,samp,.codeph){hyphens:manual!important}
 :where(.print-content p.CLI){max-width:100%;overflow-x:auto}
 body.print-source-flare :where(.print-content>#mc-main-content>.topichero){display:none!important;position:static!important}
 :where(.print-content.print-flare-home-hero-removed>#mc-main-content>.container){margin-top:0!important}
 :where(.print-content thead){display:table-header-group}
+.print-content thead{break-inside:avoid-page}
+:where(.print-content .table){overflow-wrap:break-word}
 :where(.print-content tr,.print-content figure,.print-content img){break-inside:avoid-page}
 body.print-source-hpe :where(.print-content table code.codeph){display:inline-block;max-width:min(60ch,calc(100vw - 3rem));overflow-x:auto;white-space:nowrap!important;word-break:normal!important;overflow-wrap:normal!important}
 .print-provenance{break-before:page;color:#4b5563}
@@ -536,7 +546,8 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 		class += " print-flare-homepage"
 	}
 	stripActiveMarkup(content)
-	removeEmptyShortdescs(content)
+	removeEmptyDITABlocks(content)
+	markShortCodeBlocks(content)
 	if holdsOnlyHeadings(content) {
 		class += " print-heading-only"
 	}
@@ -606,16 +617,22 @@ func stripActiveMarkup(content *xhtml.Node) {
 	}
 }
 
-// removeEmptyShortdescs removes DITA short descriptions that hold nothing but
-// HTML whitespace. Publishers leave one between many headings and their
-// content, where it lets Chrome break the page after the heading despite
-// break-after:avoid and leave the heading alone at the bottom of a page.
-// CSS :empty cannot match the whitespace-only ones. A short description with
-// an ID or name stays, as a link may target it.
-func removeEmptyShortdescs(content *xhtml.Node) {
+// removeEmptyDITABlocks removes DITA short descriptions, and then DITA topic
+// bodies, that hold nothing but HTML whitespace. Publishers leave them
+// between many headings and the content that follows, where each lets
+// Chrome break the page after the heading despite break-after:avoid and
+// leave the heading alone at the bottom of a page. CSS :empty cannot match
+// the whitespace-only ones. An element with an ID or name stays, as a link
+// may target it.
+func removeEmptyDITABlocks(content *xhtml.Node) {
+	removeEmpty(content, func(node *xhtml.Node) bool { return node.Data == "p" && hasClass(node, "shortdesc") })
+	removeEmpty(content, func(node *xhtml.Node) bool { return node.Data == "div" && hasClass(node, "body") })
+}
+
+func removeEmpty(content *xhtml.Node, match func(*xhtml.Node) bool) {
 	var remove []*xhtml.Node
 	walk(content, func(node *xhtml.Node) {
-		if node.Type != xhtml.ElementNode || node.Data != "p" || !hasClass(node, "shortdesc") ||
+		if node == content || node.Type != xhtml.ElementNode || !match(node) ||
 			attribute(node, "id") != "" || attribute(node, "name") != "" {
 			return
 		}
@@ -630,6 +647,50 @@ func removeEmptyShortdescs(content *xhtml.Node) {
 	for _, node := range remove {
 		node.Parent.RemoveChild(node)
 	}
+}
+
+// markShortCodeBlocks marks code blocks of at most shortCodeLines lines to
+// stay on one page. Longer blocks may break, keeping three lines on either
+// side; a shorter block cannot satisfy both, and Chrome then splits it
+// anywhere, leaving one line alone on a page.
+func markShortCodeBlocks(content *xhtml.Node) {
+	var visit func(*xhtml.Node)
+	visit = func(node *xhtml.Node) {
+		if node.Type == xhtml.ElementNode && node != content &&
+			(node.Data == "pre" || hasClass(node, "pre") || hasClass(node, "codeblock") || hasClass(node, "screen")) {
+			if codeLines(node) <= shortCodeLines {
+				setAttribute(node, "class", strings.TrimSpace(attribute(node, "class")+" print-keep"))
+			}
+			return
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			visit(child)
+		}
+	}
+	visit(content)
+}
+
+const shortCodeLines = 8
+
+// codeLines counts the non-blank lines a code block shows: its text split at
+// line feeds, line breaks and block elements such as Flare's paragraphs.
+func codeLines(node *xhtml.Node) int {
+	var text strings.Builder
+	walk(node, func(child *xhtml.Node) {
+		switch {
+		case child.Type == xhtml.TextNode:
+			text.WriteString(child.Data)
+		case child.Type == xhtml.ElementNode && slices.Contains([]string{"br", "p", "div", "li", "tr"}, child.Data):
+			text.WriteByte('\n')
+		}
+	})
+	lines := 0
+	for _, line := range strings.Split(text.String(), "\n") {
+		if strings.TrimSpace(line) != "" {
+			lines++
+		}
+	}
+	return lines
 }
 
 // holdsOnlyHeadings reports whether a topic shows nothing but headings, as a

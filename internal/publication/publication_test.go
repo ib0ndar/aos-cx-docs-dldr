@@ -648,14 +648,16 @@ func TestAssembleRemovesOnlyEmptyShortdescs(t *testing.T) {
 			`<p class="shortdesc" data-case="nbsp">&nbsp;</p>`+
 			`<p class="shortdesc" data-case="element"><span></span></p>`+
 			`<p class="shortdesc" data-case="id" id="summary"></p>`+
-			`<p data-case="plain"></p><h1 id="same">`), 1)
+			`<p data-case="plain"></p><div class="body" data-case="empty-body">`+"\n"+`<p class="shortdesc"></p></div>`+
+			`<div class="body" data-case="body-with-text">Body</div><div class="body" id="body" data-case="body-id"> </div><h1 id="same">`), 1)
 	if err := os.WriteFile(name, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	record.SHA256, record.Size = digest(body), int64(len(body))
 	writeManifest(t, output, result.HTML)
 	_, combined := assembleGuide(t, output, plan, result)
-	for kept, cases := range map[bool][]string{false: {"empty", "whitespace"}, true: {"text", "nbsp", "element", "id", "plain"}} {
+	for kept, cases := range map[bool][]string{false: {"empty", "whitespace", "empty-body"},
+		true: {"text", "nbsp", "element", "id", "plain", "body-with-text", "body-id"}} {
 		for _, name := range cases {
 			if bytes.Contains(combined, []byte(`data-case="`+name+`"`)) != kept {
 				t.Errorf("short description %q: kept=%v, want %v", name, !kept, kept)
@@ -761,6 +763,35 @@ func TestAssembleMarksTheElementsThatEndATopic(t *testing.T) {
 		element := regexp.MustCompile(`<[a-z]+ [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
 		if got := bytes.Contains(element, []byte("print-trailing")); got != want {
 			t.Errorf("%s element %s: trailing=%v, want %v", name, element, got, want)
+		}
+	}
+}
+
+// Code blocks of up to eight lines stay on one page: three lines on either
+// side of a break cannot both hold in a shorter block. Longer blocks may
+// break, and a block inside a marked block is not marked again.
+func TestAssembleKeepsShortCodeBlocksWhole(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	long := strings.Repeat("line\n", 9)
+	body = bytes.Replace(body, []byte(`</h1>`), []byte(`</h1>`+
+		`<pre data-case="short">one`+"\n"+`two</pre>`+
+		`<pre data-case="long">`+long+`</pre>`+
+		`<div class="screen" data-case="flare"><p>a</p><p>b</p><p>c</p></div>`+
+		`<div class="screen" data-case="flare-long">`+strings.Repeat("<p>x</p>", 9)+`</div>`+
+		`<div class="codeblock" data-case="outer"><pre data-case="inner">x</pre></div>`), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	for name, want := range map[string]bool{"short": true, "long": false, "flare": true, "flare-long": false, "outer": true, "inner": false} {
+		element := regexp.MustCompile(`<[a-z]+ [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
+		if got := bytes.Contains(element, []byte("print-keep")); got != want {
+			t.Errorf("%s block %s: kept whole=%v, want %v", name, element, got, want)
 		}
 	}
 }

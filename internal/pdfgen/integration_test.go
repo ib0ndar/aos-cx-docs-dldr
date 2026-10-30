@@ -942,7 +942,7 @@ func assertGeneratedOutline(
 func TestPinnedChromePrintRulesOutrankPublisherRules(t *testing.T) {
 	content := `<style>.screen{white-space:pre}div.screen>p{white-space:pre}p.CLI{white-space:normal;hyphens:auto}` +
 		`.wh_topic_content{margin-bottom:1.875rem}h1{page-break-before:avoid}ol>li>ol>li{list-style-type:lower-alpha}` +
-		`.fixture-font{font-family:'Open Sans'}</style>` +
+		`.fixture-font{font-family:'Open Sans'}p.CLI_Indented{white-space:pre}</style>` +
 		`<div class="wh_topic_content"><h1 class="fixture-h1">Heading</h1><h4>Minor heading</h4><p class="subheading">Command History</p>` +
 		`<div class="screen"><p>` + strings.Repeat("show arp vrf default ", 30) + `</p></div>` +
 		`<p class="CLI">ip dhcp-snooping   preferred   default</p>` +
@@ -950,6 +950,13 @@ func TestPinnedChromePrintRulesOutrankPublisherRules(t *testing.T) {
 		`<table><caption>Table 1. Caption</caption><tr><td>cell</td></tr></table>` +
 		`<pre class="fixture-pre">line 1
 line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
+		`<p class="CLI_Indented fixture-cli">` + strings.Repeat("ip igmp snooping static-group ", 30) + `</p>` +
+		`<table class="fixture-parameters"><tr><td><p class="CLI_Indented">` + strings.Repeat("vlan-id ", 90) + `</p></td><td>` +
+		strings.Repeat("x", 300) + `</td></tr></table><p class="fixture-float" style="float:left;width:900px">floated</p>` +
+		`<table class="fixture-head"><thead><tr><th>Header</th></tr></thead><tbody><tr><td>row</td></tr></tbody></table>` +
+		`<p class="Figure_Title">Figure 1 Topology</p><p class="fixture-image"><img alt="Topology"></p>` +
+		`<div class="screen fixture-config"><p class="subheading">interface 1/1/1</p></div>` +
+		`<span id="fixture-anchor"></span><h3 class="fixture-h3">Section after an anchor</h3>` +
 		`<p class="fixture-font">Open Sans text</p></div>`
 	var styles map[string]string
 	var fonts []string
@@ -957,6 +964,13 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		if err := chromedp.Evaluate(`(() => {
 			const style = (selector, property) => getComputedStyle(document.querySelector(selector))[property];
 			const screen = document.querySelector(".print-content div.screen");
+			const right = element => {
+				const range = document.createRange();
+				range.selectNodeContents(element);
+				return Math.max(range.getBoundingClientRect().right, element.getBoundingClientRect().right);
+			};
+			const widest = Math.max(...[".fixture-cli", "table.fixture-parameters", ".fixture-float"].map(
+				selector => right(document.querySelector(".print-content " + selector))));
 			return {
 				screen_hidden: String(screen.scrollWidth - screen.clientWidth),
 				cli_white_space: style(".print-content p.CLI", "whiteSpace"),
@@ -973,6 +987,14 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				pre_widows: style(".print-content pre.fixture-pre", "widows"),
 				pre_orphans: style(".print-content pre.fixture-pre", "orphans"),
 				label_list_break_before: style(".print-content div.p > ul", "breakBefore"),
+				flare_overflow: String(Math.max(0, Math.ceil(widest - innerWidth))),
+				thead_break_inside: style(".print-content table.fixture-head thead", "breakInside"),
+				figure_title_break_after: style(".print-content p.Figure_Title", "breakAfter"),
+				figure_image_break_inside: style(".print-content p.fixture-image", "breakInside"),
+				screen_first_line_break_before: style(".print-content div.screen > p", "breakBefore"),
+				config_break_inside: style(".print-content div.fixture-config > p.subheading", "breakInside"),
+				anchored_heading_break_before: style(".print-content h3.fixture-h3", "breakBefore"),
+				short_code_break_inside: style(".print-content pre.fixture-pre", "breakInside"),
 			};
 		})()`, &styles).Do(ctx); err != nil {
 			return err
@@ -1000,7 +1022,10 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		"h1_break_before": "auto", "h4_break_after": "avoid-page", "subheading_break_after": "avoid-page",
 		"caption_break_after": "avoid-page", "toc_nested_marker": "none",
 		"screen_break_inside": "avoid-page", "pre_widows": "3", "pre_orphans": "3",
-		"label_list_break_before": "avoid-page",
+		"label_list_break_before": "avoid-page", "flare_overflow": "0", "thead_break_inside": "avoid-page",
+		"figure_title_break_after": "avoid-page", "figure_image_break_inside": "avoid-page",
+		"screen_first_line_break_before": "avoid-page", "config_break_inside": "auto",
+		"anchored_heading_break_before": "avoid-page", "short_code_break_inside": "avoid-page",
 	}
 	for key, value := range want {
 		if styles[key] != value {
