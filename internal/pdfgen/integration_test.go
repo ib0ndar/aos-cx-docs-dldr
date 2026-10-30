@@ -981,7 +981,14 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		`<p class="fixture-wraplead">Using secure prompt:</p><div class="p"><pre>copy</pre></div>` +
 		`<p class="fixture-quotelead">Mroutes on last hop router:</p><blockquote><div class="screen"><p>show</p></div></blockquote>` +
 		`<ul><li class="fixture-itemlead">Example curl command:</li><div class="screen"><p>curl</p></div>` +
-		`<li class="fixture-itemclilead">Run:</li><p><span class="CLI">show vsx</span></p></ul>` +
+		`<li class="fixture-itemclilead">Run:</li><p><span class="CLI">show vsx</span></p>` +
+		`<li class="fixture-itemclass">Enter:</li><p class="CLI">show vsx</p>` +
+		`<li class="fixture-pair">Redistributing the router to BGP.<div class="screen"><p>redistribute ospf</p></div></li></ul>` +
+		`<p class="CLI fixture-clilist">vlan 2</p><ul><li>interface vlan 2</li></ul>` +
+		`<p class="fixture-blanklead">Configure the switch:</p><p>&nbsp;</p><div class="screen"><p>vsx</p></div>` +
+		`<ol><li class="step"><span class="cmd">Run the command:</span><div class="itemgroup fixture-itemgroup"><pre>show</pre></div></li></ol>` +
+		`<div class="Indent fixture-indent"><ul><li>Configure:</li></ul></div><div class="screen"><p>pim</p></div>` +
+		`<section class="subheading fixture-examples"><p>Examples</p><p>Example text.</p></section>` +
 		`<p class="fixture-font">Open Sans text</p><p class="subheading fixture-tail">&nbsp;</p></div>`
 	var styles map[string]string
 	var fonts []string
@@ -1061,6 +1068,13 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				quoted_code_lead_break_after: style(".print-content p.fixture-quotelead", "breakAfter"),
 				item_code_lead_break_after: style(".print-content li.fixture-itemlead", "breakAfter"),
 				item_cli_lead_break_after: style(".print-content li.fixture-itemclilead", "breakAfter"),
+				item_cli_class_lead_break_after: style(".print-content li.fixture-itemclass", "breakAfter"),
+				lead_pair_break_inside: style(".print-content li.fixture-pair", "breakInside"),
+				cli_before_list_break_after: style(".print-content p.fixture-clilist", "breakAfter"),
+				blank_lead_break_after: style(".print-content p.fixture-blanklead", "breakAfter"),
+				step_code_break_before: style(".print-content div.fixture-itemgroup", "breakBefore"),
+				indented_lead_break_after: style(".print-content div.fixture-indent", "breakAfter"),
+				section_label_break_after: style(".print-content section.fixture-examples > p:first-child", "breakAfter"),
 			};
 		})()`, &styles).Do(ctx); err != nil {
 			return err
@@ -1109,6 +1123,9 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		"list_code_break_after": "avoid-page", "cli_lead_break_after": "avoid-page", "figure_lead_break_after": "avoid-page",
 		"wrapped_code_lead_break_after": "avoid-page", "quoted_code_lead_break_after": "avoid-page",
 		"item_code_lead_break_after": "avoid-page", "item_cli_lead_break_after": "avoid-page",
+		"item_cli_class_lead_break_after": "avoid-page", "lead_pair_break_inside": "avoid-page",
+		"cli_before_list_break_after": "auto", "blank_lead_break_after": "avoid-page", "step_code_break_before": "avoid-page",
+		"indented_lead_break_after": "avoid-page", "section_label_break_after": "avoid-page",
 	}
 	for key, value := range want {
 		if styles[key] != value {

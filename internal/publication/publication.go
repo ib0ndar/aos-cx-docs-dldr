@@ -78,10 +78,15 @@ body.print-source-flare .print-topic :where(.print-content h3){font-size:12pt!im
 .print-content div.p>:is(ul,ol){break-before:avoid-page}
 body.print-source-flare .print-content p.Figure_Title{break-after:avoid-page!important}body.print-source-flare .print-content p.Figure_Title+p{break-inside:avoid-page}
 body.print-source-flare .print-content p.Figure_Title:has(img){break-after:auto!important;break-inside:avoid-page!important}body.print-source-flare .print-content p.Figure_Title:has(img)+p{break-inside:auto}
-.print-content p:has(+:is(ul,ol,div.screen,pre,.pre,.codeblock,figure,.fig)){break-after:avoid-page}.print-content p.print-label{break-after:avoid-page}
+.print-content p:has(+:is(div.screen,pre,.pre,.codeblock,figure,.fig)),.print-content p:not([class^="CLI"],[class*=" CLI"]):has(+:is(ul,ol)){break-after:avoid-page}.print-content p.print-label{break-after:avoid-page}
+.print-content p:has(+p.print-blank+:is(ul,ol,div.screen,pre,.pre,.codeblock,figure,.fig)){break-after:avoid-page}
 .print-content .print-leadin{display:block;break-after:avoid-page}.print-content :is(ul,ol):has(+:is(div.screen,pre,.pre,.codeblock)){break-after:avoid-page}
 .print-content p:has(+:is(div:not(.screen),blockquote)>:is(div.screen,pre,.pre,.codeblock):first-child){break-after:avoid-page}
-.print-content li:has(+:is(div.screen,pre,.pre,.codeblock)),.print-content li:has(+p>span.CLI:first-child){break-after:avoid-page}
+.print-content li:has(+:is(div.screen,pre,.pre,.codeblock,p[class^="CLI"],p[class*=" CLI"])),.print-content li:has(+p>span.CLI:first-child){break-after:avoid-page}
+.print-content li>div.itemgroup:has(>:is(pre,.pre,.codeblock):first-child){break-before:avoid-page}
+.print-content :is(li,div,dd,section,article,blockquote,figure):has(>.print-leadin:first-child+.print-keep:last-child){break-inside:avoid-page}
+.print-content section.subheading>p:first-child:has(+*){break-after:avoid-page}
+body.print-source-flare .print-content div.Indent:has(>:is(ul,ol):last-child):has(+div.screen){break-after:avoid-page}
 body.print-source-flare .print-content p:not([class^="CLI"],[class*=" CLI"]):has(+:is(p[class^="CLI"],p[class*=" CLI"])){break-after:avoid-page}
 :where(.print-content img,.print-content svg){max-width:100%;height:auto}
 .archive-image-placeholder{display:flex;box-sizing:border-box;align-items:center;justify-content:center;max-width:100%;min-width:3rem;min-height:2.5rem;max-height:12rem;padding:.6rem;border:1px dashed #8a6d3b;border-radius:.25rem;background:#fff8e5;color:#533f1f;font-size:.9rem;line-height:1.3;text-align:center;overflow:hidden;break-inside:avoid-page}
