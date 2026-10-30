@@ -978,6 +978,10 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		`<ul class="fixture-listcode"><li>Run:</li></ul><pre>show vsx status</pre>` +
 		`<p class="fixture-clilead">Enter:</p><p class="CLI">show vsx brief</p>` +
 		`<p class="fixture-figlead">For example:</p><figure class="fig"><img alt="Example"></figure>` +
+		`<p class="fixture-wraplead">Using secure prompt:</p><div class="p"><pre>copy</pre></div>` +
+		`<p class="fixture-quotelead">Mroutes on last hop router:</p><blockquote><div class="screen"><p>show</p></div></blockquote>` +
+		`<ul><li class="fixture-itemlead">Example curl command:</li><div class="screen"><p>curl</p></div>` +
+		`<li class="fixture-itemclilead">Run:</li><p><span class="CLI">show vsx</span></p></ul>` +
 		`<p class="fixture-font">Open Sans text</p><p class="subheading fixture-tail">&nbsp;</p></div>`
 	var styles map[string]string
 	var fonts []string
@@ -1053,6 +1057,10 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				list_code_break_after: style(".print-content ul.fixture-listcode", "breakAfter"),
 				cli_lead_break_after: style(".print-content p.fixture-clilead", "breakAfter"),
 				figure_lead_break_after: style(".print-content p.fixture-figlead", "breakAfter"),
+				wrapped_code_lead_break_after: style(".print-content p.fixture-wraplead", "breakAfter"),
+				quoted_code_lead_break_after: style(".print-content p.fixture-quotelead", "breakAfter"),
+				item_code_lead_break_after: style(".print-content li.fixture-itemlead", "breakAfter"),
+				item_cli_lead_break_after: style(".print-content li.fixture-itemclilead", "breakAfter"),
 			};
 		})()`, &styles).Do(ctx); err != nil {
 			return err
@@ -1099,6 +1107,8 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		"list_box_line_break_before": "avoid-page", "label_break_after": "avoid-page",
 		"wide_table_word_lines": "1", "leadin_display": "block", "leadin_break_after": "avoid-page",
 		"list_code_break_after": "avoid-page", "cli_lead_break_after": "avoid-page", "figure_lead_break_after": "avoid-page",
+		"wrapped_code_lead_break_after": "avoid-page", "quoted_code_lead_break_after": "avoid-page",
+		"item_code_lead_break_after": "avoid-page", "item_cli_lead_break_after": "avoid-page",
 	}
 	for key, value := range want {
 		if styles[key] != value {

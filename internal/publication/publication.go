@@ -80,6 +80,8 @@ body.print-source-flare .print-content p.Figure_Title{break-after:avoid-page!imp
 body.print-source-flare .print-content p.Figure_Title:has(img){break-after:auto!important;break-inside:avoid-page!important}body.print-source-flare .print-content p.Figure_Title:has(img)+p{break-inside:auto}
 .print-content p:has(+:is(ul,ol,div.screen,pre,.pre,.codeblock,figure,.fig)){break-after:avoid-page}.print-content p.print-label{break-after:avoid-page}
 .print-content .print-leadin{display:block;break-after:avoid-page}.print-content :is(ul,ol):has(+:is(div.screen,pre,.pre,.codeblock)){break-after:avoid-page}
+.print-content p:has(+:is(div:not(.screen),blockquote)>:is(div.screen,pre,.pre,.codeblock):first-child){break-after:avoid-page}
+.print-content li:has(+:is(div.screen,pre,.pre,.codeblock)),.print-content li:has(+p>span.CLI:first-child){break-after:avoid-page}
 body.print-source-flare .print-content p:not([class^="CLI"],[class*=" CLI"]):has(+:is(p[class^="CLI"],p[class*=" CLI"])){break-after:avoid-page}
 :where(.print-content img,.print-content svg){max-width:100%;height:auto}
 .archive-image-placeholder{display:flex;box-sizing:border-box;align-items:center;justify-content:center;max-width:100%;min-width:3rem;min-height:2.5rem;max-height:12rem;padding:.6rem;border:1px dashed #8a6d3b;border-radius:.25rem;background:#fff8e5;color:#533f1f;font-size:.9rem;line-height:1.3;text-align:center;overflow:hidden;break-inside:avoid-page}
@@ -824,17 +826,17 @@ func markLabelParagraphs(content *xhtml.Node) {
 }
 
 // markLeadIns wraps the text that introduces a code block or list inside a
-// list item, division or cell, such as "Configure the switch:" before a pre,
-// in a span the print rules keep with that block. Chrome lays such text out
-// in an anonymous block that no rule can name, and could leave it alone at
-// the bottom of a page. Code boxes keep their content as it is.
+// list item, division, section or cell, such as "Configure the switch:"
+// before a pre, in a span the print rules keep with that block. Chrome lays
+// such text out in an anonymous block that no rule can name, and could leave
+// it alone at the bottom of a page. Code boxes keep their content as it is.
 func markLeadIns(content *xhtml.Node) {
 	var visit func(*xhtml.Node)
 	visit = func(node *xhtml.Node) {
 		if node.Type != xhtml.ElementNode || node.Namespace != "" || isCodeBox(node) {
 			return
 		}
-		if slices.Contains([]string{"li", "div", "dd", "td", "th"}, node.Data) {
+		if slices.Contains([]string{"li", "div", "section", "article", "blockquote", "figure", "dd", "td", "th"}, node.Data) {
 			wrapLeadIns(node)
 		}
 		for child := node.FirstChild; child != nil; child = child.NextSibling {
