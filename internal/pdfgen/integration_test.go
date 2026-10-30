@@ -995,6 +995,8 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		`<p class="fixture-tablelead">The tasks are as follows:</p><table><tr><td>task</td></tr></table>` +
 		`<ol><li class="fixture-clistep">Configure the relay. <p class="CLI">switch(config)# vrf red</p><p class="CLI">switch(config)# vrf blue</p></li></ol>` +
 		`<table class="fixture-clone"><tr><td>cell</td></tr></table>` +
+		`<ul class="fixture-pscreen-list"><li>Run:</li></ul><p class="screen">curl</p>` +
+		`<p class="fixture-pscreen-lead">Example response:</p><p class="screen">{ "vlan": 1 }</p><p>End of example.</p>` +
 		`<p class="fixture-imagelead">Use the following deployment:</p><p class="fixture-image-block"><img alt="Deployment"><img alt="Detail"></p>` +
 		`<p class="CLI fixture-clirun">ntp enable</p><p class="CLI">no ntp enable</p>` +
 		"<pre class=\"fixture-head\">show vsx\n\n\nstatus\n" + strings.Repeat("show vsx status\n", 12) + "</pre>" +
@@ -1091,6 +1093,9 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				chain_break_after: style(".print-content p.fixture-chain", "breakAfter"),
 				table_lead_break_after: style(".print-content p.fixture-tablelead", "breakAfter"),
 				cli_step_break_inside: style(".print-content li.fixture-clistep", "breakInside"),
+				screen_paragraph_lead_break_after: style(".print-content p.fixture-pscreen-lead", "breakAfter"),
+				screen_paragraph_lead_break_inside: style(".print-content p.fixture-pscreen-lead", "breakInside"),
+				screen_paragraph_list_break_after: style(".print-content ul.fixture-pscreen-list", "breakAfter"),
 				cell_decoration_break: style(".print-content table.fixture-clone td", "boxDecorationBreak"),
 				image_lead_break_after: style(".print-content p.fixture-imagelead", "breakAfter"),
 				image_block_orphans: style(".print-content p.fixture-image-block", "orphans"),
@@ -1160,7 +1165,8 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		"list_blank_code_break_after": "avoid-page", "code_tail_widows": "4", "code_lead_break_inside": "avoid-page",
 		"code_head_orphans": "5", "chain_break_after": "avoid-page", "table_lead_break_after": "avoid-page",
 		"cli_step_break_inside": "avoid-page", "cell_decoration_break": "clone", "image_lead_break_after": "avoid-page",
-		"image_block_orphans": "1", "chain_break_inside": "avoid-page",
+		"screen_paragraph_lead_break_after": "avoid-page", "screen_paragraph_lead_break_inside": "avoid-page",
+		"screen_paragraph_list_break_after": "avoid-page", "image_block_orphans": "1", "chain_break_inside": "avoid-page",
 		"cli_run_break_after": "avoid-page", "screen_edge_break_before": "avoid-page", "screen_edge_break_inside": "avoid-page",
 		"screen_middle_break_before": "avoid-page", "item_code_lead_break_inside": "avoid-page",
 		"list_lead_break_inside": "avoid-page", "run_lead_break_inside": "avoid-page", "cli_lead_break_inside": "avoid-page",

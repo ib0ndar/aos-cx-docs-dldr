@@ -1145,3 +1145,34 @@ func TestAssembleKeepsColonLeadInsWithTablesAndImages(t *testing.T) {
 		}
 	}
 }
+
+// Flare also writes code boxes as paragraphs of class screen, and command
+// lines as paragraphs holding only a CLI span. Text before a screen
+// paragraph is a lead-in like text before any code box, and a paragraph
+// ending with a colon stays with the command line after it.
+func TestAssembleTreatsScreenParagraphsAndCommandLinesAsCode(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`</h1>`), []byte(`</h1>`+
+		`<ul><li data-case="item">Example response:<p class="screen">{ "vlan": 1 }</p></li></ul>`+
+		`<p data-case="command">For example:</p><p> <span class="CLI">/rest/v1/system/vlans</span> </p>`+
+		`<p data-case="sentence">For example:</p><p><span class="CLI">show</span> lists the VLANs.</p>`+
+		`<p data-case="chain">Example:</p><p>Send the request.</p><p class="screen">curl</p>`), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	if item := regexp.MustCompile(`<li data-case="item">.*?</li>`).Find(combined); !bytes.Contains(item, []byte(`<span class="print-leadin">Example response:</span><p class="screen`)) {
+		t.Errorf("lead-in before a screen paragraph was not wrapped: %s", item)
+	}
+	for name, want := range map[string]bool{"command": true, "sentence": false, "chain": true} {
+		element := regexp.MustCompile(`<p [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
+		if got := bytes.Contains(element, []byte("print-chain")); got != want {
+			t.Errorf("%s paragraph %s: chained %v, want %v", name, element, got, want)
+		}
+	}
+}

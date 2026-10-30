@@ -97,6 +97,9 @@ body.print-source-flare .print-content p.print-cli-run{break-after:avoid-page}
 .print-content section.subheading>p:first-child:has(+*){break-after:avoid-page}
 body.print-source-flare .print-content div.Indent:has(>:is(ul,ol):last-child):has(+div.screen){break-after:avoid-page}
 body.print-source-flare .print-content p:not([class^="CLI"],[class*=" CLI"]):has(+:is(p[class^="CLI"],p[class*=" CLI"])){break-after:avoid-page}
+.print-content p:not(.screen):has(+p.screen){break-after:avoid-page;break-inside:avoid-page}
+.print-content li:not(:has(>:is(p,div,ul,ol,pre,table,dl,figure))):has(+p.screen){break-inside:avoid-page;break-after:avoid-page}
+.print-content :is(ul,ol):has(+p.screen){break-after:avoid-page}
 :where(.print-content img,.print-content svg){max-width:100%;height:auto}
 .archive-image-placeholder{display:flex;box-sizing:border-box;align-items:center;justify-content:center;max-width:100%;min-width:3rem;min-height:2.5rem;max-height:12rem;padding:.6rem;border:1px dashed #8a6d3b;border-radius:.25rem;background:#fff8e5;color:#533f1f;font-size:.9rem;line-height:1.3;text-align:center;overflow:hidden;break-inside:avoid-page}
 .archive-image-placeholder::before{content:"[!]";margin-right:.4rem;font-weight:700}
@@ -896,11 +899,12 @@ func wrapLeadIns(parent *xhtml.Node) {
 }
 
 // markLeadInChains marks a paragraph ending with a colon that introduces
-// what follows it without a rule of its own: a table, an image block, or
-// code or a list reached through one more paragraph, as "Example:" before
-// a sentence and its code. The mark keeps the paragraph whole and with
-// what follows, which Chrome could otherwise leave alone at the bottom of
-// a page. A paragraph holding an image introduces that image instead.
+// what follows it without a rule of its own: a table, an image block, a
+// command line written as a paragraph of CLI text, or code or a list
+// reached through one more paragraph, as "Example:" before a sentence and
+// its code. The mark keeps the paragraph whole and with what follows,
+// which Chrome could otherwise leave alone at the bottom of a page. A
+// paragraph holding an image introduces that image instead.
 func markLeadInChains(content *xhtml.Node) {
 	var visit func(*xhtml.Node)
 	visit = func(node *xhtml.Node) {
@@ -912,9 +916,9 @@ func markLeadInChains(content *xhtml.Node) {
 			second := nextElement(node)
 			switch {
 			case second == nil:
-			case startsWithTable(second) || isImageBlock(second):
+			case startsWithTable(second) || isImageBlock(second) || holdsOnlyCLISpan(second):
 				setAttribute(node, "class", strings.TrimSpace(attribute(node, "class")+" print-chain"))
-			case second.Data == "p" && !isCLIParagraph(second) && !hasClass(second, "print-blank") &&
+			case second.Data == "p" && !isCodeBox(second) && !isCLIParagraph(second) && !hasClass(second, "print-blank") &&
 				strings.Trim(nodeText(second), " \t\n\f\r\u00a0") != "":
 				if third := nextElement(second); third != nil && (isCodeBox(third) || third.Data == "ul" || third.Data == "ol") {
 					setAttribute(node, "class", strings.TrimSpace(attribute(node, "class")+" print-chain"))
@@ -959,6 +963,25 @@ func isImageBlock(node *xhtml.Node) bool {
 		return false
 	}
 	return strings.Trim(nodeText(node), " \t\n\f\r\u00a0") == "" && hasImage(node)
+}
+
+// holdsOnlyCLISpan reports whether node is a paragraph whose only content is
+// one Flare CLI span, a command line the publisher did not put in a box.
+func holdsOnlyCLISpan(node *xhtml.Node) bool {
+	if node.Data != "p" || isCodeBox(node) || isCLIParagraph(node) {
+		return false
+	}
+	spans := 0
+	for child := node.FirstChild; child != nil; child = child.NextSibling {
+		switch {
+		case child.Type == xhtml.TextNode && strings.Trim(child.Data, " \t\n\f\r\u00a0") == "":
+		case child.Type == xhtml.ElementNode && child.Data == "span" && hasClass(child, "CLI"):
+			spans++
+		default:
+			return false
+		}
+	}
+	return spans == 1
 }
 
 func hasImage(node *xhtml.Node) bool {
@@ -1044,7 +1067,7 @@ func previousElement(node *xhtml.Node) *xhtml.Node {
 
 func isCodeBox(node *xhtml.Node) bool {
 	return node.Data == "pre" || hasClass(node, "pre") || hasClass(node, "codeblock") ||
-		(node.Data == "div" && hasClass(node, "screen"))
+		((node.Data == "div" || node.Data == "p") && hasClass(node, "screen"))
 }
 
 var leadInBlocks = []string{"p", "div", "ul", "ol", "pre", "table", "figure", "h1", "h2", "h3", "h4", "h5", "h6",
