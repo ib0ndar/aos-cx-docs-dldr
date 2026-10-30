@@ -86,6 +86,8 @@ body.print-source-flare .print-content p:not([class^="CLI"],[class*=" CLI"]):has
 .print-content li>span.cmd:has(+div.itemgroup>:is(pre,.pre,.codeblock):first-child){display:block;break-inside:avoid-page}
 .print-content li:not(:has(>:is(p,div,ul,ol,pre,table,dl,figure))):has(+:is(div.screen,pre,.pre,.codeblock)){break-inside:avoid-page}
 .print-content p.print-chain{break-inside:avoid-page;break-after:avoid-page}.print-content .print-image{orphans:1;widows:1}
+.print-content li:has(>.print-leadin:first-child+:is(p[class^="CLI"],p[class*=" CLI"]).print-cli-run){break-inside:avoid-page}
+body.print-source-flare .print-content :is(td,th){box-decoration-break:clone}
 body.print-source-flare .print-content p.print-cli-run{break-after:avoid-page}
 .print-content .print-leadin{display:block;break-after:avoid-page}.print-content :is(ul,ol):has(+:is(div.screen,pre,.pre,.codeblock)){break-after:avoid-page}
 .print-content p:has(+:is(div:not(.screen),blockquote)>:is(div.screen,pre,.pre,.codeblock):first-child){break-after:avoid-page}
@@ -849,11 +851,12 @@ func markLabelParagraphs(content *xhtml.Node) {
 	})
 }
 
-// markLeadIns wraps the text that introduces a code block or list inside a
-// list item, division, section or cell, such as "Configure the switch:"
-// before a pre, in a span the print rules keep with that block. Chrome lays
-// such text out in an anonymous block that no rule can name, and could leave
-// it alone at the bottom of a page. Code boxes keep their content as it is.
+// markLeadIns wraps the text that introduces a code block, a Flare CLI
+// paragraph or a list inside a list item, division, section or cell, such
+// as "Configure the switch:" before a pre, in a span the print rules keep
+// with that block. Chrome lays such text out in an anonymous block that no
+// rule can name, and could leave it alone at the bottom of a page. Code
+// boxes keep their content as it is.
 func markLeadIns(content *xhtml.Node) {
 	var visit func(*xhtml.Node)
 	visit = func(node *xhtml.Node) {
@@ -879,7 +882,7 @@ func wrapLeadIns(parent *xhtml.Node) {
 			text = text || strings.Trim(nodeText(child), " \t\n\f\r\u00a0") != ""
 			continue
 		}
-		if text && (isCodeBox(child) || child.Data == "ul" || child.Data == "ol") {
+		if text && (isCodeBox(child) || isCLIParagraph(child) || child.Data == "ul" || child.Data == "ol") {
 			span := &xhtml.Node{Type: xhtml.ElementNode, Data: "span", DataAtom: atom.Span,
 				Attr: []xhtml.Attribute{{Key: "class", Val: "print-leadin"}}}
 			parent.InsertBefore(span, run[0])

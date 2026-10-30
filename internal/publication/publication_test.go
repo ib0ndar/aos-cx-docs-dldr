@@ -993,7 +993,8 @@ func TestAssembleWrapsLeadInsBeforeCodeAndLists(t *testing.T) {
 		`<div class="p" data-case="division">Switch 1:<div class="screen"><p>x</p></div>tail</div>`+
 		`<table><tr><td data-case="cell">Example:<pre class="codeblock">y</pre></td></tr></table>`+
 		`<div class="screen" data-case="box">output<ul><li>z</li></ul></div>`+
-		`<section data-case="section">This example configures the fault:<pre>fault</pre></section>`), 1)
+		`<section data-case="section">This example configures the fault:<pre>fault</pre></section>`+
+		`<ul><li data-case="cli">Configure the relay. <p class="CLI">switch(config)# vrf red</p></li></ul>`), 1)
 	if err := os.WriteFile(name, body, 0o600); err != nil {
 		t.Fatal(err)
 	}
@@ -1009,14 +1010,15 @@ func TestAssembleWrapsLeadInsBeforeCodeAndLists(t *testing.T) {
 		"cell":             `<span class="print-leadin">Example:</span><pre`,
 		"box":              `>output<`,
 		"section":          `<span class="print-leadin">This example configures the fault:</span><pre`,
+		"cli":              `<span class="print-leadin">Configure the relay. </span><p class="CLI">`,
 	} {
 		element := regexp.MustCompile(`<(li|div|td|section) [^>]*data-case="` + name + `"[^>]*>.*?</(li|div|td|section)>`).Find(combined)
 		if !bytes.Contains(element, []byte(want)) {
 			t.Errorf("%s: %s does not contain %s", name, element, want)
 		}
 	}
-	if count := bytes.Count(combined, []byte(`class="print-leadin"`)); count != 5 {
-		t.Errorf("print-leadin appears %d times, want 5", count)
+	if count := bytes.Count(combined, []byte(`class="print-leadin"`)); count != 6 {
+		t.Errorf("print-leadin appears %d times, want 6", count)
 	}
 }
 
