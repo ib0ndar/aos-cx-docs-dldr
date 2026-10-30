@@ -16,7 +16,7 @@ func TestNativeApplicationVersionCompatibility(t *testing.T) {
 	// versions are preserved read-only rather than upgraded.
 	unsupported := []string{
 		"", "0", "0.4", "0.5", "0.6", "0.7", "0.9", "0.10", "1.0", "9.9", "00.6", "0.06", "v0.6", "0.6.0",
-		"1.0.1", "1.1.0", "2.0.0", "1.0.0.0", "01.0.0", "1.00.0", "1.0.00", "1..0", "1.0.", "1.0.0-rc1",
+		"1.0.0", "1.0.1", "2.0.0", "1.0.0.0", "01.0.0", "1.00.0", "1.0.00", "1..0", "1.0.", "1.0.0-rc1",
 	}
 	for _, value := range unsupported {
 		if value == model.Version {

@@ -24,7 +24,7 @@ at `e1764e3` predate this change and need fresh assembly to include it.
 
 | Component | Version | Verified by |
 | --- | --- | --- |
-| `aos-cx-docs-dldr` | 1.0.0 | built from source in the image |
+| `aos-cx-docs-dldr` | 1.1.0 | built from source in the image |
 | Chrome for Testing headless shell | 153.0.8010.36, r1681091, linux64 | archive SHA-256 at build; every file of the directory (287 files, directory manifest SHA-256 `012424f4ef7b1ceec026646acc4381d0d5cd4144a53371e6fc154b1adad97e63`) and executable ELF x86-64, before every launch |
 | qpdf | 12.4.1, linux-x86_64 | archive SHA-256 at build; every component's SHA-256, ELF x86-64, exact shared-library closure, and only pinned files in `bin/` and `lib/` (`RUNPATH $ORIGIN`), before every launch |
 | Base | `debian:trixie-slim`, pinned by digest | Chrome's runtime libraries, `libgmp10`/`zlib1g` for qpdf, `procps`, fonts |
@@ -56,15 +56,15 @@ directly, as the examples below do.
 Users load a prebuilt archive; they need no source, no Go toolchain, and no
 access to the Go module proxy. Download the archive, `SHA256SUMS`, and the
 PowerShell wrapper from
-[release `v1.0.0`](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/tag/v1.0.0).
+[release `v1.1.0`](https://github.com/ib0ndar/aos-cx-docs-dldr/releases/tag/v1.1.0).
 
 ```powershell
-Get-FileHash aos-cx-docs-dldr-1.0.0-linux-amd64.tar.gz -Algorithm SHA256
-docker load -i aos-cx-docs-dldr-1.0.0-linux-amd64.tar.gz
+Get-FileHash aos-cx-docs-dldr-1.1.0-linux-amd64.tar.gz -Algorithm SHA256
+docker load -i aos-cx-docs-dldr-1.1.0-linux-amd64.tar.gz
 ```
 
 The archive is about 230 MB and contains the image tagged exactly
-`aos-cx-docs-dldr:1.0.0`, so the wrapper needs no configuration.
+`aos-cx-docs-dldr:1.1.0`, so the wrapper needs no configuration.
 
 ### Producing the archive
 
@@ -79,7 +79,7 @@ architecture and version, saves it as a gzipped archive, and writes
 ### Building directly
 
 ```sh
-docker build --platform linux/amd64 -t aos-cx-docs-dldr:1.0.0 .
+docker build --platform linux/amd64 -t aos-cx-docs-dldr:1.1.0 .
 ```
 
 The build downloads the Chrome and qpdf archives by pinned checksum, stages
@@ -181,7 +181,7 @@ docker run --rm -i --cap-drop ALL --security-opt no-new-privileges `
   -v aos-cx-docs-dldr-cache:/cache `
   -v "C:\certs\corporate-ca.pem:/certs/ca.pem:ro" `
   -e SSL_CERT_FILE=/certs/ca.pem -e HTTPS_PROXY=$env:HTTPS_PROXY `
-  aos-cx-docs-dldr:1.0.0 --destination /library --platform 6300 --release 10.18 --all
+  aos-cx-docs-dldr:1.1.0 --destination /library --platform 6300 --release 10.18 --all
 ```
 
 Both behaviours were verified against local fixtures: a dead proxy produces a
@@ -205,7 +205,7 @@ TTY automatically when output is redirected) or call the engine directly:
 docker run --rm -i --cap-drop ALL --security-opt no-new-privileges `
   -v "$env:USERPROFILE\Documents\AOS-CX:/library" `
   -v aos-cx-docs-dldr-cache:/cache `
-  aos-cx-docs-dldr:1.0.0 --destination /library `
+  aos-cx-docs-dldr:1.1.0 --destination /library `
   --platform 6300 --release 10.18 --all --json > result.json
 ```
 

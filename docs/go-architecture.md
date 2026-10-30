@@ -1,4 +1,4 @@
-# aos-cx-docs-dldr 1.0.0 architecture
+# aos-cx-docs-dldr 1.1.0 architecture
 
 ## System boundary
 
@@ -7,7 +7,7 @@ defined by `model.ExecutableName`; the Go entry point is `cmd/aos-cx-docs-dldr`.
 The application/module identity is `aos-cx-docs-dldr`. Old-name state is foreign
 and rejected read-only; the rename does not migrate libraries or caches.
 
-`aos-cx-docs-dldr` 1.0.0 is a native Go CLI with two deliverables, both complete
+`aos-cx-docs-dldr` 1.1.0 is a native Go CLI with two deliverables, both complete
 builds with generated-PDF conversion: a native macOS arm64 bundle and a
 linux/amd64 container (see [the container guide](container.md)). It refreshes
 the public
@@ -45,7 +45,7 @@ age.
 
 | Package | Role |
 | --- | --- |
-| `internal/model` | Stable shared data contracts and `Version = 1.0.0`. |
+| `internal/model` | Stable shared data contracts and `Version = 1.1.0`. |
 | `internal/cli` | Cobra flags, guided terminal flow, progress, availability, and orchestration. |
 | `internal/source` | Portal catalogue and route-adapter check, mapping resolution, Flare/HPE/Oxygen/static planners, source PDF discovery. |
 | `internal/fetch` | Compatible and standard HTTP transports, robots, leases, retries, deadlines, diagnostics. |
@@ -63,7 +63,7 @@ age.
 
 The default `compatible` profile uses pinned req 3.61.0/uTLS 1.8.2 Chrome120
 TLS behavior, header order, and HTTP/2 settings with identity
-`aos-cx-docs-dldr/1.0.0`. `--transport http` selects standard native HTTP. Neither
+`aos-cx-docs-dldr/1.1.0`. `--transport http` selects standard native HTTP. Neither
 profile falls back to the other or to browser automation.
 
 `model.Transport.Download` owns:
@@ -313,6 +313,20 @@ directory and qpdf's whole closure are pinned file by file, and both are
 re-verified immediately before every process start. SIGINT, SIGTERM and SIGHUP
 all cancel a run and exit with 130.
 
+The print input shows each topic as the HTML archive does. Chrome emulates
+screen media, so the publisher's screen stylesheets apply and the print rules
+written for the publisher's own PDFs do not. A print stylesheet and Go-side
+marks in `internal/publication` add what paper needs: code, CLI output and
+captions wrap instead of scrolling or overflowing; headings, labels, lead-ins
+(including those reaching their code, table or image through another
+paragraph), captions, table headers and short code blocks stay with what
+follows them; and code blocks keep three visible lines on either side of a
+page break, counting the blank lines Chrome counts. Before printing, the
+renderer lays the document out at the width of a page's content area, moves
+the trailing margin of each Flare table cell into the cell's padding, and
+zooms any table whose content cannot fit the page, so that Chrome never
+shrinks a whole guide to fit one element.
+
 Each file is accepted only from a read it was unchanged across. A read across
 which only ctime moved, as when OneDrive or iCloud Drive writes extended
 attributes of a file it uploads, is repeated, up to three reads.
@@ -381,7 +395,7 @@ the application and build-only release helper from current source with
 `CGO_ENABLED=0`, `GOOS=darwin`, `GOARCH=arm64`, `GOPROXY=off`,
 `GOSUMDB=off`, `GOTOOLCHAIN=local`, and no workspace or user Go flags.
 
-The bundle and ZIP root are `aos-cx-docs-dldr-1.0.0-macos-arm64`. Schema-1 package
+The bundle and ZIP root are `aos-cx-docs-dldr-1.1.0-macos-arm64`. Schema-1 package
 manifest and provenance, SPDX 2.3 SBOM, complete checksums, retained notices,
 moved-layout conversion smoke, and fresh-extraction conversion smoke are
 required. Application license is `Apache-2.0`, with `LICENSE` shipped in both

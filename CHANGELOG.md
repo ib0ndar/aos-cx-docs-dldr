@@ -1,5 +1,45 @@
 # Release notes
 
+## 1.1.0 - 2026-10-31
+
+Version 1.1.0 makes generated PDFs look like the downloaded HTML pages and
+breaks their pages where a reader expects.
+
+- Libraries record the application version that wrote them. A library made by
+  1.0.0 is left untouched: choose a new `--destination` and download again. The
+  download cache is kept and reused.
+- The Windows shortcut's default image is `aos-cx-docs-dldr:1.1.0`; load the
+  1.1.0 container archive and replace the shortcut file.
+
+### Generated PDFs
+
+- Pages print at full size. One wide element, such as a long CLI line, a
+  caption, a floated block or a wide table, used to make Chrome shrink every
+  page of the guide, to two thirds in the 10.16 Monitoring and Multicast
+  guides. Code, CLI output, captions and table cells now wrap, and a table
+  whose words cannot fit the page is scaled down on its own.
+- Pages use the publisher's screen styles, as the downloaded HTML shows them,
+  not the print styles of the publisher's own PDFs.
+- List bullets and numbers are no longer cut at the left edge (step 10 printed
+  as ".0."), code blocks are no longer cut off at a fixed height, and fonts the
+  publisher names but does not supply print in Arial rather than Times.
+- Headings, bold labels such as "Procedure", captions, table headers, notes and
+  short code blocks stay with what follows them. Text that introduces code, a
+  command, a list, a table or an image, such as "For example:", stays with it,
+  also when another paragraph comes in between.
+- Code blocks keep at least three visible lines on either side of a page
+  break, and short runs of command syntax move to the next page whole. Flare
+  screen boxes no longer leave an empty grey top or tail on a page, and a table
+  row continued under a repeated header no longer runs into the header's rule
+  or continues as an empty row.
+- Wide Flare tables keep words whole, and no empty page appears before a
+  chapter.
+- A link to a full-size image leads to the image's publisher URL instead of a
+  local `file:` path, and a link with an empty target leads to its own topic.
+- Empty DITA short descriptions no longer add blank space, a topic without a
+  heading shows its title, and a page that starts with a topic is labelled with
+  that topic in its footer.
+
 ## 1.0.0 - 2026-10-28
 
 Version 1.0.0 moves to three-part version numbers and needs a single

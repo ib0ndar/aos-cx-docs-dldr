@@ -2,7 +2,7 @@
 
 ## Scope and trust
 
-Release 1.0.0 defines a self-contained macOS arm64 command-line bundle. It is
+Release 1.1.0 defines a self-contained macOS arm64 command-line bundle. It is
 unsigned, unnotarized, and requires manual approval. The bundle and detached
 checksum are published on the public GitHub release. Signing/notarization and
 other architectures remain deferred.
@@ -30,7 +30,7 @@ GOPROXY=off GOSUMDB=off ./scripts/package-macos-arm64.sh \
   --source-checksums /path/to/verified-sidecar-input/SHA256SUMS \
   --chrome-source /path/to/verified-sidecar-input/sidecars/chrome-headless-shell-mac-arm64 \
   --qpdf-source /path/to/verified-sidecar-input/sidecars/qpdf-mac-arm64 \
-  /path/to/output/aos-cx-docs-dldr-1.0.0-macos-arm64-release
+  /path/to/output/aos-cx-docs-dldr-1.1.0-macos-arm64-release
 ```
 
 The destination must not exist. Assembly uses:
@@ -55,8 +55,8 @@ The assembly path does not download, invoke Homebrew, use network tools, search
 ## Release-set contents
 
 ```text
-aos-cx-docs-dldr-1.0.0-macos-arm64-release/
-  aos-cx-docs-dldr-1.0.0-macos-arm64/
+aos-cx-docs-dldr-1.1.0-macos-arm64-release/
+  aos-cx-docs-dldr-1.1.0-macos-arm64/
     aos-cx-docs-dldr
     LICENSE
     sidecars/
@@ -66,9 +66,9 @@ aos-cx-docs-dldr-1.0.0-macos-arm64-release/
     SHA256SUMS
     SBOM.spdx.json
     THIRD_PARTY_NOTICES
-  aos-cx-docs-dldr-1.0.0-macos-arm64.zip
-  aos-cx-docs-dldr-1.0.0-macos-arm64.zip.sha256
-  aos-cx-docs-dldr-1.0.0-macos-arm64.zip.provenance.json
+  aos-cx-docs-dldr-1.1.0-macos-arm64.zip
+  aos-cx-docs-dldr-1.1.0-macos-arm64.zip.sha256
+  aos-cx-docs-dldr-1.1.0-macos-arm64.zip.provenance.json
 ```
 
 Package manifest and detached provenance schemas remain 1. The application
@@ -115,9 +115,9 @@ In Terminal, start in the directory containing the ZIP and detached checksum.
 Verify the ZIP, extract it, then verify every bundled file:
 
 ```sh
-shasum -a 256 -c aos-cx-docs-dldr-1.0.0-macos-arm64.zip.sha256
-unzip aos-cx-docs-dldr-1.0.0-macos-arm64.zip
-cd aos-cx-docs-dldr-1.0.0-macos-arm64
+shasum -a 256 -c aos-cx-docs-dldr-1.1.0-macos-arm64.zip.sha256
+unzip aos-cx-docs-dldr-1.1.0-macos-arm64.zip
+cd aos-cx-docs-dldr-1.1.0-macos-arm64
 shasum -a 256 -c SHA256SUMS
 ```
 
@@ -130,13 +130,13 @@ xattr -dr com.apple.quarantine "$PWD"
 ./aos-cx-docs-dldr --help
 ```
 
-Expected version output is `aos-cx-docs-dldr 1.0.0`. Documentation selection
+Expected version output is `aos-cx-docs-dldr 1.1.0`. Documentation selection
 uses `--release`; `--version` prints the application version.
 
 Install the complete directory, for example:
 
 ```text
-$HOME/Applications/aos-cx-docs-dldr/1.0.0/
+$HOME/Applications/aos-cx-docs-dldr/1.1.0/
 ```
 
 Do not move only the executable. Browser quarantine applies to every sidecar
@@ -159,7 +159,7 @@ command for the affected sidecar directories, with `sudo` when needed.
 For a bundle already moved to the example installation directory, use:
 
 ```sh
-xattr -dr com.apple.quarantine "$HOME/Applications/aos-cx-docs-dldr/1.0.0"
+xattr -dr com.apple.quarantine "$HOME/Applications/aos-cx-docs-dldr/1.1.0"
 ```
 
 No `sudo` is normally needed for a user-owned bundle. Apply the command only to
@@ -174,7 +174,7 @@ signatures, damaged files, or malware detections.
 Install updates into new versioned application directories. Keep the previous
 bundle until the new binary and data are accepted.
 
-Release 1.0.0 reads and writes one library version only. A library recording any
+Release 1.1.0 reads and writes one library version only. A library recording any
 other application version is rejected and left untouched; choose a new
 destination and download again. There is no upgrade path and no in-place
 downgrade.
