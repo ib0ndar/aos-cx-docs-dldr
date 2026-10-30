@@ -60,7 +60,7 @@ body.print-source-hpe{font-family:"HPE Graphik",Arial,sans-serif}
 .print-content{box-sizing:border-box;padding-left:27px;padding-right:1px}
 .print-topic.print-heading-only{break-after:avoid-page}
 .print-topic.print-flare-homepage{break-after:page}
-.print-content .print-trailing{margin-bottom:0!important;break-after:auto!important}
+.print-content .print-trailing{margin-bottom:0!important}.print-content .print-trailing:not(h1,h2,h3,h4,h5,h6){break-after:auto!important}
 .print-content :is(h1,h2,h3,h4,h5,h6,p.subheading,p.Subheading)+.print-blank{break-after:avoid-page}
 .print-content :is(span,a)[id]:empty+:is(h1,h2,h3,h4,h5,h6){break-before:avoid-page!important}
 :where(.print-content h1,.print-content h2,.print-content h3,.print-content h4,.print-content h5,.print-content h6,.print-content p.subheading,.print-content p.Subheading){break-inside:avoid-page!important;break-after:avoid-page!important}

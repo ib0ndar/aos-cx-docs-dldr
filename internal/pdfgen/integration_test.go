@@ -1108,3 +1108,45 @@ func TestPinnedChromeRendersWithScreenMedia(t *testing.T) {
 		})
 	}
 }
+
+// A parent topic whose page is only its title ends with that heading, and
+// the renderer refuses a print document whose headings may end a page. The
+// rule that frees the element ending a topic from keep-with-next must leave
+// headings alone.
+func TestPinnedChromeGeneratesTopicsThatEndWithAHeading(t *testing.T) {
+	chrome := os.Getenv(ChromePathEnvironment)
+	qpdf := os.Getenv(QPDFPathEnvironment)
+	if chrome == "" || qpdf == "" {
+		t.Skip("pinned Chrome and qpdf paths are required")
+	}
+	output, plan, archived := rendererFixture(t)
+	topic := &archived.HTML.Topics[1]
+	topicPath := filepath.Join(output, filepath.FromSlash(topic.Path))
+	body, err := os.ReadFile(topicPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body = bytes.Replace(body, []byte(`</div></main>`), []byte(`<h2>Trailing heading</h2></div></main>`), 1)
+	if err := os.WriteFile(topicPath, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	hash := sha256.Sum256(body)
+	topic.SHA256 = hex.EncodeToString(hash[:])
+	topic.Size = int64(len(body))
+	data, err := json.MarshalIndent(archived.HTML, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(output, "manifest.json"), append(data, '\n'), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	config := DefaultConfig(chrome)
+	config.QPDFPath = qpdf
+	record, err := Generate(context.Background(), output, plan, &archived, config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Status != "complete" || record.Validation == nil || !record.Validation.HeadingPaginationValidated {
+		t.Fatalf("topic ending with a heading was not generated: %+v", record)
+	}
+}
