@@ -43,8 +43,11 @@ const (
 // output wrap instead of scrolling or being capped in height, and are never
 // hyphenated; captions wrap, because a line wider than the page makes Chrome
 // shrink the whole document; headings, labels, captions, table headers,
-// notes and short code blocks stay with what follows them; and a topic's
-// trailing margin cannot push an empty page before the next chapter.
+// notes, short code blocks and the text that introduces code, lists or
+// figures stay with what follows them; and a topic's trailing margin cannot
+// push an empty page before the next chapter. Flare table cells may break
+// words to fit the page, except in tables of nine or more columns, whose
+// publisher column widths would then leave one letter per line.
 const printCSS = `
 @page{size:Letter;margin:.72in .68in}
 html{color:#202124;background:#fff}
@@ -75,7 +78,9 @@ body.print-source-flare .print-topic :where(.print-content h3){font-size:12pt!im
 .print-content div.p>:is(ul,ol){break-before:avoid-page}
 body.print-source-flare .print-content p.Figure_Title{break-after:avoid-page!important}body.print-source-flare .print-content p.Figure_Title+p{break-inside:avoid-page}
 body.print-source-flare .print-content p.Figure_Title:has(img){break-after:auto!important;break-inside:avoid-page!important}body.print-source-flare .print-content p.Figure_Title:has(img)+p{break-inside:auto}
-.print-content p:has(+:is(ul,ol,div.screen,pre,.pre,.codeblock)){break-after:avoid-page}.print-content p.print-label{break-after:avoid-page}
+.print-content p:has(+:is(ul,ol,div.screen,pre,.pre,.codeblock,figure,.fig)){break-after:avoid-page}.print-content p.print-label{break-after:avoid-page}
+.print-content .print-leadin{display:block;break-after:avoid-page}.print-content :is(ul,ol):has(+:is(div.screen,pre,.pre,.codeblock)){break-after:avoid-page}
+body.print-source-flare .print-content p:not([class^="CLI"],[class*=" CLI"]):has(+:is(p[class^="CLI"],p[class*=" CLI"])){break-after:avoid-page}
 :where(.print-content img,.print-content svg){max-width:100%;height:auto}
 .archive-image-placeholder{display:flex;box-sizing:border-box;align-items:center;justify-content:center;max-width:100%;min-width:3rem;min-height:2.5rem;max-height:12rem;padding:.6rem;border:1px dashed #8a6d3b;border-radius:.25rem;background:#fff8e5;color:#533f1f;font-size:.9rem;line-height:1.3;text-align:center;overflow:hidden;break-inside:avoid-page}
 .archive-image-placeholder::before{content:"[!]";margin-right:.4rem;font-weight:700}
@@ -95,6 +100,7 @@ body.print-source-flare .print-content table{max-width:100%!important}
 body.print-source-flare .print-content p[style*="float"]{float:none!important;width:auto!important}
 body.print-source-flare .print-content .inner-wrap{min-height:0!important}
 body.print-source-flare .print-content table:not(:has(tr>:nth-child(9))) :is(td,th){min-width:4em}
+body.print-source-flare .print-content table:has(tr>:nth-child(9)) :is(td,th,li,p:not([class^="CLI"],[class*=" CLI"],.screen),div.note){overflow-wrap:break-word!important}
 .print-content :is(pre,.pre,.codeblock,.screen,p.CLI,p[class^="CLI"],p[class*=" CLI"],span.CLI,code,kbd,samp,.codeph){hyphens:manual!important}
 :where(.print-content p.CLI){max-width:100%;overflow-x:auto}
 body.print-source-flare :where(.print-content>#mc-main-content>.topichero){display:none!important;position:static!important}
@@ -569,6 +575,7 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 	wrapScreenGaps(content)
 	markBlankParagraphs(content)
 	markLabelParagraphs(content)
+	markLeadIns(content)
 	if holdsOnlyHeadings(content) {
 		class += " print-heading-only"
 	}
@@ -815,6 +822,57 @@ func markLabelParagraphs(content *xhtml.Node) {
 		}
 	})
 }
+
+// markLeadIns wraps the text that introduces a code block or list inside a
+// list item, division or cell, such as "Configure the switch:" before a pre,
+// in a span the print rules keep with that block. Chrome lays such text out
+// in an anonymous block that no rule can name, and could leave it alone at
+// the bottom of a page. Code boxes keep their content as it is.
+func markLeadIns(content *xhtml.Node) {
+	var visit func(*xhtml.Node)
+	visit = func(node *xhtml.Node) {
+		if node.Type != xhtml.ElementNode || node.Namespace != "" || isCodeBox(node) {
+			return
+		}
+		if slices.Contains([]string{"li", "div", "dd", "td", "th"}, node.Data) {
+			wrapLeadIns(node)
+		}
+		for child := node.FirstChild; child != nil; child = child.NextSibling {
+			visit(child)
+		}
+	}
+	visit(content)
+}
+
+func wrapLeadIns(parent *xhtml.Node) {
+	var run []*xhtml.Node
+	text := false
+	for child := parent.FirstChild; child != nil; child = child.NextSibling {
+		if child.Type != xhtml.ElementNode || !slices.Contains(leadInBlocks, child.Data) {
+			run = append(run, child)
+			text = text || strings.Trim(nodeText(child), " \t\n\f\r\u00a0") != ""
+			continue
+		}
+		if text && (isCodeBox(child) || child.Data == "ul" || child.Data == "ol") {
+			span := &xhtml.Node{Type: xhtml.ElementNode, Data: "span", DataAtom: atom.Span,
+				Attr: []xhtml.Attribute{{Key: "class", Val: "print-leadin"}}}
+			parent.InsertBefore(span, run[0])
+			for _, node := range run {
+				parent.RemoveChild(node)
+				span.AppendChild(node)
+			}
+		}
+		run, text = nil, false
+	}
+}
+
+func isCodeBox(node *xhtml.Node) bool {
+	return node.Data == "pre" || hasClass(node, "pre") || hasClass(node, "codeblock") ||
+		(node.Data == "div" && hasClass(node, "screen"))
+}
+
+var leadInBlocks = []string{"p", "div", "ul", "ol", "pre", "table", "figure", "h1", "h2", "h3", "h4", "h5", "h6",
+	"dl", "blockquote", "section", "article", "nav", "aside", "header", "footer", "hr", "form", "fieldset", "details"}
 
 // codeLines counts the lines a code block shows from its first non-blank line
 // to its last, blank lines between them included: its text split at line
@@ -1154,7 +1212,21 @@ func (a *assembler) rewriteNavigation(info *topicInfo, raw string) (string, erro
 			destination, err := a.topicDestination(info.record.URL, topic, fragment)
 			return "#" + destination, err
 		}
-		return a.rebaseAndVerify(target, query, fragment, true)
+		local, err := a.rebaseAndVerify(target, query, fragment, true)
+		if err != nil {
+			return "", err
+		}
+		// A link to a guide file that is not a topic, such as a full-size
+		// image, would resolve against the transient print file, and Chrome
+		// would write that local file: URL into the PDF. It leads to the
+		// file's publisher URL instead.
+		if online := a.assetURL(target); online != "" {
+			if fragment != "" {
+				online += "#" + (&url.URL{Fragment: fragment}).EscapedFragment()
+			}
+			return online, nil
+		}
+		return local, nil
 	}
 	if topic := a.topicForURL(raw); topic != nil {
 		parsed, _ := url.Parse(raw)
@@ -1162,6 +1234,18 @@ func (a *assembler) rewriteNavigation(info *topicInfo, raw string) (string, erro
 		return "#" + destination, err
 	}
 	return raw, nil
+}
+
+// assetURL returns the publisher URL of the guide asset at target, without
+// its fragment, or "" when target is not an asset of the guide.
+func (a *assembler) assetURL(target string) string {
+	for _, asset := range a.archive.Assets {
+		if path.Join(a.guide, asset.Path) == target {
+			online, _, _ := strings.Cut(asset.URL, "#")
+			return online
+		}
+	}
+	return ""
 }
 
 func (a *assembler) rewriteRequired(info *topicInfo, raw string) (string, error) {

@@ -963,11 +963,17 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		`<p class="fixture-lead">The following:</p><ul><li>item</li></ul>` +
 		`<h4 class="fixture-h4b">Examples</h4><p>&nbsp;</p><p class="inner-wrap fixture-inner">Card text</p>` +
 		`<table class="fixture-tall"><tbody><tr><td>` + strings.Repeat("<p>value</p>", 6) + `</td></tr><tr><td>short</td></tr></tbody></table>` +
-		`<table class="fixture-wide"><tr>` + strings.Repeat("<th>Platform</th>", 13) + `</tr><tr>` + strings.Repeat("<td>Yes</td>", 13) + `</tr></table>` +
+		`<table class="fixture-wide"><colgroup>` + strings.Repeat(`<col style="width:86px"><col style="width:820px">`, 6) +
+		`<col style="width:86px"></colgroup><tr>` + strings.Repeat("<th>8360</th>", 13) + `</tr>` +
+		`<tr><td><p class="fixture-command-name">show active-gateway</p></td>` + strings.Repeat("<td>Yes</td>", 12) + `</tr></table>` +
 		`<p class="fixture-codelead">Showing IP routes:</p><pre>show ip route</pre>` +
 		"<div class=\"screen fixture-listbox\">\n<ul>\n<li>a</li>\n<li>b</li>\n</ul>\n</div>" +
 		`<p class="fixture-label"><b>Procedure</b></p><div class="note">Note text.</div>` +
 		`<p class="fixture-extrabold" style="font-family:'Open Sans Extrabold'">All Switch Series</p>` +
+		`<div class="p fixture-runlead">Configure the switch:<pre>vsx</pre></div>` +
+		`<ul class="fixture-listcode"><li>Run:</li></ul><pre>show vsx status</pre>` +
+		`<p class="fixture-clilead">Enter:</p><p class="CLI">show vsx brief</p>` +
+		`<p class="fixture-figlead">For example:</p><figure class="fig"><img alt="Example"></figure>` +
 		`<p class="fixture-font">Open Sans text</p><p class="subheading fixture-tail">&nbsp;</p></div>`
 	var styles map[string]string
 	var fonts []string
@@ -1030,6 +1036,19 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				code_lead_break_after: style(".print-content p.fixture-codelead", "breakAfter"),
 				list_box_line_break_before: style(".print-content div.fixture-listbox > ul > li", "breakBefore"),
 				label_break_after: style(".print-content p.fixture-label", "breakAfter"),
+				wide_table_word_lines: (() => {
+					const text = document.querySelector(".print-content p.fixture-command-name").firstChild;
+					const start = text.data.indexOf("gateway");
+					const range = document.createRange();
+					range.setStart(text, start);
+					range.setEnd(text, start + "gateway".length);
+					return String(range.getClientRects().length);
+				})(),
+				leadin_display: style(".print-content div.fixture-runlead > .print-leadin", "display"),
+				leadin_break_after: style(".print-content div.fixture-runlead > .print-leadin", "breakAfter"),
+				list_code_break_after: style(".print-content ul.fixture-listcode", "breakAfter"),
+				cli_lead_break_after: style(".print-content p.fixture-clilead", "breakAfter"),
+				figure_lead_break_after: style(".print-content p.fixture-figlead", "breakAfter"),
 			};
 		})()`, &styles).Do(ctx); err != nil {
 			return err
@@ -1074,6 +1093,8 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		"screen_box_break_before": "auto", "thead_break_after": "avoid-page", "inner_wrap_min_height": "0px",
 		"cell_min_width": "true", "wide_table_cell_min_width": "0px", "code_lead_break_after": "avoid-page",
 		"list_box_line_break_before": "avoid-page", "label_break_after": "avoid-page",
+		"wide_table_word_lines": "1", "leadin_display": "block", "leadin_break_after": "avoid-page",
+		"list_code_break_after": "avoid-page", "cli_lead_break_after": "avoid-page", "figure_lead_break_after": "avoid-page",
 	}
 	for key, value := range want {
 		if styles[key] != value {

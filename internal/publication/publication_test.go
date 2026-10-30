@@ -695,6 +695,40 @@ func TestAssemblePointsEmptyLinksAtTheirTopic(t *testing.T) {
 	}
 }
 
+// A link to a guide file that is not a topic, such as a full-size image,
+// leads to the file's publisher URL. A guide-relative href would resolve
+// against the transient print file and leave a local file: URL in the PDF.
+func TestAssembleLeadsAssetLinksToTheirPublisherURL(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	var asset model.FileRecord
+	for _, candidate := range result.HTML.Assets {
+		if strings.HasSuffix(candidate.URL, "/photo.png") {
+			asset = candidate
+		}
+	}
+	if asset.Path == "" {
+		t.Fatal("fixture image asset not found")
+	}
+	record := &result.HTML.Topics[0]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`<h1 id="same">`), []byte(
+		`<p><a href="../`+asset.Path+`" data-case="plain">Full size</a>`+
+			`<a href="../`+asset.Path+`#part" data-case="fragment">Part</a></p><h1 id="same">`), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	for name, want := range map[string]string{"plain": asset.URL, "fragment": asset.URL + "#part"} {
+		link := regexp.MustCompile(`<a [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
+		if !bytes.Contains(link, []byte(`href="`+want+`"`)) {
+			t.Errorf("%s link %s does not lead to %s", name, link, want)
+		}
+	}
+}
+
 // A parent topic whose page is only its title must not be left alone at the
 // bottom of a page; its section avoids a break after itself. A topic with
 // any other content keeps ordinary breaks.
@@ -938,5 +972,47 @@ func TestAssembleMarksLabelParagraphs(t *testing.T) {
 		if got := bytes.Contains(element, []byte("print-label")); got != want {
 			t.Errorf("%s paragraph %s: label=%v, want %v", name, element, got, want)
 		}
+	}
+}
+
+// Text that introduces a code block or list inside a list item, division or
+// cell has no element of its own; it is wrapped in one that the print rules
+// keep with the block. Text before other blocks, blank text and the content
+// of code boxes stay as they are.
+func TestAssembleWrapsLeadInsBeforeCodeAndLists(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = bytes.Replace(body, []byte(`</h1>`), []byte(`</h1><ul>`+
+		`<li data-case="item">Enter <b>this</b> command:<pre>show vsx status</pre></li>`+
+		`<li data-case="after-block"><p>First.</p>Then:<ul><li>a</li></ul></li>`+
+		`<li data-case="blank"> &#160; <pre>show vsx brief</pre></li>`+
+		`<li data-case="before-paragraph">Text<p>Paragraph.</p></li></ul>`+
+		`<div class="p" data-case="division">Switch 1:<div class="screen"><p>x</p></div>tail</div>`+
+		`<table><tr><td data-case="cell">Example:<pre class="codeblock">y</pre></td></tr></table>`+
+		`<div class="screen" data-case="box">output<ul><li>z</li></ul></div>`), 1)
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	for name, want := range map[string]string{
+		"item":             `<span class="print-leadin">Enter <b>this</b> command:</span><pre`,
+		"after-block":      `<p>First.</p><span class="print-leadin">Then:</span><ul>`,
+		"blank":            "> \u00a0 <pre",
+		"before-paragraph": `>Text<p>`,
+		"division":         `<span class="print-leadin">Switch 1:</span><div class="screen`,
+		"cell":             `<span class="print-leadin">Example:</span><pre`,
+		"box":              `>output<`,
+	} {
+		element := regexp.MustCompile(`<(li|div|td) [^>]*data-case="` + name + `"[^>]*>.*?</(li|div|td)>`).Find(combined)
+		if !bytes.Contains(element, []byte(want)) {
+			t.Errorf("%s: %s does not contain %s", name, element, want)
+		}
+	}
+	if count := bytes.Count(combined, []byte(`class="print-leadin"`)); count != 4 {
+		t.Errorf("print-leadin appears %d times, want 4", count)
 	}
 }
