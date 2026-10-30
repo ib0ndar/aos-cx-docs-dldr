@@ -768,8 +768,10 @@ func TestAssembleMarksTheElementsThatEndATopic(t *testing.T) {
 }
 
 // Code blocks of up to eight lines stay on one page: three lines on either
-// side of a break cannot both hold in a shorter block. Longer blocks may
-// break, and a block inside a marked block is not marked again.
+// side of a break cannot both hold in a shorter block. Blank lines between
+// a block's first and last lines count; blank lines around them do not.
+// Longer blocks may break, and a block inside a marked block is not marked
+// again.
 func TestAssembleKeepsShortCodeBlocksWhole(t *testing.T) {
 	output, plan, result := flareGuide(t, false)
 	record := &result.HTML.Topics[1]
@@ -779,6 +781,8 @@ func TestAssembleKeepsShortCodeBlocksWhole(t *testing.T) {
 	body = bytes.Replace(body, []byte(`</h1>`), []byte(`</h1>`+
 		`<pre data-case="short">one`+"\n"+`two</pre>`+
 		`<pre data-case="long">`+long+`</pre>`+
+		`<pre data-case="spaced">one`+strings.Repeat("\n", 8)+`two</pre>`+
+		"<pre data-case=\"framed\">\n\n\none\ntwo\n\n\n   </pre>"+
 		`<div class="screen" data-case="flare"><p>a</p><p>b</p><p>c</p></div>`+
 		`<div class="screen" data-case="flare-long">`+strings.Repeat("<p>x</p>", 9)+`</div>`+
 		`<div class="codeblock" data-case="outer"><pre data-case="inner">x</pre></div>`), 1)
@@ -788,7 +792,8 @@ func TestAssembleKeepsShortCodeBlocksWhole(t *testing.T) {
 	record.SHA256, record.Size = digest(body), int64(len(body))
 	writeManifest(t, output, result.HTML)
 	_, combined := assembleGuide(t, output, plan, result)
-	for name, want := range map[string]bool{"short": true, "long": false, "flare": true, "flare-long": false, "outer": true, "inner": false} {
+	for name, want := range map[string]bool{"short": true, "long": false, "spaced": false, "framed": true,
+		"flare": true, "flare-long": false, "outer": true, "inner": false} {
 		element := regexp.MustCompile(`<[a-z]+ [^>]*data-case="` + name + `"[^>]*>`).Find(combined)
 		if got := bytes.Contains(element, []byte("print-keep")); got != want {
 			t.Errorf("%s block %s: kept whole=%v, want %v", name, element, got, want)
@@ -868,5 +873,25 @@ func TestAssembleMarksBlankParagraphs(t *testing.T) {
 		if got := bytes.Contains(element, []byte("print-blank")); got != want {
 			t.Errorf("%s paragraph %s: blank=%v, want %v", name, element, got, want)
 		}
+	}
+}
+
+// A topic without a heading gets its title as an h1 inside its content,
+// where the print rules that keep headings with what follows apply.
+func TestAssemblePutsSynthesizedTitleInsideTheContent(t *testing.T) {
+	output, plan, result := flareGuide(t, false)
+	record := &result.HTML.Topics[1]
+	name := filepath.Join(output, record.Path)
+	body, _ := os.ReadFile(name)
+	body = regexp.MustCompile(`<h1 id="target">Configuration</h1>`).ReplaceAll(body, []byte(`<p id="target">Introduction text</p>`))
+	if err := os.WriteFile(name, body, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	record.SHA256, record.Size = digest(body), int64(len(body))
+	writeManifest(t, output, result.HTML)
+	_, combined := assembleGuide(t, output, plan, result)
+	section := regexp.MustCompile(`(?s)<section class="[^"]*" id="[^"]+" data-source-url="` + regexp.QuoteMeta(record.URL) + `">(.{0,200})`).FindSubmatch(combined)
+	if section == nil || !bytes.HasPrefix(section[1], []byte(`<main class="print-content"><h1>Configuration</h1>`)) {
+		t.Fatalf("synthesized title is not the first element of the print content: %q", section)
 	}
 }

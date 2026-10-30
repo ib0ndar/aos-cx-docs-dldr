@@ -942,7 +942,7 @@ func assertGeneratedOutline(
 func TestPinnedChromePrintRulesOutrankPublisherRules(t *testing.T) {
 	content := `<style>.screen{white-space:pre}div.screen>p{white-space:pre}p.CLI{white-space:normal;hyphens:auto}` +
 		`.wh_topic_content{margin-bottom:1.875rem}h1{page-break-before:avoid}ol>li>ol>li{list-style-type:lower-alpha}` +
-		`.fixture-font{font-family:'Open Sans'}p.CLI_Indented{white-space:pre}</style>` +
+		`.fixture-font{font-family:'Open Sans'}p.CLI_Indented{white-space:pre}.inner-wrap{min-height:94.5vh}</style>` +
 		`<div class="wh_topic_content"><h1 class="fixture-h1">Heading</h1><h4>Minor heading</h4><p class="subheading">Command History</p>` +
 		`<div class="screen"><p>` + strings.Repeat("show arp vrf default ", 30) + `</p></div>` +
 		`<p class="CLI">ip dhcp-snooping   preferred   default</p>` +
@@ -961,7 +961,7 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		`<p class="Subheading">Procedure</p>` + "<div class=\"screen fixture-gaps\">\n<p>one</p>\n<p>two</p>\n</div>" +
 		`<p class="Figure_Title fixture-figure-image"><img alt="Inline figure"></p>` +
 		`<p class="fixture-lead">The following:</p><ul><li>item</li></ul>` +
-		`<h4 class="fixture-h4b">Examples</h4><p>&nbsp;</p>` +
+		`<h4 class="fixture-h4b">Examples</h4><p>&nbsp;</p><p class="inner-wrap fixture-inner">Card text</p>` +
 		`<table class="fixture-tall"><tbody><tr><td>` + strings.Repeat("<p>value</p>", 6) + `</td></tr><tr><td>short</td></tr></tbody></table>` +
 		`<p class="fixture-font">Open Sans text</p><p class="subheading fixture-tail">&nbsp;</p></div>`
 	var styles map[string]string
@@ -1000,7 +1000,7 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				thead_break_inside: style(".print-content table.fixture-head thead", "breakInside"),
 				figure_title_break_after: style(".print-content p.Figure_Title", "breakAfter"),
 				figure_image_break_inside: style(".print-content p.fixture-image", "breakInside"),
-				screen_first_line_break_before: style(".print-content div.screen > p", "breakBefore"),
+				screen_first_line_break_before: style(".print-content div.fixture-gaps > p", "breakBefore"),
 				config_break_inside: style(".print-content div.fixture-config > p.subheading", "breakInside"),
 				anchored_heading_break_before: style(".print-content h3.fixture-h3", "breakBefore"),
 				short_code_break_inside: style(".print-content pre.fixture-pre", "breakInside"),
@@ -1008,7 +1008,7 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				command_row_break_inside: style(".print-content table.fixture-command tbody tr", "breakInside"),
 				capital_subheading_break_after: style(".print-content p.Subheading", "breakAfter"),
 				screen_gap_display: style(".print-content div.fixture-gaps > .print-screen-gap", "display"),
-				screen_gap_break_before: style(".print-content div.fixture-gaps > .print-screen-gap", "breakBefore"),
+				screen_gap_break_before: style(".print-content div.fixture-gaps > .print-screen-gap:not(:first-child)", "breakBefore"),
 				figure_with_image_break_after: style(".print-content p.fixture-figure-image", "breakAfter"),
 				figure_with_image_break_inside: style(".print-content p.fixture-figure-image", "breakInside"),
 				lead_break_after: style(".print-content p.fixture-lead", "breakAfter"),
@@ -1017,6 +1017,10 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 				topic_tail_break_after: style(".print-content p.fixture-tail", "breakAfter"),
 				tall_row_break_inside: style(".print-content table.fixture-tall tr:first-child", "breakInside"),
 				short_row_break_inside: style(".print-content table.fixture-tall tr:last-child", "breakInside"),
+				screen_box_break_before: style(".print-content div.fixture-gaps > :first-child", "breakBefore"),
+				thead_break_after: style(".print-content table.fixture-head thead", "breakAfter"),
+				inner_wrap_min_height: style(".print-content p.fixture-inner", "minHeight"),
+				cell_min_width: String(Number.parseFloat(style(".print-content table.fixture-tall td", "minWidth")) > 0),
 			};
 		})()`, &styles).Do(ctx); err != nil {
 			return err
@@ -1053,6 +1057,8 @@ line 2</pre><div class="p"><strong>Usage</strong><ul><li>item</li></ul></div>` +
 		"figure_with_image_break_inside": "avoid-page", "lead_break_after": "avoid-page",
 		"screen_gap_break_inside": "avoid-page", "heading_blank_break_after": "avoid-page", "topic_tail_break_after": "auto",
 		"tall_row_break_inside": "auto", "short_row_break_inside": "avoid-page",
+		"screen_box_break_before": "auto", "thead_break_after": "avoid-page", "inner_wrap_min_height": "0px",
+		"cell_min_width": "true",
 	}
 	for key, value := range want {
 		if styles[key] != value {

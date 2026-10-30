@@ -85,19 +85,21 @@ body.print-source-flare .print-content p.Figure_Title:has(img){break-after:auto!
 .print-content :is(pre,.pre,.codeblock,.screen){max-height:none!important;orphans:3;widows:3}
 .print-content .print-keep{break-inside:avoid-page}
 .print-content .print-screen-gap{display:block;break-inside:avoid-page}
-.print-content div.screen>:is(:nth-child(-n+5),:nth-last-child(-n+5)){break-before:avoid-page}
+.print-content div.screen>:not(:first-child):is(:nth-child(-n+5),:nth-last-child(-n+5)){break-before:avoid-page}
 body.print-source-flare .print-content div.screen>p.subheading{break-inside:auto!important;break-after:auto!important}
 .print-content :is(pre,.pre,.codeblock,.screen,.screen>p,p.CLI){white-space:pre-wrap!important}
 body.print-source-flare .print-content :is(p[class^="CLI"],p[class*=" CLI"],p.screen,span.CLI,code,[xml\:space="preserve"]){white-space:pre-wrap!important;overflow-wrap:anywhere!important}
 body.print-source-flare .print-content :is(td,th,li,p,div.note,div.screen,div.screen>p){overflow-wrap:anywhere!important}
 body.print-source-flare .print-content table{max-width:100%!important}
 body.print-source-flare .print-content p[style*="float"]{float:none!important;width:auto!important}
+body.print-source-flare .print-content .inner-wrap{min-height:0!important}
+body.print-source-flare .print-content :is(td,th){min-width:4em}
 .print-content :is(pre,.pre,.codeblock,.screen,p.CLI,p[class^="CLI"],p[class*=" CLI"],span.CLI,code,kbd,samp,.codeph){hyphens:manual!important}
 :where(.print-content p.CLI){max-width:100%;overflow-x:auto}
 body.print-source-flare :where(.print-content>#mc-main-content>.topichero){display:none!important;position:static!important}
 :where(.print-content.print-flare-home-hero-removed>#mc-main-content>.container){margin-top:0!important}
 :where(.print-content thead){display:table-header-group}
-.print-content thead{break-inside:avoid-page}
+.print-content thead{break-inside:avoid-page;break-after:avoid-page}
 .print-content table:has(>thead)>tbody>tr:only-child{break-inside:auto}
 .print-content tbody>tr:is(:has(>td>:nth-child(6)),:has(>td li:nth-child(6))){break-inside:auto}
 :where(.print-content .table){overflow-wrap:break-word}
@@ -553,6 +555,13 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 		class += " print-flare-homepage"
 	}
 	stripActiveMarkup(content)
+	if !hasHeading(content) {
+		// The title goes inside the content, where the print rules that keep
+		// a heading with what follows, and the renderer's check of them, apply.
+		heading := &xhtml.Node{Type: xhtml.ElementNode, Data: "h1", DataAtom: atom.H1}
+		heading.AppendChild(&xhtml.Node{Type: xhtml.TextNode, Data: topicTitle(info)})
+		content.InsertBefore(heading, content.FirstChild)
+	}
 	removeEmptyDITABlocks(content)
 	markShortCodeBlocks(content)
 	wrapScreenGaps(content)
@@ -587,9 +596,6 @@ func (a *assembler) renderTopic(out io.Writer, info *topicInfo, class string) er
 		return first
 	}
 	fmt.Fprintf(out, `<section class="%s" id="%s" data-source-url="%s">`, class, info.anchor, stdhtml.EscapeString(info.record.URL))
-	if !hasHeading(content) {
-		fmt.Fprintf(out, "<h1>%s</h1>", stdhtml.EscapeString(topicTitle(info)))
-	}
 	if err := xhtml.Render(out, content); err != nil {
 		return err
 	}
@@ -774,8 +780,9 @@ func markBlankParagraphs(content *xhtml.Node) {
 	})
 }
 
-// codeLines counts the non-blank lines a code block shows: its text split at
-// line feeds, line breaks and block elements such as Flare's paragraphs.
+// codeLines counts the lines a code block shows from its first non-blank line
+// to its last, blank lines between them included: its text split at line
+// feeds, line breaks and block elements such as Flare's paragraphs.
 func codeLines(node *xhtml.Node) int {
 	var text strings.Builder
 	walk(node, func(child *xhtml.Node) {
@@ -786,13 +793,15 @@ func codeLines(node *xhtml.Node) int {
 			text.WriteByte('\n')
 		}
 	})
-	lines := 0
-	for _, line := range strings.Split(text.String(), "\n") {
-		if strings.TrimSpace(line) != "" {
-			lines++
-		}
+	lines := strings.Split(text.String(), "\n")
+	first, last := 0, len(lines)-1
+	for first <= last && strings.TrimSpace(lines[first]) == "" {
+		first++
 	}
-	return lines
+	for last >= first && strings.TrimSpace(lines[last]) == "" {
+		last--
+	}
+	return last - first + 1
 }
 
 // holdsOnlyHeadings reports whether a topic shows nothing but headings, as a
